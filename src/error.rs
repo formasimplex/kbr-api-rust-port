@@ -21,6 +21,12 @@ pub enum AppError {
     #[error("validation error: {0}")]
     Validation(String),
 
+    #[error("bad request: {0}")]
+    BadRequest(String),
+
+    #[error("unprocessable entity: {0}")]
+    UnprocessableEntity(String),
+
     #[error("internal server error: {0}")]
     Internal(String),
 
@@ -43,6 +49,8 @@ impl actix_web::ResponseError for AppError {
             Self::Forbidden(_) => StatusCode::FORBIDDEN,
             Self::NotFound(_) => StatusCode::NOT_FOUND,
             Self::Validation(_) => StatusCode::UNPROCESSABLE_ENTITY,
+            Self::BadRequest(_) => StatusCode::BAD_REQUEST,
+            Self::UnprocessableEntity(_) => StatusCode::UNPROCESSABLE_ENTITY,
             Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Self::Jwt(_) => StatusCode::UNAUTHORIZED,
             Self::Bcrypt(_) => StatusCode::INTERNAL_SERVER_ERROR,

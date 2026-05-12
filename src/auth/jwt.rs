@@ -8,15 +8,26 @@ use crate::error::AppError;
 pub struct Claims {
     pub user_id: i64,
     pub exp: u64,
+    #[serde(default)]
+    pub role: Option<String>,
 }
 
 pub fn encode_token(user_id: i64, secret: &str, expiry_days: u64) -> Result<String, AppError> {
+    encode_token_with_role(user_id, secret, expiry_days, None)
+}
+
+pub fn encode_token_with_role(
+    user_id: i64,
+    secret: &str,
+    expiry_days: u64,
+    role: Option<String>,
+) -> Result<String, AppError> {
     let exp = Utc::now()
         .checked_add_signed(chrono::TimeDelta::days(expiry_days as i64))
         .expect("valid timestamp")
         .timestamp() as u64;
 
-    let claims = Claims { user_id, exp };
+    let claims = Claims { user_id, exp, role };
 
     encode(
         &Header::default(),
@@ -41,7 +52,8 @@ pub fn decode_token(token: &str, secret: &str) -> Result<Claims, AppError> {
 pub fn create_expired_token(user_id: i64, secret: &str) -> String {
     let claims = Claims {
         user_id,
-        exp: Utc::now().timestamp() as u64 - 600, // expired 10 minutes ago (beyond leeway)
+        exp: Utc::now().timestamp() as u64 - 600,
+        role: None,
     };
 
     encode(
@@ -130,6 +142,7 @@ mod tests {
         let claims = Claims {
             user_id: 42,
             exp: 9999999999,
+            role: None,
         };
         let json = serde_json::to_string(&claims).expect("should serialize");
         assert!(json.contains("\"user_id\":42"));

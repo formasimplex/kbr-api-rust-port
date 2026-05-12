@@ -1,13 +1,15 @@
+#![allow(dead_code)]
+
 use actix_web::{HttpServer, web};
 use dotenvy::dotenv;
 
-mod db;
-mod models;
 mod auth;
-mod handlers;
-mod services;
-mod responses;
+mod db;
 mod error;
+mod handlers;
+mod models;
+mod responses;
+mod services;
 
 use crate::db::pool::connect;
 
@@ -33,7 +35,7 @@ async fn main() -> std::io::Result<()> {
     })?;
 
     let addr: std::net::SocketAddr = std::env::var("BIND_ADDR")
-        .unwrap_or_else(|_| "127.0.0.1:8080".to_string())
+        .unwrap_or_else(|_| "127.0.0.1:8181".to_string())
         .parse()
         .expect("Invalid BIND_ADDR");
 
@@ -43,6 +45,25 @@ async fn main() -> std::io::Result<()> {
         actix_web::App::new()
             .app_data(web::Data::new(AppState { db: pool.clone() }))
             .configure(handlers::health::config_routes)
+            .configure(handlers::auth::config_routes)
+            .configure(handlers::users::config_routes)
+            .configure(handlers::permissions::config_routes)
+            .configure(handlers::sign_up_trigger::config_routes)
+            .configure(handlers::reset_trigger::config_routes)
+            .configure(handlers::campaigns::config_routes)
+            .configure(handlers::campaign_pages::config_routes)
+            .configure(handlers::albums::config_routes)
+            .configure(handlers::songs::config_routes)
+            .configure(handlers::artists::config_routes)
+            .configure(handlers::producers::config_routes)
+            .configure(handlers::merchandise::config_routes)
+            .configure(handlers::configs::config_routes)
+            .configure(handlers::comments::config_routes)
+            .configure(handlers::news::config_routes)
+            .configure(handlers::playlists::config_routes)
+            .configure(handlers::events::config_routes)
+            .configure(handlers::event_attendees::config_routes)
+            .configure(handlers::mailing::config_routes)
     })
     .bind(addr)?
     .run()

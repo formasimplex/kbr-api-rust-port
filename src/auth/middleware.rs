@@ -55,7 +55,10 @@ impl FromRequest for CurrentUser {
 
             Ok(CurrentUser {
                 id: claims.user_id,
-                role: Role::User, // placeholder - will fetch from DB in Stage 1
+                role: claims
+                    .role
+                    .and_then(|r| Role::from_str(&r))
+                    .unwrap_or(Role::User),
             })
         })
     }
