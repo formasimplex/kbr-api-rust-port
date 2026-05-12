@@ -1,22 +1,8 @@
-#![allow(dead_code)]
-
 use actix_web::{HttpServer, web};
 use dotenvy::dotenv;
 
-mod auth;
-mod db;
-mod error;
-mod handlers;
-mod models;
-mod responses;
-mod services;
-
-use crate::db::pool::connect;
-
-#[derive(Clone)]
-struct AppState {
-    db: sqlx::PgPool,
-}
+use kbr_api_rust::app::AppState;
+use kbr_api_rust::db::pool::connect;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -44,26 +30,26 @@ async fn main() -> std::io::Result<()> {
     HttpServer::new(move || {
         actix_web::App::new()
             .app_data(web::Data::new(AppState { db: pool.clone() }))
-            .configure(handlers::health::config_routes)
-            .configure(handlers::auth::config_routes)
-            .configure(handlers::users::config_routes)
-            .configure(handlers::permissions::config_routes)
-            .configure(handlers::sign_up_trigger::config_routes)
-            .configure(handlers::reset_trigger::config_routes)
-            .configure(handlers::campaigns::config_routes)
-            .configure(handlers::campaign_pages::config_routes)
-            .configure(handlers::albums::config_routes)
-            .configure(handlers::songs::config_routes)
-            .configure(handlers::artists::config_routes)
-            .configure(handlers::producers::config_routes)
-            .configure(handlers::merchandise::config_routes)
-            .configure(handlers::configs::config_routes)
-            .configure(handlers::comments::config_routes)
-            .configure(handlers::news::config_routes)
-            .configure(handlers::playlists::config_routes)
-            .configure(handlers::events::config_routes)
-            .configure(handlers::event_attendees::config_routes)
-            .configure(handlers::mailing::config_routes)
+            .configure(kbr_api_rust::handlers::health::config_routes)
+            .configure(kbr_api_rust::handlers::auth::config_routes)
+            .configure(kbr_api_rust::handlers::users::config_routes)
+            .configure(kbr_api_rust::handlers::permissions::config_routes)
+            .configure(kbr_api_rust::handlers::sign_up_trigger::config_routes)
+            .configure(kbr_api_rust::handlers::reset_trigger::config_routes)
+            .configure(kbr_api_rust::handlers::campaigns::config_routes)
+            .configure(kbr_api_rust::handlers::campaign_pages::config_routes)
+            .configure(kbr_api_rust::handlers::albums::config_routes)
+            .configure(kbr_api_rust::handlers::songs::config_routes)
+            .configure(kbr_api_rust::handlers::artists::config_routes)
+            .configure(kbr_api_rust::handlers::producers::config_routes)
+            .configure(kbr_api_rust::handlers::merchandise::config_routes)
+            .configure(kbr_api_rust::handlers::configs::config_routes)
+            .configure(kbr_api_rust::handlers::comments::config_routes)
+            .configure(kbr_api_rust::handlers::news::config_routes)
+            .configure(kbr_api_rust::handlers::playlists::config_routes)
+            .configure(kbr_api_rust::handlers::events::config_routes)
+            .configure(kbr_api_rust::handlers::event_attendees::config_routes)
+            .configure(kbr_api_rust::handlers::mailing::config_routes)
     })
     .bind(addr)?
     .run()

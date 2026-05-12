@@ -3,7 +3,12 @@ name = "kbr-api-rust"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "kbr-api-rust"
+path = "src/main.rs"
+
 [lib]
+name = "kbr_api_rust"
 path = "src/lib.rs"
 
 [dependencies]

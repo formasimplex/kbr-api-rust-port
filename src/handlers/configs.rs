@@ -1,30 +1,106 @@
 use actix_web::{web, HttpResponse};
+use sqlx::FromRow;
+use uuid::Uuid;
 
+use crate::app::AppState;
 use crate::auth::middleware::CurrentUser;
 use crate::error::AppError;
 use crate::models::tenant_config::{
     CreateTenantConfigRequest, TenantConfig, TenantConfigResponse, UpdateTenantConfigRequest,
 };
-use uuid::Uuid;
 
-pub async fn index(_user: CurrentUser) -> Result<HttpResponse, AppError> {
-    let configs = mock_all_configs();
+#[derive(Debug, FromRow)]
+#[allow(non_snake_case)]
+struct ConfigRow {
+    tenant_id: Uuid,
+    logo_url: Option<String>,
+    short_name: String,
+    long_name: String,
+    footer_logo_url: Option<String>,
+    contact_email: String,
+    site_header_description: String,
+    deleted_at: Option<chrono::NaiveDateTime>,
+    #[sqlx(rename = "instaUrl")]
+    instaUrl: Option<String>,
+    #[sqlx(rename = "twitterUrl")]
+    twitterUrl: Option<String>,
+    #[sqlx(rename = "tiktokUrl")]
+    tiktokUrl: Option<String>,
+    #[sqlx(rename = "spotifyId")]
+    spotifyId: Option<String>,
+    featured_artist_id: Option<i64>,
+    created_at: chrono::NaiveDateTime,
+    updated_at: chrono::NaiveDateTime,
+}
+
+impl From<ConfigRow> for TenantConfig {
+    fn from(row: ConfigRow) -> Self {
+        TenantConfig {
+            tenant_id: row.tenant_id,
+            logo_url: row.logo_url,
+            short_name: row.short_name,
+            long_name: row.long_name,
+            footer_logo_url: row.footer_logo_url,
+            contact_email: row.contact_email,
+            site_header_description: row.site_header_description,
+            deleted_at: row.deleted_at.map(|d| d.and_utc()),
+            insta_url: row.instaUrl,
+            twitter_url: row.twitterUrl,
+            tiktok_url: row.tiktokUrl,
+            spotify_id: row.spotifyId,
+            featured_artist_id: row.featured_artist_id,
+            mantine_theme: None,
+            created_at: row.created_at.and_utc(),
+            updated_at: row.updated_at.and_utc(),
+        }
+    }
+}
+
+pub async fn index(
+    state: web::Data<AppState>,
+    _user: CurrentUser,
+) -> Result<HttpResponse, AppError> {
+    let rows = sqlx::query_as::<_, ConfigRow>(
+        r#"SELECT tenant_id, logo_url, short_name, long_name, footer_logo_url, contact_email,
+           site_header_description, deleted_at, "instaUrl", "twitterUrl", "tiktokUrl", "spotifyId",
+           featured_artist_id, created_at, updated_at
+           FROM tenant_configs WHERE deleted_at IS NULL"#
+    )
+    .fetch_all(&state.db)
+    .await?;
+
+    let configs: Vec<TenantConfig> = rows.into_iter().map(|r| r.into()).collect();
     let responses: Vec<TenantConfigResponse> = configs.iter().map(|c| c.to_response()).collect();
     Ok(HttpResponse::Ok().json(responses))
 }
 
 pub async fn show(
+    state: web::Data<AppState>,
     _user: CurrentUser,
     path: web::Path<Uuid>,
 ) -> Result<HttpResponse, AppError> {
     let tenant_id = path.into_inner();
-    match mock_find_config(tenant_id) {
-        Some(c) => Ok(HttpResponse::Ok().json(c.to_response())),
+
+    match sqlx::query_as::<_, ConfigRow>(
+        r#"SELECT tenant_id, logo_url, short_name, long_name, footer_logo_url, contact_email,
+           site_header_description, deleted_at, "instaUrl", "twitterUrl", "tiktokUrl", "spotifyId",
+           featured_artist_id, created_at, updated_at
+           FROM tenant_configs WHERE tenant_id = $1 AND deleted_at IS NULL"#
+    )
+    .bind(tenant_id)
+    .fetch_optional(&state.db)
+    .await?
+    {
+        Some(row) => {
+            let config: TenantConfig = row.into();
+            Ok(HttpResponse::Ok().json(config.to_response()))
+        }
         None => Err(AppError::NotFound(format!("Config #{}", tenant_id))),
     }
 }
 
 pub async fn create(
+    state: web::Data<AppState>,
     _user: CurrentUser,
     body: web::Json<CreateTenantConfigRequest>,
 ) -> Result<HttpResponse, AppError> {
@@ -42,97 +118,115 @@ pub async fn create(
             "site_header_description is required".to_string(),
         ));
     }
-    let config = TenantConfig {
-        tenant_id: Uuid::new_v4(),
-        logo_url: body.logo_url.clone(),
-        short_name: body.short_name.clone(),
-        long_name: body.long_name.clone(),
-        footer_logo_url: body.footer_logo_url.clone(),
-        contact_email: body.contact_email.clone(),
-        site_header_description: body.site_header_description.clone(),
-        deleted_at: None,
-        insta_url: body.insta_url.clone(),
-        twitter_url: body.twitter_url.clone(),
-        tiktok_url: body.tiktok_url.clone(),
-        spotify_id: body.spotify_id.clone(),
-        featured_artist_id: body.featured_artist_id,
-        mantine_theme: body.mantine_theme.clone(),
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
-    };
+
+    let tenant_id = Uuid::new_v4();
+    let now = chrono::Utc::now().naive_utc();
+
+    let row = sqlx::query_as::<_, ConfigRow>(
+        r#"INSERT INTO tenant_configs (tenant_id, logo_url, short_name, long_name, footer_logo_url,
+           contact_email, site_header_description, deleted_at, "instaUrl", "twitterUrl", "tiktokUrl",
+           "spotifyId", featured_artist_id, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, NULL, $8, $9, $10, $11, $12, $13, $14)
+           RETURNING tenant_id, logo_url, short_name, long_name, footer_logo_url, contact_email,
+           site_header_description, deleted_at, "instaUrl", "twitterUrl", "tiktokUrl", "spotifyId",
+           featured_artist_id, created_at, updated_at"#
+    )
+    .bind(tenant_id)
+    .bind(&body.logo_url)
+    .bind(&body.short_name)
+    .bind(&body.long_name)
+    .bind(&body.footer_logo_url)
+    .bind(&body.contact_email)
+    .bind(&body.site_header_description)
+    .bind(&body.insta_url)
+    .bind(&body.twitter_url)
+    .bind(&body.tiktok_url)
+    .bind(&body.spotify_id)
+    .bind(body.featured_artist_id)
+    .bind(&now)
+    .bind(&now)
+    .fetch_one(&state.db)
+    .await?;
+
+    let config: TenantConfig = row.into();
     Ok(HttpResponse::Created().json(config.to_response()))
 }
 
 pub async fn update(
+    state: web::Data<AppState>,
     _user: CurrentUser,
     path: web::Path<Uuid>,
     body: web::Json<UpdateTenantConfigRequest>,
 ) -> Result<HttpResponse, AppError> {
     let tenant_id = path.into_inner();
-    match mock_find_config(tenant_id) {
-        Some(mut c) => {
-            if let Some(ref name) = body.short_name {
-                c.short_name = name.clone();
-            }
-            if let Some(ref name) = body.long_name {
-                c.long_name = name.clone();
-            }
-            if let Some(ref email) = body.contact_email {
-                c.contact_email = email.clone();
-            }
-            if let Some(ref desc) = body.site_header_description {
-                c.site_header_description = desc.clone();
-            }
-            if let Some(ref url) = body.logo_url {
-                c.logo_url = Some(url.clone());
-            }
-            Ok(HttpResponse::Ok().json(c.to_response()))
+    let now = chrono::Utc::now().naive_utc();
+
+    let row = sqlx::query_as::<_, ConfigRow>(
+        r#"UPDATE tenant_configs
+           SET logo_url = COALESCE($1, logo_url),
+               short_name = COALESCE($2, short_name),
+               long_name = COALESCE($3, long_name),
+               footer_logo_url = COALESCE($4, footer_logo_url),
+               contact_email = COALESCE($5, contact_email),
+               site_header_description = COALESCE($6, site_header_description),
+               "instaUrl" = COALESCE($7, "instaUrl"),
+               "twitterUrl" = COALESCE($8, "twitterUrl"),
+               "tiktokUrl" = COALESCE($9, "tiktokUrl"),
+               "spotifyId" = COALESCE($10, "spotifyId"),
+               featured_artist_id = COALESCE($11, featured_artist_id),
+               updated_at = $12
+           WHERE tenant_id = $13 AND deleted_at IS NULL
+           RETURNING tenant_id, logo_url, short_name, long_name, footer_logo_url, contact_email,
+           site_header_description, deleted_at, "instaUrl", "twitterUrl", "tiktokUrl", "spotifyId",
+           featured_artist_id, created_at, updated_at"#
+    )
+    .bind(&body.logo_url)
+    .bind(&body.short_name)
+    .bind(&body.long_name)
+    .bind(&body.footer_logo_url)
+    .bind(&body.contact_email)
+    .bind(&body.site_header_description)
+    .bind(&body.insta_url)
+    .bind(&body.twitter_url)
+    .bind(&body.tiktok_url)
+    .bind(&body.spotify_id)
+    .bind(body.featured_artist_id)
+    .bind(&now)
+    .bind(tenant_id)
+    .fetch_optional(&state.db)
+    .await?;
+
+    match row {
+        Some(r) => {
+            let config: TenantConfig = r.into();
+            Ok(HttpResponse::Ok().json(config.to_response()))
         }
         None => Err(AppError::NotFound(format!("Config #{}", tenant_id))),
     }
 }
 
 pub async fn destroy(
+    state: web::Data<AppState>,
     _user: CurrentUser,
     path: web::Path<Uuid>,
 ) -> Result<HttpResponse, AppError> {
     let tenant_id = path.into_inner();
-    match mock_find_config(tenant_id) {
-        Some(_) => Ok(HttpResponse::Ok().json(serde_json::json!({
+    let now = chrono::Utc::now().naive_utc();
+
+    let result = sqlx::query(
+        r"UPDATE tenant_configs SET deleted_at = $1 WHERE tenant_id = $2 AND deleted_at IS NULL"
+    )
+    .bind(&now)
+    .bind(tenant_id)
+    .execute(&state.db)
+    .await?;
+
+    if result.rows_affected() > 0 {
+        Ok(HttpResponse::Ok().json(serde_json::json!({
             "message": format!("Config #{} soft-deleted", tenant_id)
-        }))),
-        None => Err(AppError::NotFound(format!("Config #{}", tenant_id))),
-    }
-}
-
-static TEST_UUID: Uuid = Uuid::nil();
-
-fn mock_all_configs() -> Vec<TenantConfig> {
-    vec![TenantConfig {
-        tenant_id: TEST_UUID,
-        logo_url: Some("https://example.com/logo.png".to_string()),
-        short_name: "KBR".to_string(),
-        long_name: "Keep Buying Records".to_string(),
-        footer_logo_url: None,
-        contact_email: "info@example.com".to_string(),
-        site_header_description: "Welcome".to_string(),
-        deleted_at: None,
-        insta_url: None,
-        twitter_url: None,
-        tiktok_url: None,
-        spotify_id: None,
-        featured_artist_id: None,
-        mantine_theme: None,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
-    }]
-}
-
-fn mock_find_config(id: Uuid) -> Option<TenantConfig> {
-    if id == TEST_UUID {
-        mock_all_configs().into_iter().next()
+        })))
     } else {
-        None
+        Err(AppError::NotFound(format!("Config #{}", tenant_id)))
     }
 }
 
@@ -150,19 +244,37 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::auth::jwt::encode_token;
+    use crate::auth::jwt::encode_token_with_role;
     use actix_web::{test, App};
 
     const TEST_SECRET: &str = "test-secret-key";
+    const TEST_DB_URL: &str = "postgresql://ws@localhost:5432/kbr_test";
+
+    async fn get_state() -> AppState {
+        AppState {
+            db: sqlx::PgPool::connect(TEST_DB_URL)
+                .await
+                .expect("Failed to connect to test database"),
+        }
+    }
 
     fn token() -> String {
-        crate::auth::jwt::encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string())).unwrap()
+        encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string())).unwrap()
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn configs_index_authenticated() {
-        unsafe { std::env::set_var("JWT_SECRET", TEST_SECRET); }
-        let app = test::init_service(App::new().configure(config_routes)).await;
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("JWT_SECRET", TEST_SECRET);
+        }
+        let state = web::Data::new(get_state().await);
+        let app = test::init_service(
+            App::new()
+                .app_data(state)
+                .configure(config_routes),
+        )
+        .await;
 
         let req = test::TestRequest::get()
             .uri("/v1/configs")
@@ -174,14 +286,23 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn config_create_success() {
-        unsafe { std::env::set_var("JWT_SECRET", TEST_SECRET); }
-        let app = test::init_service(App::new().configure(config_routes)).await;
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("JWT_SECRET", TEST_SECRET);
+        }
+        let state = web::Data::new(get_state().await);
+        let app = test::init_service(
+            App::new()
+                .app_data(state.clone())
+                .configure(config_routes),
+        )
+        .await;
 
         let req = test::TestRequest::post()
             .uri("/v1/configs")
             .insert_header(("Authorization", format!("Bearer {}", token())))
             .set_json(serde_json::json!({
-                "short_name": "Test",
+                "short_name": "TestKBR",
                 "long_name": "Test Config",
                 "contact_email": "test@example.com",
                 "site_header_description": "Welcome"
@@ -189,12 +310,32 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 201);
+        let body: serde_json::Value = test::read_body_json(resp).await;
+        assert_eq!(body["short_name"], "TestKBR");
+
+        if let Some(tenant_id) = body["tenant_id"].as_str() {
+            let _ = sqlx::query(&format!(
+                "DELETE FROM tenant_configs WHERE tenant_id = '{}'::uuid",
+                tenant_id
+            ))
+            .execute(&state.db)
+            .await;
+        }
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn config_create_missing_fields() {
-        unsafe { std::env::set_var("JWT_SECRET", TEST_SECRET); }
-        let app = test::init_service(App::new().configure(config_routes)).await;
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("JWT_SECRET", TEST_SECRET);
+        }
+        let state = web::Data::new(get_state().await);
+        let app = test::init_service(
+            App::new()
+                .app_data(state)
+                .configure(config_routes),
+        )
+        .await;
 
         let req = test::TestRequest::post()
             .uri("/v1/configs")
@@ -208,5 +349,27 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 422);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn config_show_not_found() {
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("JWT_SECRET", TEST_SECRET);
+        }
+        let state = web::Data::new(get_state().await);
+        let app = test::init_service(
+            App::new()
+                .app_data(state)
+                .configure(config_routes),
+        )
+        .await;
+
+        let req = test::TestRequest::get()
+            .uri("/v1/config/00000000-0000-0000-0000-000000000000")
+            .insert_header(("Authorization", format!("Bearer {}", token())))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 404);
     }
 }
