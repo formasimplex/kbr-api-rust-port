@@ -30,6 +30,7 @@ async fn main() -> std::io::Result<()> {
     HttpServer::new(move || {
         actix_web::App::new()
             .app_data(web::Data::new(AppState { db: pool.clone() }))
+            .configure(kbr_api_rust::handlers::data_api::config_routes)
             .configure(kbr_api_rust::handlers::health::config_routes)
             .configure(kbr_api_rust::handlers::auth::config_routes)
             .configure(kbr_api_rust::handlers::users::config_routes)

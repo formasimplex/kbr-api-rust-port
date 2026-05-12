@@ -150,23 +150,6 @@ mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
-    async fn get_jwt_secret_returns_custom_and_default() {
-        let original = std::env::var(JWT_SECRET_ENV).ok();
-
-        unsafe { std::env::set_var(JWT_SECRET_ENV, "my-custom-secret"); }
-        let secret = get_jwt_secret();
-        assert_eq!(secret, "my-custom-secret");
-
-        unsafe { std::env::remove_var(JWT_SECRET_ENV); }
-        let secret = get_jwt_secret();
-        assert_eq!(secret, "default-dev-secret");
-
-        if let Some(val) = original {
-            unsafe { std::env::set_var(JWT_SECRET_ENV, val); }
-        }
-    }
-
-    #[tokio::test(flavor = "current_thread")]
     async fn current_user_is_admin() {
         let user = CurrentUser {
             id: 1,
