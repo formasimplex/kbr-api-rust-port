@@ -1,22 +1,39 @@
 use actix_web::{web, HttpResponse};
 use serde::{Deserialize, Serialize};
-use std::sync::OnceLock;
+use sqlx::FromRow;
 
+use crate::app::AppState;
 use crate::auth::middleware::CurrentUser;
 use crate::error::AppError;
 use crate::models::user::User;
 use crate::services::auth_service;
 use crate::services::user_service::UserService;
 
-static TEST_ADMIN_HASH: OnceLock<String> = OnceLock::new();
-static TEST_USER_HASH: OnceLock<String> = OnceLock::new();
-
-fn test_admin_hash() -> &'static str {
-    TEST_ADMIN_HASH.get_or_init(|| auth_service::hash_password("correctpassword").unwrap_or_default())
+#[derive(Debug, FromRow)]
+struct UserRow {
+    id: i64,
+    email: String,
+    password_digest: String,
+    role: Option<String>,
+    session_token: Option<String>,
+    username: Option<String>,
+    created_at: chrono::NaiveDateTime,
+    updated_at: chrono::NaiveDateTime,
 }
 
-fn test_user_hash() -> &'static str {
-    TEST_USER_HASH.get_or_init(|| auth_service::hash_password("userpassword123").unwrap_or_default())
+impl From<UserRow> for User {
+    fn from(row: UserRow) -> Self {
+        User {
+            id: row.id,
+            email: row.email,
+            password_digest: row.password_digest,
+            role: row.role,
+            session_token: row.session_token,
+            username: row.username,
+            created_at: row.created_at.and_utc(),
+            updated_at: row.updated_at.and_utc(),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -31,6 +48,7 @@ pub struct LoginErrorResponse {
 }
 
 pub async fn login(
+    state: web::Data<AppState>,
     body: web::Json<LoginParams>,
 ) -> Result<HttpResponse, AppError> {
     let login_req = auth_service::LoginRequest {
@@ -40,9 +58,18 @@ pub async fn login(
 
     let normalized_email = UserService::normalize_email(&login_req.email);
 
-    let mock_user = find_user_by_email_or_username(&normalized_email, &login_req.email);
-    match mock_user {
-        Some(user) => {
+    let user_row = sqlx::query_as::<_, UserRow>(
+        r"SELECT id, email, password_digest, role, session_token, username, created_at, updated_at
+           FROM users WHERE email = $1 OR username = $2"
+    )
+    .bind(&normalized_email)
+    .bind(&normalized_email)
+    .fetch_optional(&state.db)
+    .await?;
+
+    match user_row {
+        Some(row) => {
+            let user: User = row.into();
             let valid = auth_service::verify_password(&login_req.password, &user.password_digest)?;
             if valid {
                 let resp = auth_service::create_login_response(&user)?;
@@ -60,69 +87,23 @@ pub async fn login(
 }
 
 pub async fn session(
+    state: web::Data<AppState>,
     user: CurrentUser,
 ) -> Result<HttpResponse, AppError> {
-    let mock_user = find_user_by_id(user.id);
-    match mock_user {
-        Some(u) => {
+    match sqlx::query_as::<_, UserRow>(
+        r"SELECT id, email, password_digest, role, session_token, username, created_at, updated_at
+           FROM users WHERE id = $1"
+    )
+    .bind(user.id)
+    .fetch_optional(&state.db)
+    .await?
+    {
+        Some(row) => {
+            let u: User = row.into();
             let resp = auth_service::create_session_response(&u)?;
             Ok(HttpResponse::Ok().json(&resp))
         }
         None => Err(AppError::Unauthorized),
-    }
-}
-
-fn find_user_by_email_or_username(email: &str, username: &str) -> Option<User> {
-    if email == "test@example.com" || username == "test@example.com" {
-        Some(User {
-            id: 1,
-            email: "test@example.com".to_string(),
-            password_digest: test_admin_hash().to_string(),
-            role: Some("admin".to_string()),
-            session_token: Some("sessionsession".to_string()),
-            username: Some("testuser".to_string()),
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
-        })
-    } else if email == "user@example.com" || username == "user@example.com" {
-        Some(User {
-            id: 2,
-            email: "user@example.com".to_string(),
-            password_digest: test_user_hash().to_string(),
-            role: Some("user".to_string()),
-            session_token: None,
-            username: None,
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
-        })
-    } else {
-        None
-    }
-}
-
-fn find_user_by_id(id: i64) -> Option<User> {
-    match id {
-        1 => Some(User {
-            id: 1,
-            email: "test@example.com".to_string(),
-            password_digest: "hashed".to_string(),
-            role: Some("admin".to_string()),
-            session_token: Some("sessionsession".to_string()),
-            username: Some("testuser".to_string()),
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
-        }),
-        2 => Some(User {
-            id: 2,
-            email: "user@example.com".to_string(),
-            password_digest: "hashed".to_string(),
-            role: Some("user".to_string()),
-            session_token: None,
-            username: None,
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
-        }),
-        _ => None,
     }
 }
 
@@ -137,22 +118,87 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::auth::jwt::encode_token;
     use actix_web::{test, App};
 
     const TEST_SECRET: &str = "test-secret-key";
+    const TEST_DB_URL: &str = "postgresql://ws@localhost:5432/kbr_test";
+
+    async fn get_state() -> AppState {
+        let pool = sqlx::PgPool::connect(TEST_DB_URL)
+            .await
+            .expect("Failed to connect to test database");
+
+        let config = crate::services::storage_service::S3Config::from_env()
+            .unwrap_or_else(|_| crate::services::storage_service::S3Config {
+                access_key: "test".to_string(),
+                secret_key: "test".to_string(),
+                endpoint: "https://test.test".to_string(),
+                bucket_name: "test".to_string(),
+                region: "us-east-1".to_string(),
+            });
+        let s3 = crate::services::storage_service::create_s3_bucket(&config).unwrap_or_else(|_| {
+            let creds = s3::creds::Credentials::new(Some("test"), Some("test"), None, None, None).unwrap();
+            s3::bucket::Bucket::new("test", s3::region::Region::Custom { region: "us-east-1".to_string(), endpoint: "https://test.test".to_string() }, creds)
+                .unwrap()
+                .with_path_style()
+        });
+
+        AppState { db: pool, s3 }
+    }
+
+    async fn seed_test_user(state: &AppState, email: &str, password: &str, role: &str) -> i64 {
+        let password_digest = auth_service::hash_password(password).unwrap();
+        let now = chrono::Utc::now().naive_utc();
+        let row = sqlx::query_as::<_, UserRow>(
+            r"INSERT INTO users (email, password_digest, role, session_token, username, created_at, updated_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7)
+               RETURNING id, email, password_digest, role, session_token, username, created_at, updated_at"
+        )
+        .bind(email)
+        .bind(&password_digest)
+        .bind(role)
+        .bind::<Option<String>>(None)
+        .bind::<Option<String>>(None)
+        .bind(&now)
+        .bind(&now)
+        .fetch_one(&state.db)
+        .await
+        .expect("Failed to seed test user");
+        row.id
+    }
+
+    async fn cleanup_user(state: &AppState, email: &str) {
+        let _ = sqlx::query(r"DELETE FROM users WHERE email = $1")
+            .bind(email)
+            .execute(&state.db)
+            .await;
+    }
 
     #[tokio::test(flavor = "current_thread")]
     async fn login_success_with_valid_credentials() {
-        unsafe { std::env::set_var("JWT_SECRET", TEST_SECRET); }
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("JWT_SECRET", TEST_SECRET);
+        }
+        let state = get_state().await;
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
+        let email = format!("loginadmin{}@example.com", ts);
+        seed_test_user(&state, &email, "correctpassword", "admin").await;
 
-        test_admin_hash();
-        let app = test::init_service(App::new().configure(config_routes)).await;
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(get_state().await))
+                .configure(config_routes),
+        )
+        .await;
 
         let req = test::TestRequest::post()
             .uri("/v1/auth/login")
             .set_json(serde_json::json!({
-                "email": "test@example.com",
+                "email": email,
                 "password": "correctpassword"
             }))
             .to_request();
@@ -160,14 +206,24 @@ mod tests {
         assert_eq!(resp.status(), 200);
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert!(body["token"].is_string());
-        assert_eq!(body["id"], 1);
+        assert!(body["id"].as_i64().unwrap_or(0) > 0);
+
+        cleanup_user(&state, &email).await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn login_fails_with_invalid_email() {
-        unsafe { std::env::set_var("JWT_SECRET", TEST_SECRET); }
-
-        let app = test::init_service(App::new().configure(config_routes)).await;
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("JWT_SECRET", TEST_SECRET);
+        }
+        let state = web::Data::new(get_state().await);
+        let app = test::init_service(
+            App::new()
+                .app_data(state)
+                .configure(config_routes),
+        )
+        .await;
 
         let req = test::TestRequest::post()
             .uri("/v1/auth/login")
@@ -184,15 +240,29 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn login_fails_with_wrong_password() {
-        unsafe { std::env::set_var("JWT_SECRET", TEST_SECRET); }
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("JWT_SECRET", TEST_SECRET);
+        }
+        let state = get_state().await;
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
+        let email = format!("loginwrong{}@example.com", ts);
+        seed_test_user(&state, &email, "userpassword123", "user").await;
 
-        test_user_hash();
-        let app = test::init_service(App::new().configure(config_routes)).await;
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(get_state().await))
+                .configure(config_routes),
+        )
+        .await;
 
         let req = test::TestRequest::post()
             .uri("/v1/auth/login")
             .set_json(serde_json::json!({
-                "email": "user@example.com",
+                "email": email,
                 "password": "wrongpassword"
             }))
             .to_request();
@@ -200,15 +270,32 @@ mod tests {
         assert_eq!(resp.status(), 401);
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert_eq!(body["error"], "Invalid credentials");
+
+        cleanup_user(&state, &email).await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn session_returns_fresh_token() {
-        unsafe { std::env::set_var("JWT_SECRET", TEST_SECRET); }
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("JWT_SECRET", TEST_SECRET);
+        }
+        let state = get_state().await;
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
+        let email = format!("session{}@example.com", ts);
+        let user_id = seed_test_user(&state, &email, "password123", "admin").await;
+        let token = crate::auth::jwt::encode_token_with_role(user_id, TEST_SECRET, 3, Some("admin".to_string())).unwrap();
 
-        let app = test::init_service(App::new().configure(config_routes)).await;
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(get_state().await))
+                .configure(config_routes),
+        )
+        .await;
 
-        let token = crate::auth::jwt::encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string())).unwrap();
         let req = test::TestRequest::get()
             .uri("/v1/auth/session")
             .insert_header(("Authorization", format!("Bearer {}", token)))
@@ -216,16 +303,26 @@ mod tests {
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
         let body: serde_json::Value = test::read_body_json(resp).await;
-        assert_eq!(body["id"], 1);
+        assert_eq!(body["id"], user_id);
         assert_eq!(body["role"], "admin");
         assert!(body["token"].is_string());
+
+        cleanup_user(&state, &email).await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn session_rejects_without_token() {
-        unsafe { std::env::set_var("JWT_SECRET", TEST_SECRET); }
-
-        let app = test::init_service(App::new().configure(config_routes)).await;
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("JWT_SECRET", TEST_SECRET);
+        }
+        let state = web::Data::new(get_state().await);
+        let app = test::init_service(
+            App::new()
+                .app_data(state)
+                .configure(config_routes),
+        )
+        .await;
 
         let req = test::TestRequest::get()
             .uri("/v1/auth/session")

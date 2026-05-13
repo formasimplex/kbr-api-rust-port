@@ -47,10 +47,12 @@ pub struct ArtistResponse {
     pub spotify_id: Option<String>,
     pub sub_heading: Option<String>,
     pub intro: Option<String>,
+    pub image_urls: Vec<String>,
+    pub image_thumbnail_urls: Vec<String>,
 }
 
 impl Artist {
-    pub fn to_response(&self) -> ArtistResponse {
+    pub fn to_response(&self, image_urls: Vec<String>, image_thumbnail_urls: Vec<String>) -> ArtistResponse {
         ArtistResponse {
             id: self.id,
             name: self.name.clone(),
@@ -59,6 +61,8 @@ impl Artist {
             spotify_id: self.spotify_id.clone(),
             sub_heading: self.sub_heading.clone(),
             intro: self.intro.clone(),
+            image_urls,
+            image_thumbnail_urls,
         }
     }
 
@@ -90,7 +94,7 @@ mod tests {
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };
-        let resp = artist.to_response();
+        let resp = artist.to_response(vec![], vec![]);
         assert_eq!(resp.id, 1);
         assert_eq!(resp.name, Some("DJ Test".to_string()));
         assert_eq!(resp.genre, Some("Electronic".to_string()));

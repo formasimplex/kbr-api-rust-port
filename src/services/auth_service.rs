@@ -25,12 +25,12 @@ pub struct SessionResponse {
 }
 
 pub fn hash_password(password: &str) -> Result<String, AppError> {
-    let hash = bcrypt::hash(password, bcrypt::DEFAULT_COST).map_err(|e| AppError::Bcrypt(e))?;
+    let hash = bcrypt::hash(password, bcrypt::DEFAULT_COST).map_err(AppError::Bcrypt)?;
     Ok(hash)
 }
 
 pub fn verify_password(password: &str, hash: &str) -> Result<bool, AppError> {
-    let verified = bcrypt::verify(password, hash).map_err(|e| AppError::Bcrypt(e))?;
+    let verified = bcrypt::verify(password, hash).map_err(AppError::Bcrypt)?;
     Ok(verified)
 }
 
@@ -44,7 +44,7 @@ pub fn generate_session_token() -> String {
 }
 
 pub fn create_login_response(user: &User) -> Result<LoginResponse, AppError> {
-    let secret = get_jwt_secret();
+    let secret = get_jwt_secret()?;
     let token = encode_token(user.id, &secret, JWT_EXPIRY_DAYS)?;
     Ok(LoginResponse {
         token,
@@ -54,7 +54,7 @@ pub fn create_login_response(user: &User) -> Result<LoginResponse, AppError> {
 }
 
 pub fn create_session_response(user: &User) -> Result<SessionResponse, AppError> {
-    let secret = get_jwt_secret();
+    let secret = get_jwt_secret()?;
     let token = encode_token(user.id, &secret, JWT_EXPIRY_DAYS)?;
     Ok(SessionResponse {
         token,
@@ -82,7 +82,7 @@ pub fn create_session_response(user: &User) -> Result<SessionResponse, AppError>
     }
 
 pub fn extract_user_id(token: &str) -> Result<i64, AppError> {
-    let secret = get_jwt_secret();
+    let secret = get_jwt_secret()?;
     let claims = decode_token(token, &secret)?;
     Ok(claims.user_id)
 }

@@ -1,22 +1,9 @@
-#![allow(dead_code)]
-
 use actix_web::{HttpServer, web};
 use dotenvy::dotenv;
 
-mod auth;
-mod db;
-mod error;
-mod handlers;
-mod models;
-mod responses;
-mod services;
-
-use crate::db::pool::connect;
-
-#[derive(Clone)]
-struct AppState {
-    db: sqlx::PgPool,
-}
+use kbr_api_rust::app::AppState;
+use kbr_api_rust::db::pool::connect;
+use kbr_api_rust::services::storage_service::{create_s3_bucket, S3Config};
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -29,8 +16,24 @@ async fn main() -> std::io::Result<()> {
 
     dotenv().ok();
 
+    rs_vips::Vips::init("kbr-api-rust")
+        .map_err(|e| {
+            tracing::error!("Failed to initialize libvips: {}", e);
+            std::io::Error::new(std::io::ErrorKind::Other, format!("libvips init failed: {}", e))
+        })?;
+
     let pool = connect().await.map_err(|e| {
         tracing::error!("Failed to connect to database: {}", e);
+        std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+    })?;
+
+    let s3_config = S3Config::from_env().map_err(|e| {
+        tracing::error!("Failed to load S3 config: {}", e);
+        std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+    })?;
+
+    let s3 = create_s3_bucket(&s3_config).map_err(|e| {
+        tracing::error!("Failed to create S3 bucket: {}", e);
         std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
     })?;
 
@@ -43,27 +46,33 @@ async fn main() -> std::io::Result<()> {
 
     HttpServer::new(move || {
         actix_web::App::new()
-            .app_data(web::Data::new(AppState { db: pool.clone() }))
-            .configure(handlers::health::config_routes)
-            .configure(handlers::auth::config_routes)
-            .configure(handlers::users::config_routes)
-            .configure(handlers::permissions::config_routes)
-            .configure(handlers::sign_up_trigger::config_routes)
-            .configure(handlers::reset_trigger::config_routes)
-            .configure(handlers::campaigns::config_routes)
-            .configure(handlers::campaign_pages::config_routes)
-            .configure(handlers::albums::config_routes)
-            .configure(handlers::songs::config_routes)
-            .configure(handlers::artists::config_routes)
-            .configure(handlers::producers::config_routes)
-            .configure(handlers::merchandise::config_routes)
-            .configure(handlers::configs::config_routes)
-            .configure(handlers::comments::config_routes)
-            .configure(handlers::news::config_routes)
-            .configure(handlers::playlists::config_routes)
-            .configure(handlers::events::config_routes)
-            .configure(handlers::event_attendees::config_routes)
-            .configure(handlers::mailing::config_routes)
+            .app_data(web::Data::new(AppState {
+                db: pool.clone(),
+                s3: s3.clone(),
+            }))
+            .configure(kbr_api_rust::handlers::data_api::config_routes)
+            .configure(kbr_api_rust::handlers::health::config_routes)
+            .configure(kbr_api_rust::handlers::auth::config_routes)
+            .configure(kbr_api_rust::handlers::users::config_routes)
+            .configure(kbr_api_rust::handlers::permissions::config_routes)
+            .configure(kbr_api_rust::handlers::sign_up_trigger::config_routes)
+            .configure(kbr_api_rust::handlers::reset_trigger::config_routes)
+            .configure(kbr_api_rust::handlers::campaigns::config_routes)
+            .configure(kbr_api_rust::handlers::campaign_pages::config_routes)
+            .configure(kbr_api_rust::handlers::albums::config_routes)
+            .configure(kbr_api_rust::handlers::songs::config_routes)
+            .configure(kbr_api_rust::handlers::artists::config_routes)
+            .configure(kbr_api_rust::handlers::producers::config_routes)
+            .configure(kbr_api_rust::handlers::merchandise::config_routes)
+            .configure(kbr_api_rust::handlers::configs::config_routes)
+            .configure(kbr_api_rust::handlers::comments::config_routes)
+            .configure(kbr_api_rust::handlers::news::config_routes)
+            .configure(kbr_api_rust::handlers::playlists::config_routes)
+            .configure(kbr_api_rust::handlers::events::config_routes)
+            .configure(kbr_api_rust::handlers::event_attendees::config_routes)
+            .configure(kbr_api_rust::handlers::mailing::config_routes)
+            .configure(kbr_api_rust::handlers::webhook::config_routes)
+            .configure(kbr_api_rust::handlers::storage::config_routes)
     })
     .bind(addr)?
     .run()

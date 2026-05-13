@@ -14,34 +14,30 @@ impl UserService {
                 "Password must be at least 6 characters".to_string(),
             ));
         }
-        if let Some(ref role) = req.token {
-            if role.is_empty() {
+        if let Some(ref role) = req.token
+            && role.is_empty() {
                 return Err(AppError::Validation(
                     "Sign-up token is required".to_string(),
                 ));
             }
-        }
         Ok(())
     }
 
     pub fn validate_update_request(req: &UpdateUserRequest) -> Result<(), AppError> {
-        if let Some(ref email) = req.email {
-            if !User::validate_email(email) {
+        if let Some(ref email) = req.email
+            && !User::validate_email(email) {
                 return Err(AppError::Validation("Invalid email address".to_string()));
             }
-        }
-        if let Some(ref password) = req.password {
-            if !User::validate_password(password) {
+        if let Some(ref password) = req.password
+            && !User::validate_password(password) {
                 return Err(AppError::Validation(
                     "Password must be at least 6 characters".to_string(),
                 ));
             }
-        }
-        if let Some(ref role) = req.role {
-            if !User::validate_role(role) {
+        if let Some(ref role) = req.role
+            && !User::validate_role(role) {
                 return Err(AppError::Validation(format!("Invalid role: {}", role)));
             }
-        }
         Ok(())
     }
 

@@ -88,7 +88,7 @@ impl Campaign {
     }
 
     pub fn validate_vinyl_sold_count(count: i32) -> bool {
-        count >= 0 && count <= 100
+        (0..=100).contains(&count)
     }
 }
 

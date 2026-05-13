@@ -3,7 +3,12 @@ name = "kbr-api-rust"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "kbr-api-rust"
+path = "src/main.rs"
+
 [lib]
+name = "kbr_api_rust"
 path = "src/lib.rs"
 
 [dependencies]
@@ -22,8 +27,19 @@ serde = { version = "1.0.228", features = ["derive"] }
 jsonwebtoken = "9"
 bcrypt = "0.17"
 
+# S3 / Storage
+rust-s3 = { version = "0.37.2", default-features = false, features = ["tokio-native-tls"] }
+actix-multipart = "0.7"
+
+# Image processing
+rs-vips = "0.7"
+
 # Utilities
 rand = "0.8"
+futures-util = "0.3"
+sha256 = "1.6"
+sha2 = "0.10"
+hex = "0.4"
 
 # Logging
 tracing = "0.1"

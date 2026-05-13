@@ -1,14 +1,62 @@
 use actix_web::{web, HttpResponse};
+use sqlx::FromRow;
 
+use crate::app::AppState;
 use crate::auth::middleware::CurrentUser;
 use crate::auth::roles::is_customer_or_above;
 use crate::error::AppError;
 use crate::models::comment::{Comment, CommentResponse, CreateCommentRequest};
 
-pub async fn show(path: web::Path<i64>) -> Result<HttpResponse, AppError> {
+#[derive(Debug, FromRow)]
+struct CommentRow {
+    id: i64,
+    content: Option<String>,
+    flagged: Option<bool>,
+    flagged_at: Option<chrono::NaiveDateTime>,
+    commentable_type: String,
+    commentable_id: i64,
+    user_id: i64,
+    parent_id: Option<i32>,
+    created_at: chrono::NaiveDateTime,
+    updated_at: chrono::NaiveDateTime,
+}
+
+impl From<CommentRow> for Comment {
+    fn from(row: CommentRow) -> Self {
+        Comment {
+            id: row.id,
+            content: row.content,
+            flagged: row.flagged,
+            flagged_at: row.flagged_at.map(|dt| dt.and_utc()),
+            commentable_type: row.commentable_type,
+            commentable_id: row.commentable_id,
+            user_id: row.user_id,
+            parent_id: row.parent_id,
+            created_at: row.created_at.and_utc(),
+            updated_at: row.updated_at.and_utc(),
+        }
+    }
+}
+
+pub async fn show(
+    path: web::Path<i64>,
+    state: web::Data<AppState>,
+) -> Result<HttpResponse, AppError> {
     let id = path.into_inner();
-    match mock_find_comment(id) {
-        Some(c) => Ok(HttpResponse::Ok().json(c.to_response())),
+    let row = sqlx::query_as::<_, CommentRow>(
+        r"SELECT id, content, flagged, flagged_at, commentable_type, commentable_id,
+                  user_id, parent_id, created_at, updated_at
+           FROM comments WHERE id = $1"
+    )
+    .bind(id)
+    .fetch_optional(&state.db)
+    .await?;
+
+    match row {
+        Some(r) => {
+            let comment: Comment = r.into();
+            Ok(HttpResponse::Ok().json(comment.to_response()))
+        }
         None => Err(AppError::NotFound(format!("Comment #{}", id))),
     }
 }
@@ -16,16 +64,33 @@ pub async fn show(path: web::Path<i64>) -> Result<HttpResponse, AppError> {
 pub async fn index(
     _user: Option<CurrentUser>,
     query: web::Query<serde_json::Value>,
+    state: web::Data<AppState>,
 ) -> Result<HttpResponse, AppError> {
     let commentable_id = query
         .get("commentable_id")
         .and_then(|v| v.get("commentable_id"))
         .and_then(|v| v.as_i64());
-    let comments = if let Some(cid) = commentable_id {
-        mock_comments_for_commentable(cid)
+
+    let rows = if let Some(cid) = commentable_id {
+        sqlx::query_as::<_, CommentRow>(
+            r"SELECT id, content, flagged, flagged_at, commentable_type, commentable_id,
+                      user_id, parent_id, created_at, updated_at
+               FROM comments WHERE commentable_id = $1 ORDER BY created_at"
+        )
+        .bind(cid)
+        .fetch_all(&state.db)
+        .await?
     } else {
-        mock_all_comments()
+        sqlx::query_as::<_, CommentRow>(
+            r"SELECT id, content, flagged, flagged_at, commentable_type, commentable_id,
+                      user_id, parent_id, created_at, updated_at
+               FROM comments ORDER BY created_at"
+        )
+        .fetch_all(&state.db)
+        .await?
     };
+
+    let comments: Vec<Comment> = rows.into_iter().map(|r| r.into()).collect();
     let responses: Vec<CommentResponse> = comments.iter().map(|c| c.to_response()).collect();
     Ok(HttpResponse::Ok().json(responses))
 }
@@ -33,6 +98,7 @@ pub async fn index(
 pub async fn create(
     user: CurrentUser,
     body: web::Json<CreateCommentRequest>,
+    state: web::Data<AppState>,
 ) -> Result<HttpResponse, AppError> {
     if !is_customer_or_above(&user.role) {
         return Err(AppError::Forbidden("Not Authorized".to_string()));
@@ -46,18 +112,28 @@ pub async fn create(
             body.commentable_type
         )));
     }
-    let comment = Comment {
-        id: 999,
-        content: Some(body.content.clone()),
-        flagged: Some(false),
-        flagged_at: None,
-        commentable_type: body.commentable_type.clone(),
-        commentable_id: body.commentable_id,
-        user_id: user.id,
-        parent_id: body.parent_id,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
-    };
+
+    let now = chrono::Utc::now().naive_utc();
+
+    let row = sqlx::query_as::<_, CommentRow>(
+        r"INSERT INTO comments (content, flagged, commentable_type, commentable_id,
+                                user_id, parent_id, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+           RETURNING id, content, flagged, flagged_at, commentable_type, commentable_id,
+                     user_id, parent_id, created_at, updated_at"
+    )
+    .bind(&body.content)
+    .bind(false)
+    .bind(&body.commentable_type)
+    .bind(body.commentable_id)
+    .bind(user.id)
+    .bind(body.parent_id)
+    .bind(now)
+    .bind(now)
+    .fetch_one(&state.db)
+    .await?;
+
+    let comment: Comment = row.into();
     Ok(HttpResponse::Created().json(comment.to_response()))
 }
 
@@ -65,6 +141,7 @@ pub async fn create_reply(
     user: CurrentUser,
     path: web::Path<i32>,
     body: web::Json<CreateCommentRequest>,
+    state: web::Data<AppState>,
 ) -> Result<HttpResponse, AppError> {
     if !is_customer_or_above(&user.role) {
         return Err(AppError::Forbidden("Not Authorized".to_string()));
@@ -72,57 +149,30 @@ pub async fn create_reply(
     if body.content.is_empty() {
         return Err(AppError::Validation("Comment content is required".to_string()));
     }
-    let comment = Comment {
-        id: 999,
-        content: Some(body.content.clone()),
-        flagged: Some(false),
-        flagged_at: None,
-        commentable_type: body.commentable_type.clone(),
-        commentable_id: body.commentable_id,
-        user_id: user.id,
-        parent_id: Some(path.into_inner()),
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
-    };
+
+    let parent_id = path.into_inner();
+    let now = chrono::Utc::now().naive_utc();
+
+    let row = sqlx::query_as::<_, CommentRow>(
+        r"INSERT INTO comments (content, flagged, commentable_type, commentable_id,
+                                user_id, parent_id, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+           RETURNING id, content, flagged, flagged_at, commentable_type, commentable_id,
+                     user_id, parent_id, created_at, updated_at"
+    )
+    .bind(&body.content)
+    .bind(false)
+    .bind(&body.commentable_type)
+    .bind(body.commentable_id)
+    .bind(user.id)
+    .bind(Some(parent_id))
+    .bind(now)
+    .bind(now)
+    .fetch_one(&state.db)
+    .await?;
+
+    let comment: Comment = row.into();
     Ok(HttpResponse::Created().json(comment.to_response()))
-}
-
-fn mock_all_comments() -> Vec<Comment> {
-    vec![Comment {
-        id: 1,
-        content: Some("Great post!".to_string()),
-        flagged: Some(false),
-        flagged_at: None,
-        commentable_type: "News".to_string(),
-        commentable_id: 1,
-        user_id: 1,
-        parent_id: None,
-        created_at: chrono::Utc::now(),
-        updated_at: chrono::Utc::now(),
-    }]
-}
-
-fn mock_comments_for_commentable(_id: i64) -> Vec<Comment> {
-    mock_all_comments()
-}
-
-fn mock_find_comment(id: i64) -> Option<Comment> {
-    if id == 1 {
-        Some(Comment {
-            id: 1,
-            content: Some("Great post!".to_string()),
-            flagged: Some(false),
-            flagged_at: None,
-            commentable_type: "News".to_string(),
-            commentable_id: 1,
-            user_id: 1,
-            parent_id: None,
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
-        })
-    } else {
-        None
-    }
 }
 
 pub fn config_routes(cfg: &mut web::ServiceConfig) {
@@ -138,43 +188,148 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::auth::jwt::encode_token;
+    use crate::auth::jwt::encode_token_with_role;
     use actix_web::{test, App};
 
     const TEST_SECRET: &str = "test-secret-key";
+    const TEST_DB_URL: &str = "postgresql://ws@localhost:5432/kbr_test";
+
+    async fn get_state() -> AppState {
+        let pool = sqlx::PgPool::connect(TEST_DB_URL)
+            .await
+            .expect("Failed to connect to test database");
+
+        let config = crate::services::storage_service::S3Config::from_env()
+            .unwrap_or_else(|_| crate::services::storage_service::S3Config {
+                access_key: "test".to_string(),
+                secret_key: "test".to_string(),
+                endpoint: "https://test.test".to_string(),
+                bucket_name: "test".to_string(),
+                region: "us-east-1".to_string(),
+            });
+        let s3 = crate::services::storage_service::create_s3_bucket(&config).unwrap_or_else(|_| {
+            let creds = s3::creds::Credentials::new(Some("test"), Some("test"), None, None, None).unwrap();
+            s3::bucket::Bucket::new("test", s3::region::Region::Custom { region: "us-east-1".to_string(), endpoint: "https://test.test".to_string() }, creds)
+                .unwrap()
+                .with_path_style()
+        });
+
+        AppState { db: pool, s3 }
+    }
 
     fn admin_token() -> String {
-        crate::auth::jwt::encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string())).unwrap()
+        encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string())).unwrap()
+    }
+
+    fn customer_token() -> String {
+        encode_token_with_role(1, TEST_SECRET, 3, Some("customer".to_string())).unwrap()
+    }
+
+    async fn seed_comment(state: &AppState) -> i64 {
+        let suffix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
+        let content = format!("Test comment {}", suffix);
+
+        sqlx::query_scalar::<_, i64>(
+            r"INSERT INTO comments (content, flagged, commentable_type, commentable_id,
+                                    user_id, created_at, updated_at)
+               VALUES ($1, false, 'News', 1, 1, NOW(), NOW())
+               RETURNING id"
+        )
+        .bind(&content)
+        .fetch_one(&state.db)
+        .await
+        .expect("Failed to seed comment")
+    }
+
+    async fn cleanup_comment(state: &AppState, id: i64) {
+        let _ = sqlx::query(&format!(r"DELETE FROM comments WHERE id = {}", id))
+            .execute(&state.db)
+            .await;
     }
 
     #[tokio::test(flavor = "current_thread")]
-    async fn comment_show_public() {
-        let app = test::init_service(App::new().configure(config_routes)).await;
-        let req = test::TestRequest::get().uri("/v1/comment/1").to_request();
+    async fn comment_show_found() {
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("JWT_SECRET", TEST_SECRET);
+        }
+        let state = get_state().await;
+        let comment_id = seed_comment(&state).await;
+
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state.clone()))
+                .configure(config_routes),
+        )
+        .await;
+
+        let req = test::TestRequest::get()
+            .uri(&format!("/v1/comment/{}", comment_id))
+            .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
+
+        cleanup_comment(&state, comment_id).await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn comment_show_not_found() {
-        let app = test::init_service(App::new().configure(config_routes)).await;
-        let req = test::TestRequest::get().uri("/v1/comment/9999").to_request();
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("JWT_SECRET", TEST_SECRET);
+        }
+        let state = get_state().await;
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .configure(config_routes),
+        )
+        .await;
+
+        let req = test::TestRequest::get()
+            .uri("/v1/comment/99999999")
+            .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn comments_index_public() {
-        let app = test::init_service(App::new().configure(config_routes)).await;
-        let req = test::TestRequest::get().uri("/v1/comments").to_request();
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("JWT_SECRET", TEST_SECRET);
+        }
+        let state = get_state().await;
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .configure(config_routes),
+        )
+        .await;
+
+        let req = test::TestRequest::get()
+            .uri("/v1/comments")
+            .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn comment_create_authenticated() {
-        unsafe { std::env::set_var("JWT_SECRET", TEST_SECRET); }
-        let app = test::init_service(App::new().configure(config_routes)).await;
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("JWT_SECRET", TEST_SECRET);
+        }
+        let state = get_state().await;
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state.clone()))
+                .configure(config_routes),
+        )
+        .await;
 
         let req = test::TestRequest::post()
             .uri("/v1/comments")
@@ -186,13 +341,27 @@ mod tests {
             }))
             .to_request();
         let resp = test::call_service(&app, req).await;
-        assert_eq!(resp.status(), 201);
+        let status = resp.status();
+        let body: serde_json::Value = test::read_body_json(resp).await;
+        assert_eq!(status, 201, "Expected 201, got {}: {:?}", status, body);
+
+        let id = body["id"].as_i64().expect("response should have id");
+        cleanup_comment(&state, id).await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn comment_create_empty_content() {
-        unsafe { std::env::set_var("JWT_SECRET", TEST_SECRET); }
-        let app = test::init_service(App::new().configure(config_routes)).await;
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("JWT_SECRET", TEST_SECRET);
+        }
+        let state = get_state().await;
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .configure(config_routes),
+        )
+        .await;
 
         let req = test::TestRequest::post()
             .uri("/v1/comments")
@@ -209,8 +378,17 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn comment_create_invalid_commentable_type() {
-        unsafe { std::env::set_var("JWT_SECRET", TEST_SECRET); }
-        let app = test::init_service(App::new().configure(config_routes)).await;
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("JWT_SECRET", TEST_SECRET);
+        }
+        let state = get_state().await;
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .configure(config_routes),
+        )
+        .await;
 
         let req = test::TestRequest::post()
             .uri("/v1/comments")
@@ -218,6 +396,68 @@ mod tests {
             .set_json(serde_json::json!({
                 "content": "Test",
                 "commentable_type": "Invalid",
+                "commentable_id": 1
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 422);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn comment_create_reply() {
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("JWT_SECRET", TEST_SECRET);
+        }
+        let state = get_state().await;
+        let parent_id = seed_comment(&state).await;
+
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state.clone()))
+                .configure(config_routes),
+        )
+        .await;
+
+        let req = test::TestRequest::post()
+            .uri(&format!("/v1/comments/{}", parent_id))
+            .insert_header(("Authorization", format!("Bearer {}", customer_token())))
+            .set_json(serde_json::json!({
+                "content": "Reply content",
+                "commentable_type": "News",
+                "commentable_id": 1
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        let status = resp.status();
+        let body: serde_json::Value = test::read_body_json(resp).await;
+        assert_eq!(status, 201, "Expected 201, got {}: {:?}", status, body);
+
+        let reply_id = body["id"].as_i64().expect("response should have id");
+        cleanup_comment(&state, reply_id).await;
+        cleanup_comment(&state, parent_id).await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn comment_create_reply_empty_content() {
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("JWT_SECRET", TEST_SECRET);
+        }
+        let state = get_state().await;
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(state))
+                .configure(config_routes),
+        )
+        .await;
+
+        let req = test::TestRequest::post()
+            .uri("/v1/comments/1")
+            .insert_header(("Authorization", format!("Bearer {}", customer_token())))
+            .set_json(serde_json::json!({
+                "content": "",
+                "commentable_type": "News",
                 "commentable_id": 1
             }))
             .to_request();
