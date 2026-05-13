@@ -44,7 +44,7 @@ pub fn generate_session_token() -> String {
 }
 
 pub fn create_login_response(user: &User) -> Result<LoginResponse, AppError> {
-    let secret = get_jwt_secret();
+    let secret = get_jwt_secret()?;
     let token = encode_token(user.id, &secret, JWT_EXPIRY_DAYS)?;
     Ok(LoginResponse {
         token,
@@ -54,7 +54,7 @@ pub fn create_login_response(user: &User) -> Result<LoginResponse, AppError> {
 }
 
 pub fn create_session_response(user: &User) -> Result<SessionResponse, AppError> {
-    let secret = get_jwt_secret();
+    let secret = get_jwt_secret()?;
     let token = encode_token(user.id, &secret, JWT_EXPIRY_DAYS)?;
     Ok(SessionResponse {
         token,
@@ -82,7 +82,7 @@ pub fn create_session_response(user: &User) -> Result<SessionResponse, AppError>
     }
 
 pub fn extract_user_id(token: &str) -> Result<i64, AppError> {
-    let secret = get_jwt_secret();
+    let secret = get_jwt_secret()?;
     let claims = decode_token(token, &secret)?;
     Ok(claims.user_id)
 }

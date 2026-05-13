@@ -2,11 +2,14 @@ use actix_web::{Error, FromRequest, HttpResponse};
 
 use crate::auth::jwt::{decode_token, Claims};
 use crate::auth::roles::Role;
+use crate::error::AppError;
 
 pub const JWT_SECRET_ENV: &str = "JWT_SECRET";
 
-pub fn get_jwt_secret() -> String {
-    std::env::var(JWT_SECRET_ENV).unwrap_or_else(|_| "default-dev-secret".to_string())
+pub fn get_jwt_secret() -> Result<String, AppError> {
+    std::env::var(JWT_SECRET_ENV).map_err(|_| {
+        AppError::Internal("JWT_SECRET not configured".to_string())
+    })
 }
 
 #[derive(Debug, Clone)]
@@ -31,7 +34,16 @@ impl FromRequest for CurrentUser {
 
     fn from_request(req: &actix_web::HttpRequest, _payload: &mut actix_web::dev::Payload) -> Self::Future {
         let header = req.headers().get(actix_web::http::header::AUTHORIZATION).cloned();
-        let secret = get_jwt_secret();
+        let secret = match get_jwt_secret() {
+            Ok(s) => s,
+            Err(_) => {
+                return Box::pin(async move {
+                    Err(actix_web::error::ErrorInternalServerError(
+                        "JWT_SECRET not configured",
+                    ))
+                });
+            }
+        };
 
         Box::pin(async move {
             let token = match &header {
@@ -163,5 +175,20 @@ mod tests {
             role: Role::User,
         };
         assert!(!regular.is_admin());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn get_jwt_secret_errors_when_not_set() {
+        unsafe { std::env::remove_var(JWT_SECRET_ENV); }
+        let result = get_jwt_secret();
+        assert!(result.is_err(), "Should error when JWT_SECRET is not set");
+        unsafe { std::env::set_var(JWT_SECRET_ENV, TEST_SECRET); }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn get_jwt_secret_returns_value_when_set() {
+        unsafe { std::env::set_var(JWT_SECRET_ENV, TEST_SECRET); }
+        let result = get_jwt_secret();
+        assert_eq!(result.unwrap(), TEST_SECRET);
     }
 }

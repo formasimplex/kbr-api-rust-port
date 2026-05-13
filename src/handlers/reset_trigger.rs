@@ -105,13 +105,34 @@ pub async fn update(
     .fetch_optional(&state.db)
     .await?
     {
-        Some(_trigger) => {
+        Some(trigger) => {
+            let user_id = trigger.user_id.ok_or_else(|| {
+                AppError::NotFound("Reset trigger has no associated user".to_string())
+            })?;
+
             if !User::validate_password(&body.password) {
                 return Err(AppError::Validation(
                     "Password must be at least 6 characters".to_string(),
                 ));
             }
-            let _new_hash = hash_password(&body.password)?;
+
+            let new_hash = hash_password(&body.password)?;
+            let now = chrono::Utc::now().naive_utc();
+
+            sqlx::query(
+                r"UPDATE users SET password_digest = $1, updated_at = $2 WHERE id = $3"
+            )
+            .bind(&new_hash)
+            .bind(now)
+            .bind(user_id as i64)
+            .execute(&state.db)
+            .await?;
+
+            sqlx::query(r"DELETE FROM reset_triggers WHERE token = $1")
+                .bind(&token)
+                .execute(&state.db)
+                .await?;
+
             Ok(HttpResponse::Ok().json(serde_json::json!({
                 "message": "Password updated successfully"
             })))
@@ -256,15 +277,28 @@ mod tests {
         unsafe { std::env::set_var("DATABASE_URL", TEST_DB_URL); }
         let state = web::Data::new(get_state().await);
 
-        let token = format!("rust_reset_up_{}", chrono::Utc::now().timestamp_micros());
-        let seed = sqlx::query_as::<_, ResetTriggerRow>(
-            r"INSERT INTO reset_triggers (user_id, token, expires_at, created_at, updated_at)
-               VALUES (NULL, $1, 'Dec 31, 2026 11:59 PM', NOW(), NOW())
-               RETURNING id, user_id, token, expires_at, created_at, updated_at"
+        let email = format!("reset_upd_{}@example.com", chrono::Utc::now().timestamp_micros());
+        let old_hash = hash_password("oldpassword").unwrap();
+        let user_id: i64 = sqlx::query_scalar(
+            r"INSERT INTO users (email, password_digest, created_at, updated_at)
+               VALUES ($1, $2, NOW(), NOW()) RETURNING id"
         )
-        .bind(&token)
+        .bind(&email)
+        .bind(&old_hash)
         .fetch_one(&state.db)
-        .await;
+        .await
+        .expect("Failed to create test user");
+
+        let token = format!("rust_reset_up_{}", chrono::Utc::now().timestamp_micros());
+        sqlx::query(
+            r"INSERT INTO reset_triggers (user_id, token, expires_at, created_at, updated_at)
+               VALUES ($1, $2, 'Dec 31, 2026 11:59 PM', NOW(), NOW())"
+        )
+        .bind(user_id as i32)
+        .bind(&token)
+        .execute(&state.db)
+        .await
+        .expect("Failed to create reset trigger");
 
         let app = test::init_service(
             App::new()
@@ -273,21 +307,32 @@ mod tests {
         )
         .await;
 
-        if let Ok(_row) = seed {
-            let req = test::TestRequest::post()
-                .uri(&format!("/v1/reset_trigger/{}", token))
-                .set_json(serde_json::json!({
-                    "password": "newpassword123"
-                }))
-                .to_request();
-            let resp = test::call_service(&app, req).await;
-            assert_eq!(resp.status(), 200);
+        let req = test::TestRequest::post()
+            .uri(&format!("/v1/reset_trigger/{}", token))
+            .set_json(serde_json::json!({
+                "password": "newpassword123"
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 200);
 
-            let _ = sqlx::query(r"DELETE FROM reset_triggers WHERE token = $1")
-                .bind(&token)
-                .execute(&state.db)
-                .await;
-        }
+        let new_hash: String = sqlx::query_scalar(
+            r"SELECT password_digest FROM users WHERE id = $1"
+        )
+        .bind(user_id)
+        .fetch_one(&state.db)
+        .await
+        .expect("User not found");
+        assert_ne!(old_hash, new_hash, "Password should have been updated");
+
+        let _ = sqlx::query(r"DELETE FROM reset_triggers WHERE token = $1")
+            .bind(&token)
+            .execute(&state.db)
+            .await;
+        let _ = sqlx::query(r"DELETE FROM users WHERE id = $1")
+            .bind(user_id)
+            .execute(&state.db)
+            .await;
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -295,15 +340,28 @@ mod tests {
         unsafe { std::env::set_var("DATABASE_URL", TEST_DB_URL); }
         let state = web::Data::new(get_state().await);
 
-        let token = format!("rust_reset_sp_{}", chrono::Utc::now().timestamp_micros());
-        let seed = sqlx::query_as::<_, ResetTriggerRow>(
-            r"INSERT INTO reset_triggers (user_id, token, expires_at, created_at, updated_at)
-               VALUES (NULL, $1, 'Dec 31, 2026 11:59 PM', NOW(), NOW())
-               RETURNING id, user_id, token, expires_at, created_at, updated_at"
+        let email = format!("reset_sp_{}@example.com", chrono::Utc::now().timestamp_micros());
+        let old_hash = hash_password("oldpassword").unwrap();
+        let user_id: i64 = sqlx::query_scalar(
+            r"INSERT INTO users (email, password_digest, created_at, updated_at)
+               VALUES ($1, $2, NOW(), NOW()) RETURNING id"
         )
-        .bind(&token)
+        .bind(&email)
+        .bind(&old_hash)
         .fetch_one(&state.db)
-        .await;
+        .await
+        .expect("Failed to create test user");
+
+        let token = format!("rust_reset_sp_{}", chrono::Utc::now().timestamp_micros());
+        sqlx::query(
+            r"INSERT INTO reset_triggers (user_id, token, expires_at, created_at, updated_at)
+               VALUES ($1, $2, 'Dec 31, 2026 11:59 PM', NOW(), NOW())"
+        )
+        .bind(user_id as i32)
+        .bind(&token)
+        .execute(&state.db)
+        .await
+        .expect("Failed to create reset trigger");
 
         let app = test::init_service(
             App::new()
@@ -312,20 +370,68 @@ mod tests {
         )
         .await;
 
-        if let Ok(_row) = seed {
-            let req = test::TestRequest::post()
-                .uri(&format!("/v1/reset_trigger/{}", token))
-                .set_json(serde_json::json!({
-                    "password": "short"
-                }))
-                .to_request();
-            let resp = test::call_service(&app, req).await;
-            assert_eq!(resp.status(), 422);
+        let req = test::TestRequest::post()
+            .uri(&format!("/v1/reset_trigger/{}", token))
+            .set_json(serde_json::json!({
+                "password": "short"
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 422);
 
-            let _ = sqlx::query(r"DELETE FROM reset_triggers WHERE token = $1")
-                .bind(&token)
-                .execute(&state.db)
-                .await;
-        }
+        let original_hash: String = sqlx::query_scalar(
+            r"SELECT password_digest FROM users WHERE id = $1"
+        )
+        .bind(user_id)
+        .fetch_one(&state.db)
+        .await
+        .expect("User not found");
+        assert_eq!(old_hash, original_hash, "Password should NOT have changed for invalid input");
+
+        let _ = sqlx::query(r"DELETE FROM reset_triggers WHERE token = $1")
+            .bind(&token)
+            .execute(&state.db)
+            .await;
+        let _ = sqlx::query(r"DELETE FROM users WHERE id = $1")
+            .bind(user_id)
+            .execute(&state.db)
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn reset_trigger_update_no_user() {
+        unsafe { std::env::set_var("DATABASE_URL", TEST_DB_URL); }
+        let state = web::Data::new(get_state().await);
+
+        let token = format!("rust_reset_nu_{}", chrono::Utc::now().timestamp_micros());
+        sqlx::query(
+            r"INSERT INTO reset_triggers (user_id, token, expires_at, created_at, updated_at)
+               VALUES (NULL, $1, 'Dec 31, 2026 11:59 PM', NOW(), NOW())"
+        )
+        .bind(&token)
+        .execute(&state.db)
+        .await
+        .expect("Failed to create reset trigger");
+
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(get_state().await))
+                .configure(config_routes),
+        )
+        .await;
+
+        let req = test::TestRequest::post()
+            .uri(&format!("/v1/reset_trigger/{}", token))
+            .set_json(serde_json::json!({
+                "password": "newpassword123"
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 404);
+
+        let _ = sqlx::query(r"DELETE FROM reset_triggers WHERE token = $1")
+            .bind(&token)
+            .execute(&state.db)
+            .await;
     }
 }
