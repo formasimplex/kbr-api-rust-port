@@ -38,6 +38,9 @@ pub enum AppError {
 
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
+
+    #[error("storage error: {0}")]
+    Storage(String),
 }
 
 impl actix_web::ResponseError for AppError {
@@ -55,6 +58,7 @@ impl actix_web::ResponseError for AppError {
             Self::Jwt(_) => StatusCode::UNAUTHORIZED,
             Self::Bcrypt(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Self::Io(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            Self::Storage(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 

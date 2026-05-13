@@ -7,6 +7,7 @@ use crate::auth::roles::is_artist_or_above;
 use crate::error::AppError;
 use crate::models::artist::{Artist, ArtistResponse, CreateArtistRequest, UpdateArtistRequest};
 use crate::models::artist_link::{ArtistLink, CreateArtistLinkRequest};
+use crate::services::storage_service;
 
 #[derive(Debug, FromRow)]
 struct ArtistRow {
@@ -41,7 +42,7 @@ impl From<ArtistRow> for Artist {
     }
 }
 
-pub async fn index(state: web::Data<AppState>) -> Result<HttpResponse, AppError> {
+  pub async fn index(state: web::Data<AppState>) -> Result<HttpResponse, AppError> {
     let rows = sqlx::query_as::<_, ArtistRow>(
         r#"SELECT id, name, genre, bio, user_id, prospect,
            "spotifyId" AS spotify_id, "subHeading" AS sub_heading, intro,
@@ -51,7 +52,16 @@ pub async fn index(state: web::Data<AppState>) -> Result<HttpResponse, AppError>
     .await?;
 
     let artists: Vec<Artist> = rows.into_iter().map(|r| r.into()).collect();
-    let responses: Vec<ArtistResponse> = artists.iter().map(|a| a.to_response()).collect();
+    let mut responses: Vec<ArtistResponse> = Vec::new();
+    for artist in &artists {
+        let (image_urls, thumbnail_urls) = storage_service::get_image_urls(
+            &state.s3,
+            &state.db,
+            "Artist",
+            artist.id,
+        ).await.unwrap_or_else(|_| (Vec::new(), Vec::new()));
+        responses.push(artist.to_response(image_urls, thumbnail_urls));
+    }
     Ok(HttpResponse::Ok().json(responses))
 }
 
@@ -72,7 +82,13 @@ pub async fn show(
     {
         Some(row) => {
             let artist: Artist = row.into();
-            Ok(HttpResponse::Ok().json(artist.to_response()))
+            let (image_urls, thumbnail_urls) = storage_service::get_image_urls(
+                &state.s3,
+                &state.db,
+                "Artist",
+                artist.id,
+            ).await.unwrap_or_else(|_| (Vec::new(), Vec::new()));
+            Ok(HttpResponse::Ok().json(artist.to_response(image_urls, thumbnail_urls)))
         }
         None => Err(AppError::NotFound(format!("Artist #{}", id))),
     }
@@ -115,7 +131,7 @@ pub async fn create(
     .await?;
 
     let artist: Artist = row.into();
-    Ok(HttpResponse::Created().json(artist.to_response()))
+    Ok(HttpResponse::Created().json(artist.to_response(Vec::new(), Vec::new())))
 }
 
 pub async fn update(
@@ -165,7 +181,7 @@ pub async fn update(
     .ok_or_else(|| AppError::NotFound(format!("Artist #{}", id)))?;
 
     let artist: Artist = row.into();
-    Ok(HttpResponse::Ok().json(artist.to_response()))
+    Ok(HttpResponse::Ok().json(artist.to_response(Vec::new(), Vec::new())))
 }
 
 pub async fn add_artist_links(
@@ -254,11 +270,26 @@ mod tests {
     const TEST_DB_URL: &str = "postgresql://ws@localhost:5432/kbr_test";
 
     async fn get_state() -> AppState {
-        AppState {
-            db: sqlx::PgPool::connect(TEST_DB_URL)
-                .await
-                .expect("Failed to connect to test database"),
-        }
+        let pool = sqlx::PgPool::connect(TEST_DB_URL)
+            .await
+            .expect("Failed to connect to test database");
+
+        let config = crate::services::storage_service::S3Config::from_env()
+            .unwrap_or_else(|_| crate::services::storage_service::S3Config {
+                access_key: "test".to_string(),
+                secret_key: "test".to_string(),
+                endpoint: "https://test.test".to_string(),
+                bucket_name: "test".to_string(),
+                region: "us-east-1".to_string(),
+            });
+        let s3 = crate::services::storage_service::create_s3_bucket(&config).unwrap_or_else(|_| {
+            let creds = s3::creds::Credentials::new(Some("test"), Some("test"), None, None, None).unwrap();
+            s3::bucket::Bucket::new("test", s3::region::Region::Custom { region: "us-east-1".to_string(), endpoint: "https://test.test".to_string() }, creds)
+                .unwrap()
+                .with_path_style()
+        });
+
+        AppState { db: pool, s3 }
     }
 
     fn admin_token() -> String {
