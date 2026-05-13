@@ -51,6 +51,7 @@ async fn main() -> std::io::Result<()> {
             .configure(kbr_api_rust::handlers::events::config_routes)
             .configure(kbr_api_rust::handlers::event_attendees::config_routes)
             .configure(kbr_api_rust::handlers::mailing::config_routes)
+            .configure(kbr_api_rust::handlers::webhook::config_routes)
     })
     .bind(addr)?
     .run()

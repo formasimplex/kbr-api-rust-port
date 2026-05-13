@@ -19,3 +19,4 @@ pub mod event_attendees;
 pub mod mailing;
 pub mod data_api;
 pub mod health;
+pub mod webhook;

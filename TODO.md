@@ -2,7 +2,7 @@
 
 ## Status: All Handlers SQLx-Ready, Missing Endpoints + External Services Remaining
 
-### ✅ All 20 Handlers Converted to Real SQLx Queries (310 tests passing)
+### ✅ All 21 Handlers Converted to Real SQLx Queries (316 tests passing)
 
 Every handler now queries PostgreSQL via `web::Data<AppState>`. Zero mock data remains.
 
@@ -15,9 +15,9 @@ Every handler now queries PostgreSQL via `web::Data<AppState>`. Zero mock data r
 | Rails Controller | Endpoints | Complexity | Status |
 |---|---|---|---|
 | `DataApiController` | `GET /v1/data/last_logins`, `GET /v1/data/last_logins/:id`, `GET /v1/data/event_attendees_present/:id` | Low — read-only | ✅ Done (5 tests) |
-| `GenerateTextController` | `GET /v1/generate_text/cp/:type`, `GET /v1/generate_bio/:type` | Medium — OpenAI |
-| `UnsubscribeController` | `POST /v1/unsubscribe`, `GET /v1/unsubscribe/:token` | Low-Medium — JWT flow |
-| `WebhookController` | `POST /v1/webhook/update_progress`, `customers_data_request`, `customers_redact`, `shop_redact` | Medium — Shopify + GDPR |
+| `GenerateTextController` | `GET /v1/generate_text/cp/:type`, `GET /v1/generate_bio/:type` | Medium — OpenAI | ⏭️ Skipped (never used) |
+| `UnsubscribeController` | `POST /v1/unsubscribe`, `GET /v1/unsubscribe/:token` | Low-Medium — JWT flow | ✅ Done (in mailing.rs) |
+| `WebhookController` | `POST /v1/webhook/update_progress`, `customers_data_request`, `customers_redact`, `shop_redact` | Medium — Shopify + GDPR | ✅ Done (6 tests) |
 
 ### Priority 2: External Service Integrations
 

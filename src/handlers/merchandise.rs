@@ -282,7 +282,7 @@ mod tests {
         encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string())).unwrap()
     }
 
-    async fn seed_artist_and_producer(pool: &sqlx::PgPool) -> (i64, i64) {
+    async fn seed_artist_and_producer(pool: &sqlx::PgPool) -> (i64, i64, String, String) {
         let suffix = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -310,7 +310,7 @@ mod tests {
         .await
         .expect("Failed to seed producer");
 
-        (artist_id, producer_id)
+        (artist_id, producer_id, artist_name, producer_name)
     }
 
     async fn cleanup_by_artist_name(pool: &sqlx::PgPool, artist_name: &str, producer_name: &str) {
@@ -353,14 +353,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
         let state = web::Data::new(get_state().await);
-        let (artist_id, producer_id) = seed_artist_and_producer(&state.db).await;
-
-        let suffix = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis();
-        let artist_name = format!("Test Artist Merch {}", suffix);
-        let producer_name = format!("Test Producer Merch {}", suffix);
+        let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
 
         let seed = sqlx::query_as::<_, ArtistMerchandiseRow>(
             r"INSERT INTO artist_merchandise (artist_id, producer_id, merchandise_id, description,
@@ -438,14 +431,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
         let state = web::Data::new(get_state().await);
-        let (artist_id, producer_id) = seed_artist_and_producer(&state.db).await;
-
-        let suffix = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis();
-        let artist_name = format!("Test Artist Merch {}", suffix);
-        let producer_name = format!("Test Producer Merch {}", suffix);
+        let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
 
         let _ = sqlx::query(
             r"INSERT INTO artist_merchandise (artist_id, producer_id, merchandise_id, merch_title, created_at, updated_at)
@@ -487,14 +473,12 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
         let state = web::Data::new(get_state().await);
-        let (artist_id, producer_id) = seed_artist_and_producer(&state.db).await;
+        let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
 
         let suffix = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_millis();
-        let artist_name = format!("Test Artist Merch {}", suffix);
-        let producer_name = format!("Test Producer Merch {}", suffix);
         let title = format!("New Item {}", suffix);
 
         let app = test::init_service(
@@ -563,14 +547,12 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
         let state = web::Data::new(get_state().await);
-        let (artist_id, producer_id) = seed_artist_and_producer(&state.db).await;
+        let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
 
         let suffix = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_millis();
-        let artist_name = format!("Test Artist Merch {}", suffix);
-        let producer_name = format!("Test Producer Merch {}", suffix);
         let original_title = format!("Original {}", suffix);
         let new_title = format!("Updated {}", suffix);
 
@@ -656,7 +638,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
         let state = web::Data::new(get_state().await);
-        let (artist_id, producer_id) = seed_artist_and_producer(&state.db).await;
+        let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
 
         let suffix = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -692,6 +674,7 @@ mod tests {
 
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert_eq!(body["message"], format!("Merchandise #{} deleted", id));
+        let _ = cleanup_by_artist_name(&state.db, &artist_name, &producer_name).await;
     }
 
     #[tokio::test(flavor = "current_thread")]
