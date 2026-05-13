@@ -34,12 +34,18 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     async fn connect_fails_with_invalid_url() {
+        let original = std::env::var("DATABASE_URL").ok();
         unsafe {
             std::env::set_var("DATABASE_URL", "postgresql://invalid-host-xyz123:5432/nonexistent");
         }
         let result = connect().await;
+        if let Some(val) = original {
+            unsafe {
+                std::env::set_var("DATABASE_URL", val);
+            }
+        }
         assert!(result.is_err());
         matches!(result.unwrap_err(), AppError::Database(_));
     }

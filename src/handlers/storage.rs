@@ -378,6 +378,7 @@ mod tests {
         let req = actix_web::test::TestRequest::post()
             .uri("/v1/storage/upload")
             .insert_header(("Authorization", format!("Bearer {}", artist_token())))
+            .insert_header(("Content-Type", "multipart/form-data; boundary=boundary456"))
             .set_payload(body)
             .to_request();
 
