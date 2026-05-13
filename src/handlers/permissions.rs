@@ -112,8 +112,8 @@ pub async fn create(
     .bind(body.can_update.unwrap_or(false))
     .bind(body.can_delete.unwrap_or(false))
     .bind(user.id)
-    .bind(&now)
-    .bind(&now)
+    .bind(now)
+    .bind(now)
     .fetch_one(&state.db)
     .await?;
 
@@ -147,7 +147,7 @@ pub async fn update(
     .bind(body.can_read)
     .bind(body.can_update)
     .bind(body.can_delete)
-    .bind(&now)
+    .bind(now)
     .bind(id)
     .fetch_optional(&state.db)
     .await?;

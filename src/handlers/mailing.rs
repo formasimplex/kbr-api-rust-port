@@ -128,12 +128,10 @@ pub async fn artist_mail_subscriber(
     let now = chrono::Utc::now().naive_utc();
 
     let row = sqlx::query_as::<_, MailSubscriberRow>(
-        &format!(
-            r#"INSERT INTO mail_subscribers (full_name, email, active, artist_id, unsubscribe_token, user_id, created_at, updated_at)
+        r#"INSERT INTO mail_subscribers (full_name, email, active, artist_id, unsubscribe_token, user_id, created_at, updated_at)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                RETURNING id, full_name, email, active, artist_id, unsubscribed_at,
                unsubscribe_token, user_id, created_at, updated_at"#,
-        ),
     )
     .bind(&body.full_name)
     .bind(&body.email)
@@ -141,8 +139,8 @@ pub async fn artist_mail_subscriber(
     .bind(artist_id)
     .bind(&token)
     .bind(user.id)
-    .bind(&now)
-    .bind(&now)
+    .bind(now)
+    .bind(now)
     .fetch_one(&state.db)
     .await?;
 
@@ -184,12 +182,10 @@ pub async fn add_mail_subscriber_with_user(
     let now = chrono::Utc::now().naive_utc();
 
     let row = sqlx::query_as::<_, MailSubscriberRow>(
-        &format!(
-            r#"INSERT INTO mail_subscribers (full_name, email, active, artist_id, unsubscribe_token, user_id, created_at, updated_at)
+        r#"INSERT INTO mail_subscribers (full_name, email, active, artist_id, unsubscribe_token, user_id, created_at, updated_at)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                RETURNING id, full_name, email, active, artist_id, unsubscribed_at,
                unsubscribe_token, user_id, created_at, updated_at"#,
-        ),
     )
     .bind(&body.full_name)
     .bind(&body.email)
@@ -197,8 +193,8 @@ pub async fn add_mail_subscriber_with_user(
     .bind(artist_id)
     .bind(&token)
     .bind(user.id)
-    .bind(&now)
-    .bind(&now)
+    .bind(now)
+    .bind(now)
     .fetch_one(&state.db)
     .await?;
 
@@ -218,20 +214,18 @@ pub async fn add_mail_subscriber(
     let now = chrono::Utc::now().naive_utc();
 
     let row = sqlx::query_as::<_, MailSubscriberRow>(
-        &format!(
-            r#"INSERT INTO mail_subscribers (full_name, email, active, artist_id, unsubscribe_token, created_at, updated_at)
+        r#"INSERT INTO mail_subscribers (full_name, email, active, artist_id, unsubscribe_token, created_at, updated_at)
                VALUES ($1, $2, $3, $4, $5, $6, $7)
                RETURNING id, full_name, email, active, artist_id, unsubscribed_at,
                unsubscribe_token, user_id, created_at, updated_at"#,
-        ),
     )
     .bind(&body.full_name)
     .bind(&body.email)
     .bind(true)
     .bind(body.artist_id)
     .bind(&token)
-    .bind(&now)
-    .bind(&now)
+    .bind(now)
+    .bind(now)
     .fetch_one(&state.db)
     .await?;
 
@@ -257,8 +251,8 @@ pub async fn unsubscribe(
         r#"UPDATE mail_subscribers SET unsubscribed_at = $1, updated_at = $2
            WHERE user_id = $3 AND artist_id = $4 AND unsubscribed_at IS NULL"#,
     )
-    .bind(&now)
-    .bind(&now)
+    .bind(now)
+    .bind(now)
     .bind(user.id)
     .bind(artist_id)
     .execute(&state.db)
@@ -316,8 +310,8 @@ pub async fn process_unsubscribe(
         r#"UPDATE mail_subscribers SET unsubscribed_at = $1, updated_at = $2
            WHERE unsubscribe_token = $3 AND unsubscribed_at IS NULL"#,
     )
-    .bind(&now)
-    .bind(&now)
+    .bind(now)
+    .bind(now)
     .bind(&token)
     .execute(&state.db)
     .await?;

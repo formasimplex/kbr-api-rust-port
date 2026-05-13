@@ -103,8 +103,8 @@ pub async fn create(
     .bind(&body.image_url)
     .bind(true)
     .bind(true)
-    .bind(&now)
-    .bind(&now)
+    .bind(now)
+    .bind(now)
     .fetch_one(&state.db)
     .await?;
 
@@ -155,7 +155,7 @@ pub async fn update(
             )
             .bind(active)
             .bind(enabled)
-            .bind(&now)
+            .bind(now)
             .bind(id)
             .fetch_one(&state.db)
             .await?;
@@ -168,7 +168,7 @@ pub async fn update(
                 ),
             )
             .bind(active)
-            .bind(&now)
+            .bind(now)
             .bind(id)
             .fetch_one(&state.db)
             .await?;
@@ -182,7 +182,7 @@ pub async fn update(
             ),
         )
         .bind(enabled)
-        .bind(&now)
+        .bind(now)
         .bind(id)
         .fetch_one(&state.db)
         .await?;
@@ -232,7 +232,7 @@ pub async fn toggle_comments(
         ),
     )
     .bind(!news.comments_enabled)
-    .bind(&now)
+    .bind(now)
     .bind(id)
     .fetch_one(&state.db)
     .await?;
@@ -272,8 +272,8 @@ pub async fn add_to_playlist(
     .bind(news_id)
     .bind(playlist_id)
     .bind(position)
-    .bind(&now)
-    .bind(&now)
+    .bind(now)
+    .bind(now)
     .execute(&state.db)
     .await?;
 

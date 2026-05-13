@@ -52,8 +52,8 @@ pub async fn create(
     .bind(&token)
     .bind(&expires_at)
     .bind(&body.role)
-    .bind(&now)
-    .bind(&now)
+    .bind(now)
+    .bind(now)
     .fetch_one(&state.db)
     .await?;
 
@@ -79,7 +79,7 @@ pub async fn show(
             let trigger: SignUpTrigger = row.into();
             Ok(HttpResponse::Ok().json(trigger.to_response()))
         }
-        None => Err(AppError::NotFound(format!("Sign-up trigger not found"))),
+        None => Err(AppError::NotFound("Sign-up trigger not found".to_string())),
     }
 }
 

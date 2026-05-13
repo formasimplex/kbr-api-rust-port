@@ -135,7 +135,7 @@ pub async fn create(
            create_by_user_id, event_url, qr_encode_string, ticket_url, external_url, created_at, updated_at"#
     )
     .bind(&body.name)
-    .bind(body.description.replace('\r', "").replace('\n', ""))
+    .bind(body.description.replace(['\r', '\n'], ""))
     .bind(true)
     .bind(body.event_start_date.naive_utc())
     .bind(body.event_end_date.naive_utc())
@@ -144,8 +144,8 @@ pub async fn create(
     .bind(body.qr_encode_string.as_deref())
     .bind(body.ticket_url.as_deref())
     .bind(body.external_url.as_deref())
-    .bind(&now)
-    .bind(&now)
+    .bind(now)
+    .bind(now)
     .fetch_one(&state.db)
     .await?;
 
@@ -178,12 +178,12 @@ pub async fn update(
            RETURNING id, name, description, active, event_start_date, event_end_date,
            create_by_user_id, event_url, qr_encode_string, ticket_url, external_url, created_at, updated_at"#
     )
-    .bind(body.name.as_deref().map(|s| s.replace('\r', "").replace('\n', "")))
-    .bind(body.description.as_deref().map(|s| s.replace('\r', "").replace('\n', "")))
+    .bind(body.name.as_deref().map(|s| s.replace(['\r', '\n'], "")))
+    .bind(body.description.as_deref().map(|s| s.replace(['\r', '\n'], "")))
     .bind(body.active)
     .bind(body.ticket_url.as_deref())
     .bind(body.external_url.as_deref())
-    .bind(&now)
+    .bind(now)
     .bind(id)
     .fetch_optional(&state.db)
     .await?

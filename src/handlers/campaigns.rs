@@ -131,13 +131,11 @@ pub async fn create(
     let now = chrono::Utc::now().naive_utc();
 
     let row = sqlx::query_as::<_, CampaignRow>(
-        &format!(
-            r#"INSERT INTO campaigns (artist_id, name, active, vinyl_sold_count, campaign_start_date, campaign_end_date, progress, album_id, created_at, updated_at)
+        r#"INSERT INTO campaigns (artist_id, name, active, vinyl_sold_count, campaign_start_date, campaign_end_date, progress, album_id, created_at, updated_at)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                RETURNING id, artist_id, name, active, vinyl_sold_count,
                campaign_start_date, campaign_end_date, progress, album_id,
                deleted_at, created_at, updated_at"#,
-        ),
     )
     .bind(body.artist_id)
     .bind(&body.name)
@@ -147,8 +145,8 @@ pub async fn create(
     .bind::<Option<chrono::NaiveDateTime>>(None)
     .bind(0_i32)
     .bind::<Option<i64>>(None)
-    .bind(&now)
-    .bind(&now)
+    .bind(now)
+    .bind(now)
     .fetch_one(&state.db)
     .await?;
 
@@ -167,19 +165,17 @@ pub async fn update(
     }
     let id = path.into_inner();
 
-    if let Some(vinyl) = body.vinyl_sold_count {
-        if !Campaign::validate_vinyl_sold_count(vinyl) {
+    if let Some(vinyl) = body.vinyl_sold_count
+        && !Campaign::validate_vinyl_sold_count(vinyl) {
             return Err(AppError::Validation(
                 "vinyl_sold_count must be between 0 and 100".to_string(),
             ));
         }
-    }
 
     let now = chrono::Utc::now().naive_utc();
 
     let row = sqlx::query_as::<_, CampaignRow>(
-        &format!(
-            r#"UPDATE campaigns SET
+        r#"UPDATE campaigns SET
                 name = COALESCE($1, name),
                 active = COALESCE($2, active),
                 vinyl_sold_count = COALESCE($3, vinyl_sold_count),
@@ -191,7 +187,6 @@ pub async fn update(
             RETURNING id, artist_id, name, active, vinyl_sold_count,
             campaign_start_date, campaign_end_date, progress, album_id,
             deleted_at, created_at, updated_at"#,
-        ),
     )
     .bind(body.name.as_deref())
     .bind(body.active)
@@ -199,7 +194,7 @@ pub async fn update(
     .bind(body.progress)
     .bind(body.campaign_start_date.map(|dt| dt.naive_utc()))
     .bind(body.campaign_end_date.map(|dt| dt.naive_utc()))
-    .bind(&now)
+    .bind(now)
     .bind(id)
     .fetch_optional(&state.db)
     .await?
@@ -225,8 +220,8 @@ pub async fn destroy(
         r#"UPDATE campaigns SET deleted_at = $1, updated_at = $2
            WHERE id = $3 AND deleted_at IS NULL"#,
     )
-    .bind(&now)
-    .bind(&now)
+    .bind(now)
+    .bind(now)
     .bind(id)
     .execute(&state.db)
     .await?;
@@ -258,7 +253,7 @@ pub async fn activate_campaign(
         r#"UPDATE campaigns SET active = true, updated_at = $1
            WHERE id = $2 AND deleted_at IS NULL"#,
     )
-    .bind(&now)
+    .bind(now)
     .bind(campaign_id)
     .execute(&state.db)
     .await?;

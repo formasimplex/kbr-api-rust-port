@@ -73,7 +73,7 @@ impl KbrEvent {
     }
 
     fn clean_description(desc: &Option<String>) -> Option<String> {
-        desc.as_ref().map(|d| d.replace('\r', "").replace('\n', ""))
+        desc.as_ref().map(|d| d.replace(['\r', '\n'], ""))
     }
 
     pub fn validate_required(name: &str, description: &str, has_dates: bool, has_user: bool) -> bool {

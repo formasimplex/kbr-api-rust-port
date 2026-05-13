@@ -85,8 +85,8 @@ pub async fn create(
     )
     .bind(&body.name)
     .bind(release_date)
-    .bind(&now)
-    .bind(&now)
+    .bind(now)
+    .bind(now)
     .fetch_one(&state.db)
     .await?;
 

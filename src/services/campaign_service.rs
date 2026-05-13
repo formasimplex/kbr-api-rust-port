@@ -11,13 +11,12 @@ impl CampaignService {
                 "Campaign name is required".to_string(),
             ));
         }
-        if let Some(count) = req.vinyl_sold_count {
-            if !crate::models::campaign::Campaign::validate_vinyl_sold_count(count) {
+        if let Some(count) = req.vinyl_sold_count
+            && !crate::models::campaign::Campaign::validate_vinyl_sold_count(count) {
                 return Err(AppError::Validation(
                     "vinyl_sold_count must be between 0 and 100".to_string(),
                 ));
             }
-        }
         Ok(())
     }
 
@@ -54,7 +53,7 @@ impl CampaignService {
 
     pub fn validate_page_type(page_type: i32) -> Result<(), AppError> {
         match page_type {
-            0 | 1 | 2 => Ok(()),
+            0..=2 => Ok(()),
             _ => Err(AppError::Validation(format!(
                 "Invalid page_type: {}. Must be 0 (minimalist), 1 (social_butterfly), or 2 (story_teller)",
                 page_type

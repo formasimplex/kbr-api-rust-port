@@ -82,13 +82,12 @@ pub async fn create(
 ) -> Result<HttpResponse, AppError> {
     UserService::validate_create_request(&body)?;
 
-    if let Some(ref token) = body.token {
-        if token.is_empty() {
+    if let Some(ref token) = body.token
+        && token.is_empty() {
             return Err(AppError::Validation(
                 "Sign-up token is required".to_string(),
             ));
         }
-    }
 
     let password_digest = UserService::hash_password_for_create(&body)?;
     let role = UserService::force_role_user();
@@ -104,8 +103,8 @@ pub async fn create(
     .bind(&role)
     .bind::<Option<String>>(None)
     .bind(&body.username)
-    .bind(&now)
-    .bind(&now)
+    .bind(now)
+    .bind(now)
     .fetch_one(&state.db)
     .await?;
 
@@ -125,13 +124,12 @@ pub async fn update(
     }
     UserService::validate_update_request(&body)?;
 
-    if let Some(ref _role) = body.role {
-        if !user.is_admin() {
+    if let Some(ref _role) = body.role
+        && !user.is_admin() {
             return Err(AppError::Forbidden(
                 "Only admins can change roles".to_string(),
             ));
         }
-    }
 
     let existing = sqlx::query_as::<_, UserRow>(
         r"SELECT id, email, password_digest, role, session_token, username, created_at, updated_at FROM users WHERE id = $1"
@@ -172,7 +170,7 @@ pub async fn update(
             .bind(username)
             .bind(role)
             .bind(password_digest)
-            .bind(&now)
+            .bind(now)
             .bind(target_id)
             .fetch_one(&state.db)
             .await?;

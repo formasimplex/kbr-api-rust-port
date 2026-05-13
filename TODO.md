@@ -43,5 +43,7 @@ Need decision: in-process queue vs Redis/BullMQ/SQS.
 
 ### Priority 4: Cleanup
 
-- 10 unused `encode_token` imports across handler test modules
-- 4 camelCase field warnings in `configs.rs`
+- ✅ All clippy warnings resolved (0 remaining across 25 files)
+- ✅ camelCase field warnings fixed in `configs.rs`
+- ✅ `Role::from_str` replaced with proper `FromStr` trait impl
+- ✅ `WebhookInventoryParams` / `WebhookPayload` visibility fixed

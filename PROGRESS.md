@@ -10,7 +10,7 @@
 | 4 | Events + Mailing | ✅ Done + SQLx |
 | 5 | Commerce + Config | ✅ Done + SQLx |
 | 6 | External Services (S3/Storage, Shopify, Mailchimp, OpenAI) | Pending |
-| 7 | Webhooks + Missing Endpoints | Pending |
+| 7 | Webhooks + Missing Endpoints | ✅ Done |
 
 ## Stage 2a — SQLx Real DB Integration (COMPLETE)
 All 19 handlers converted from mock data to real PostgreSQL queries via `sqlx`. Zero mock data remains.
@@ -57,10 +57,27 @@ All 19 handlers converted from mock data to real PostgreSQL queries via `sqlx`. 
 | 20 | `mailing.rs` | 13 | mailchimp, unsubscribe flow |
 
 ### Test Summary
-- **305 tests passing** (1 pre-existing flaky env var race condition test)
+- **316 tests passing** (0 failing, 0 flaky)
 - All handler tests use real PostgreSQL queries against `kbr_test`
 - Seed data uses timestamp-suffixed names for uniqueness
 - Cleanup after each test prevents cross-test interference
+
+## Stage 7 — Missing Endpoints (COMPLETE)
+Implemented remaining Rails controllers not yet ported:
+
+| # | Handler | Tests | Endpoints |
+|---|---------|-------|-----------|
+| 21 | `data_api.rs` | 5 | `GET /v1/data/last_logins`, `GET /v1/data/last_logins/:id`, `GET /v1/data/event_attendees_present/:id` |
+| 22 | `webhook.rs` | 6 | `POST /v1/webhook/update_progress`, `customers_data_request`, `customers_redact`, `shop_redact` |
+
+## Clippy & Code Quality Cleanup (COMPLETE)
+- Eliminated all 11 remaining clippy warnings across 25 files
+- `src/handlers/configs.rs` — Renamed `instaUrl`, `twitterUrl`, `tiktokUrl`, `spotifyId` to snake_case (DB column mapping preserved via `#[sqlx(rename)]`)
+- `src/handlers/webhook.rs` — Made `WebhookInventoryParams` and `WebhookPayload` `pub` to match handler visibility
+- `src/auth/roles.rs` — Replaced `Role::from_str` with proper `impl std::str::FromStr for Role`
+- `src/auth/middleware.rs` — Updated role parsing to use `.parse::<Role>()`
+- 25 files — Auto-fixed `unnecessary_to_owned` (`.to_string()` on raw string literals)
+- Final: 0 clippy warnings, 316 tests passing, clean build
 
 ## Key Decisions
 - `web::Query<serde_json::Value>` for flexible query param parsing

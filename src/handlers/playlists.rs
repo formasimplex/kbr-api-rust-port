@@ -187,8 +187,8 @@ pub async fn dashboard_create(
     .bind(user.id)
     .bind(&body.name)
     .bind(&body.description)
-    .bind(&now)
-    .bind(&now)
+    .bind(now)
+    .bind(now)
     .fetch_one(&state.db)
     .await?;
 
@@ -239,7 +239,7 @@ pub async fn dashboard_update(
             )
             .bind(&name)
             .bind(&desc)
-            .bind(&now)
+            .bind(now)
             .bind(id)
             .fetch_one(&state.db)
             .await?
@@ -251,7 +251,7 @@ pub async fn dashboard_update(
                 ),
             )
             .bind(&name)
-            .bind(&now)
+            .bind(now)
             .bind(id)
             .fetch_one(&state.db)
             .await?
@@ -264,7 +264,7 @@ pub async fn dashboard_update(
             ),
         )
         .bind(&desc_opt)
-        .bind(&now)
+        .bind(now)
         .bind(id)
         .fetch_one(&state.db)
         .await?
@@ -359,8 +359,8 @@ pub async fn dashboard_add_news(
     .bind(news_id)
     .bind(playlist_id)
     .bind(position)
-    .bind(&now)
-    .bind(&now)
+    .bind(now)
+    .bind(now)
     .execute(&state.db)
     .await?;
 
@@ -406,7 +406,7 @@ pub async fn dashboard_reorder(
                 r"UPDATE users_news SET position = $1, updated_at = $2 WHERE playlist_id = $3 AND news_id = $4",
             )
             .bind(position as i32)
-            .bind(&now)
+            .bind(now)
             .bind(playlist_id)
             .bind(news_id)
             .execute(&state.db)

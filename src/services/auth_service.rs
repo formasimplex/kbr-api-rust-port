@@ -25,12 +25,12 @@ pub struct SessionResponse {
 }
 
 pub fn hash_password(password: &str) -> Result<String, AppError> {
-    let hash = bcrypt::hash(password, bcrypt::DEFAULT_COST).map_err(|e| AppError::Bcrypt(e))?;
+    let hash = bcrypt::hash(password, bcrypt::DEFAULT_COST).map_err(AppError::Bcrypt)?;
     Ok(hash)
 }
 
 pub fn verify_password(password: &str, hash: &str) -> Result<bool, AppError> {
-    let verified = bcrypt::verify(password, hash).map_err(|e| AppError::Bcrypt(e))?;
+    let verified = bcrypt::verify(password, hash).map_err(AppError::Bcrypt)?;
     Ok(verified)
 }
 

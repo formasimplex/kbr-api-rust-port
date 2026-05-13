@@ -6,12 +6,12 @@ use crate::app::AppState;
 use crate::error::AppError;
 
 #[derive(Debug, Deserialize)]
-pub(crate) struct WebhookInventoryParams {
+pub struct WebhookInventoryParams {
     webhook: WebhookPayload,
 }
 
 #[derive(Debug, Deserialize)]
-pub(crate) struct WebhookPayload {
+pub struct WebhookPayload {
     inventory_item_id: String,
     #[allow(dead_code)]
     location_id: Option<i64>,
@@ -107,7 +107,7 @@ pub async fn update_progress(
     )
     .bind(vinyl_sold)
     .bind(progress)
-    .bind(&now)
+    .bind(now)
     .bind(campaign.id)
     .execute(&state.db)
     .await?;

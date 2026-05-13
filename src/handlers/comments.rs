@@ -128,8 +128,8 @@ pub async fn create(
     .bind(body.commentable_id)
     .bind(user.id)
     .bind(body.parent_id)
-    .bind(&now)
-    .bind(&now)
+    .bind(now)
+    .bind(now)
     .fetch_one(&state.db)
     .await?;
 
@@ -166,8 +166,8 @@ pub async fn create_reply(
     .bind(body.commentable_id)
     .bind(user.id)
     .bind(Some(parent_id))
-    .bind(&now)
-    .bind(&now)
+    .bind(now)
+    .bind(now)
     .fetch_one(&state.db)
     .await?;
 

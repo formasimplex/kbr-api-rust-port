@@ -11,16 +11,18 @@ pub enum Role {
     Staff,
 }
 
-impl Role {
-    pub fn from_str(s: &str) -> Option<Self> {
+impl std::str::FromStr for Role {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "admin" => Some(Self::Admin),
-            "super_admin" => Some(Self::SuperAdmin),
-            "artist" => Some(Self::Artist),
-            "customer" => Some(Self::Customer),
-            "user" => Some(Self::User),
-            "staff" => Some(Self::Staff),
-            _ => None,
+            "admin" => Ok(Self::Admin),
+            "super_admin" => Ok(Self::SuperAdmin),
+            "artist" => Ok(Self::Artist),
+            "customer" => Ok(Self::Customer),
+            "user" => Ok(Self::User),
+            "staff" => Ok(Self::Staff),
+            _ => Err(format!("Unknown role: {}", s)),
         }
     }
 }
@@ -110,18 +112,18 @@ mod tests {
 
     #[test]
     fn role_from_str_valid() {
-        assert_eq!(Role::from_str("admin"), Some(Role::Admin));
-        assert_eq!(Role::from_str("super_admin"), Some(Role::SuperAdmin));
-        assert_eq!(Role::from_str("artist"), Some(Role::Artist));
-        assert_eq!(Role::from_str("customer"), Some(Role::Customer));
-        assert_eq!(Role::from_str("user"), Some(Role::User));
-        assert_eq!(Role::from_str("staff"), Some(Role::Staff));
+        assert_eq!("admin".parse::<Role>(), Ok(Role::Admin));
+        assert_eq!("super_admin".parse::<Role>(), Ok(Role::SuperAdmin));
+        assert_eq!("artist".parse::<Role>(), Ok(Role::Artist));
+        assert_eq!("customer".parse::<Role>(), Ok(Role::Customer));
+        assert_eq!("user".parse::<Role>(), Ok(Role::User));
+        assert_eq!("staff".parse::<Role>(), Ok(Role::Staff));
     }
 
     #[test]
     fn role_from_str_invalid() {
-        assert_eq!(Role::from_str("moderator"), None);
-        assert_eq!(Role::from_str(""), None);
+        assert!("moderator".parse::<Role>().is_err());
+        assert!("".parse::<Role>().is_err());
     }
 
     #[test]

@@ -155,8 +155,8 @@ pub async fn create(
     .bind(&body.merch_product_title)
     .bind(body.set_price)
     .bind(body.cost_price)
-    .bind(&now)
-    .bind(&now)
+    .bind(now)
+    .bind(now)
     .fetch_one(&state.db)
     .await?;
 
@@ -197,7 +197,7 @@ pub async fn update(
     .bind(desc.as_deref())
     .bind(set_price)
     .bind(cost_price)
-    .bind(&now)
+    .bind(now)
     .bind(id)
     .fetch_optional(&state.db)
     .await?;

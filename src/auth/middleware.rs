@@ -57,7 +57,7 @@ impl FromRequest for CurrentUser {
                 id: claims.user_id,
                 role: claims
                     .role
-                    .and_then(|r| Role::from_str(&r))
+                    .and_then(|r| r.parse::<Role>().ok())
                     .unwrap_or(Role::User),
             })
         })

@@ -84,8 +84,8 @@ pub async fn create(
     .bind(&body.duration)
     .bind(body.album_id)
     .bind(body.artist_id)
-    .bind(&now)
-    .bind(&now)
+    .bind(now)
+    .bind(now)
     .fetch_one(&state.db)
     .await?;
 

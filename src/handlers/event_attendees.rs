@@ -119,7 +119,7 @@ pub async fn create(
         .bind(body.kbr_event_id)
         .bind(*subscriber_id)
         .bind(body.headcount)
-        .bind(&now)
+        .bind(now)
         .fetch_one(&mut *tx)
         .await?;
         attendees.push(KbrEventAttendee::from(row));

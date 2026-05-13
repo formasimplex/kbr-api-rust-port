@@ -60,8 +60,8 @@ pub async fn create(
     )
     .bind(&body.producer_name)
     .bind(&body.description)
-    .bind(&now)
-    .bind(&now)
+    .bind(now)
+    .bind(now)
     .fetch_one(&state.db)
     .await?;
 
@@ -80,11 +80,10 @@ pub async fn update(
     let name = body.producer_name.clone();
     let desc = body.description.clone();
 
-    if let Some(ref n) = body.producer_name {
-        if n.is_empty() {
+    if let Some(ref n) = body.producer_name
+        && n.is_empty() {
             return Err(AppError::Validation("producer_name cannot be empty".to_string()));
         }
-    }
 
     let now = chrono::Utc::now().naive_utc();
 
@@ -98,7 +97,7 @@ pub async fn update(
     )
     .bind(name.as_deref())
     .bind(desc.as_deref())
-    .bind(&now)
+    .bind(now)
     .bind(id)
     .fetch_optional(&state.db)
     .await?;

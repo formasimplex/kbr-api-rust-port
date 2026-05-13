@@ -86,16 +86,14 @@ pub async fn create(
     if !user.is_admin() {
         return Err(AppError::Forbidden("Not Authorized".to_string()));
     }
-    if let Some(ref intro) = body.intro {
-        if !Artist::validate_intro(intro) {
+    if let Some(ref intro) = body.intro
+        && !Artist::validate_intro(intro) {
             return Err(AppError::Validation("Intro must be 300 characters or less".to_string()));
         }
-    }
-    if let Some(ref bio) = body.bio {
-        if !Artist::validate_bio(bio) {
+    if let Some(ref bio) = body.bio
+        && !Artist::validate_bio(bio) {
             return Err(AppError::Validation("Bio must be 3000 characters or less".to_string()));
         }
-    }
 
     let now = chrono::Utc::now().naive_utc();
 
@@ -111,8 +109,8 @@ pub async fn create(
     .bind(body.spotify_id.as_deref())
     .bind(body.sub_heading.as_deref())
     .bind(body.intro.as_deref())
-    .bind(&now)
-    .bind(&now)
+    .bind(now)
+    .bind(now)
     .fetch_one(&state.db)
     .await?;
 
@@ -131,16 +129,14 @@ pub async fn update(
     }
     let id = path.into_inner();
 
-    if let Some(ref bio) = body.bio {
-        if !Artist::validate_bio(bio) {
+    if let Some(ref bio) = body.bio
+        && !Artist::validate_bio(bio) {
             return Err(AppError::Validation("Bio must be 3000 characters or less".to_string()));
         }
-    }
-    if let Some(ref intro) = body.intro {
-        if !Artist::validate_intro(intro) {
+    if let Some(ref intro) = body.intro
+        && !Artist::validate_intro(intro) {
             return Err(AppError::Validation("Intro must be 300 characters or less".to_string()));
         }
-    }
 
     let now = chrono::Utc::now().naive_utc();
 
@@ -162,7 +158,7 @@ pub async fn update(
     .bind(body.spotify_id.as_deref())
     .bind(body.sub_heading.as_deref())
     .bind(body.intro.as_deref())
-    .bind(&now)
+    .bind(now)
     .bind(id)
     .fetch_optional(&state.db)
     .await?
@@ -194,8 +190,8 @@ pub async fn add_artist_links(
     .bind(body.artist_id)
     .bind(body.link_type)
     .bind(&body.url)
-    .bind(&now)
-    .bind(&now)
+    .bind(now)
+    .bind(now)
     .fetch_one(&state.db)
     .await?;
 

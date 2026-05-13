@@ -10,7 +10,6 @@ use crate::models::tenant_config::{
 };
 
 #[derive(Debug, FromRow)]
-#[allow(non_snake_case)]
 struct ConfigRow {
     tenant_id: Uuid,
     logo_url: Option<String>,
@@ -21,13 +20,13 @@ struct ConfigRow {
     site_header_description: String,
     deleted_at: Option<chrono::NaiveDateTime>,
     #[sqlx(rename = "instaUrl")]
-    instaUrl: Option<String>,
+    insta_url: Option<String>,
     #[sqlx(rename = "twitterUrl")]
-    twitterUrl: Option<String>,
+    twitter_url: Option<String>,
     #[sqlx(rename = "tiktokUrl")]
-    tiktokUrl: Option<String>,
+    tiktok_url: Option<String>,
     #[sqlx(rename = "spotifyId")]
-    spotifyId: Option<String>,
+    spotify_id: Option<String>,
     featured_artist_id: Option<i64>,
     created_at: chrono::NaiveDateTime,
     updated_at: chrono::NaiveDateTime,
@@ -44,10 +43,10 @@ impl From<ConfigRow> for TenantConfig {
             contact_email: row.contact_email,
             site_header_description: row.site_header_description,
             deleted_at: row.deleted_at.map(|d| d.and_utc()),
-            insta_url: row.instaUrl,
-            twitter_url: row.twitterUrl,
-            tiktok_url: row.tiktokUrl,
-            spotify_id: row.spotifyId,
+            insta_url: row.insta_url,
+            twitter_url: row.twitter_url,
+            tiktok_url: row.tiktok_url,
+            spotify_id: row.spotify_id,
             featured_artist_id: row.featured_artist_id,
             mantine_theme: None,
             created_at: row.created_at.and_utc(),
@@ -143,8 +142,8 @@ pub async fn create(
     .bind(&body.tiktok_url)
     .bind(&body.spotify_id)
     .bind(body.featured_artist_id)
-    .bind(&now)
-    .bind(&now)
+    .bind(now)
+    .bind(now)
     .fetch_one(&state.db)
     .await?;
 
@@ -191,7 +190,7 @@ pub async fn update(
     .bind(&body.tiktok_url)
     .bind(&body.spotify_id)
     .bind(body.featured_artist_id)
-    .bind(&now)
+    .bind(now)
     .bind(tenant_id)
     .fetch_optional(&state.db)
     .await?;
@@ -216,7 +215,7 @@ pub async fn destroy(
     let result = sqlx::query(
         r"UPDATE tenant_configs SET deleted_at = $1 WHERE tenant_id = $2 AND deleted_at IS NULL"
     )
-    .bind(&now)
+    .bind(now)
     .bind(tenant_id)
     .execute(&state.db)
     .await?;

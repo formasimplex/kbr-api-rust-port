@@ -59,8 +59,8 @@ pub async fn create(
     .bind(user_id_int)
     .bind(&token)
     .bind(&expires_at)
-    .bind(&now)
-    .bind(&now)
+    .bind(now)
+    .bind(now)
     .fetch_one(&state.db)
     .await?;
 
