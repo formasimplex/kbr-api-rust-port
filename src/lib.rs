@@ -1,4 +1,5 @@
 pub mod app;
+pub mod cors;
 pub mod error;
 pub mod db;
 pub mod models;

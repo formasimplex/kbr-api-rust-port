@@ -1,7 +1,9 @@
 use actix_web::{HttpServer, web};
 use dotenvy::dotenv;
+use tokio::signal;
 
 use kbr_api_rust::app::AppState;
+use kbr_api_rust::cors::get_cors;
 use kbr_api_rust::db::pool::connect;
 use kbr_api_rust::services::storage_service::{create_s3_bucket, S3Config};
 
@@ -44,8 +46,9 @@ async fn main() -> std::io::Result<()> {
 
     tracing::info!("Starting server on {}", addr);
 
-    HttpServer::new(move || {
+    let server = HttpServer::new(move || {
         actix_web::App::new()
+            .wrap(get_cors())
             .app_data(web::Data::new(AppState {
                 db: pool.clone(),
                 s3: s3.clone(),
@@ -75,6 +78,42 @@ async fn main() -> std::io::Result<()> {
             .configure(kbr_api_rust::handlers::storage::config_routes)
     })
     .bind(addr)?
-    .run()
-    .await
+    .run();
+
+    let server_handle = server.handle();
+
+    tokio::select! {
+        _ = server => {
+            tracing::info!("Server stopped");
+        }
+        _ = graceful_shutdown() => {
+            tracing::info!("Shutdown signal received, stopping server...");
+            server_handle.stop(true).await;
+        }
+    }
+
+    Ok(())
+}
+
+async fn graceful_shutdown() {
+    let sigterm = async {
+        signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("无法注册 SIGTERM 信号处理器")
+            .recv()
+            .await;
+        tracing::info!("Received SIGTERM");
+    };
+
+    let sigint = async {
+        signal::unix::signal(signal::unix::SignalKind::interrupt())
+            .expect("无法注册 SIGINT 信号处理器")
+            .recv()
+            .await;
+        tracing::info!("Received SIGINT");
+    };
+
+    tokio::select! {
+        _ = sigterm => {},
+        _ = sigint => {},
+    }
 }

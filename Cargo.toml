@@ -12,6 +12,7 @@ name = "kbr_api_rust"
 path = "src/lib.rs"
 
 [dependencies]
+actix-cors = "0.7"
 actix-session = "0.11.0"
 actix-web = "4.12.1"
 chrono = { version = "0.4.43", features = ["serde"] }
@@ -44,3 +45,6 @@ hex = "0.4"
 # Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+actix-http = "3"
