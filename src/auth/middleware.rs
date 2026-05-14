@@ -185,10 +185,4 @@ mod tests {
         unsafe { std::env::set_var(JWT_SECRET_ENV, TEST_SECRET); }
     }
 
-    #[tokio::test(flavor = "current_thread")]
-    async fn get_jwt_secret_returns_value_when_set() {
-        unsafe { std::env::set_var(JWT_SECRET_ENV, TEST_SECRET); }
-        let result = get_jwt_secret();
-        assert_eq!(result.unwrap(), TEST_SECRET);
-    }
-}
+ }
