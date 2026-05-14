@@ -21,3 +21,4 @@ pub mod data_api;
 pub mod health;
 pub mod webhook;
 pub mod storage;
+pub mod dashboard;

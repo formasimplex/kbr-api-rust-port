@@ -1,4 +1,4 @@
-use crate::auth::jwt::{encode_token, decode_token};
+use crate::auth::jwt::{decode_token, encode_token};
 use crate::auth::middleware::get_jwt_secret;
 use crate::error::AppError;
 use crate::models::user::User;
@@ -34,15 +34,6 @@ pub fn verify_password(password: &str, hash: &str) -> Result<bool, AppError> {
     Ok(verified)
 }
 
-pub fn generate_session_token() -> String {
-    use rand::Rng;
-    let mut rng = rand::thread_rng();
-    (0..32)
-        .map(|_| rng.gen_range(b'a'..=b'z'))
-        .map(char::from)
-        .collect()
-}
-
 pub fn create_login_response(user: &User) -> Result<LoginResponse, AppError> {
     let secret = get_jwt_secret()?;
     let token = encode_token(user.id, &secret, JWT_EXPIRY_DAYS)?;
@@ -63,23 +54,23 @@ pub fn create_session_response(user: &User) -> Result<SessionResponse, AppError>
     })
 }
 
-   pub fn parse_auth_header(header: &str) -> Result<String, AppError> {
-        let token = header
-            .strip_prefix("Bearer ")
-            .or_else(|| {
-                if header.is_empty() || !header.contains('.') {
-                    None
-                } else {
-                    Some(header)
-                }
-            })
-            .ok_or(AppError::Unauthorized)?;
-        let token = token.trim().to_string();
-        if token.is_empty() {
-            return Err(AppError::Unauthorized);
-        }
-        Ok(token)
+pub fn parse_auth_header(header: &str) -> Result<String, AppError> {
+    let token = header
+        .strip_prefix("Bearer ")
+        .or_else(|| {
+            if header.is_empty() || !header.contains('.') {
+                None
+            } else {
+                Some(header)
+            }
+        })
+        .ok_or(AppError::Unauthorized)?;
+    let token = token.trim().to_string();
+    if token.is_empty() {
+        return Err(AppError::Unauthorized);
     }
+    Ok(token)
+}
 
 pub fn extract_user_id(token: &str) -> Result<i64, AppError> {
     let secret = get_jwt_secret()?;
@@ -93,7 +84,14 @@ pub fn verify_session_token(db_token: &Option<String>, cookie_token: &str) -> bo
         None => false,
     }
 }
-
+pub fn generate_session_token() -> String {
+    use rand::Rng;
+    let mut rng = rand::thread_rng();
+    (0..32)
+        .map(|_| rng.gen_range(b'a'..=b'z'))
+        .map(char::from)
+        .collect()
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -131,7 +129,9 @@ mod tests {
 
     #[test]
     fn test_create_login_response() {
-        unsafe { std::env::set_var("JWT_SECRET", "test-secret-key"); }
+        unsafe {
+            std::env::set_var("JWT_SECRET", "test-secret-key");
+        }
 
         let user = User {
             id: 42,
@@ -151,7 +151,9 @@ mod tests {
 
     #[test]
     fn test_create_login_response_defaults_role() {
-        unsafe { std::env::set_var("JWT_SECRET", "test-secret-key"); }
+        unsafe {
+            std::env::set_var("JWT_SECRET", "test-secret-key");
+        }
 
         let user = User {
             id: 1,
@@ -169,7 +171,9 @@ mod tests {
 
     #[test]
     fn test_create_session_response() {
-        unsafe { std::env::set_var("JWT_SECRET", "test-secret-key"); }
+        unsafe {
+            std::env::set_var("JWT_SECRET", "test-secret-key");
+        }
 
         let user = User {
             id: 5,
@@ -206,7 +210,9 @@ mod tests {
 
     #[test]
     fn test_extract_user_id() {
-        unsafe { std::env::set_var("JWT_SECRET", "test-secret-key"); }
+        unsafe {
+            std::env::set_var("JWT_SECRET", "test-secret-key");
+        }
         let token = encode_token(99, "test-secret-key", 3).unwrap();
         let user_id = extract_user_id(&token).unwrap();
         assert_eq!(user_id, 99);

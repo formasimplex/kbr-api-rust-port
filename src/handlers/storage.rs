@@ -143,6 +143,7 @@ pub async fn upload(
         &file_data,
         &uuid_key,
         &filename,
+        original_blob_id,
         512,
     )
     .await?;
@@ -153,6 +154,7 @@ pub async fn upload(
         &file_data,
         &uuid_key,
         &filename,
+        original_blob_id,
         100,
     )
     .await?;
@@ -176,6 +178,7 @@ async fn process_and_upload_variant(
     data: &[u8],
     uuid_key: &str,
     original_filename: &str,
+    original_blob_id: i64,
     max_width: i32,
 ) -> Result<String, AppError> {
     let img = rs_vips::VipsImage::new_from_buffer(data, "")
@@ -202,7 +205,7 @@ async fn process_and_upload_variant(
 
     let variant_key = format!("variants/{}/{}/{}", uuid_key, max_width, variant_filename);
 
-    let variant_blob_id = storage_service::upload_file(
+    let _variant_blob_id = storage_service::upload_file(
         s3,
         db,
         &variant_key,
@@ -214,12 +217,13 @@ async fn process_and_upload_variant(
 
     let variation_digest = storage_service::compute_variation_digest(max_width, max_width);
 
+    // blob_id references the ORIGINAL blob, matching Rails ActiveStorage semantics
     let _ = sqlx::query(
         r#"INSERT INTO active_storage_variant_records (blob_id, variation_digest)
            VALUES ($1, $2)
            ON CONFLICT (blob_id, variation_digest) DO NOTHING"#
     )
-    .bind(variant_blob_id)
+    .bind(original_blob_id)
     .bind(variation_digest)
     .execute(db)
     .await;
@@ -471,4 +475,5 @@ mod tests {
         assert_eq!(json["filename"], "test.jpg");
         assert_eq!(json["byte_size"], 1024);
     }
-}
+
+ }
