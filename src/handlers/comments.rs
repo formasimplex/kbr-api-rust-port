@@ -1,3 +1,18 @@
+//! Comment handlers
+//!
+//! Provides endpoints for viewing, creating, and replying to comments.
+//! Comments are associated with a commentable entity (e.g., News). Reading
+//! is public; creating requires customer role or above.
+//!
+//! # Endpoints
+//!
+//! | Function | Method | Route | Auth | Description |
+//! |----------|--------|-------|------|-------------|
+//! | `show` | GET | `/v1/comment/{id}` | public | Retrieve a single comment by ID |
+//! | `index` | GET | `/v1/comments` | public | List comments, optionally filtered by commentable_id |
+//! | `create` | POST | `/v1/comments` | customer+ | Create a new comment on a commentable entity |
+//! | `create_reply` | POST | `/v1/comments/{parent_id}` | customer+ | Create a reply to an existing comment |
+
 use actix_web::{web, HttpResponse};
 use sqlx::FromRow;
 
@@ -38,6 +53,14 @@ impl From<CommentRow> for Comment {
     }
 }
 
+/// Retrieve a single comment by ID.
+///
+/// No authentication required.
+///
+/// # Response
+///
+/// `200 OK` — `CommentResponse`
+/// `404 Not Found` — comment does not exist
 pub async fn show(
     path: web::Path<i64>,
     state: web::Data<AppState>,
@@ -61,6 +84,14 @@ pub async fn show(
     }
 }
 
+/// List comments.
+///
+/// Returns all comments ordered by creation date. Optionally filter by
+/// `commentable_id` query parameter. No authentication required.
+///
+/// # Response
+///
+/// `200 OK` — JSON array of `CommentResponse`
 pub async fn index(
     _user: Option<CurrentUser>,
     query: web::Query<serde_json::Value>,
@@ -95,6 +126,16 @@ pub async fn index(
     Ok(HttpResponse::Ok().json(responses))
 }
 
+/// Create a new comment on a commentable entity.
+///
+/// Validates that content is non-empty and commentable_type is valid.
+/// Requires customer role or above.
+///
+/// # Response
+///
+/// `201 Created` — `CommentResponse` for the new comment
+/// `403 Forbidden` — insufficient role
+/// `422 Unprocessable` — empty content or invalid commentable_type
 pub async fn create(
     user: CurrentUser,
     body: web::Json<CreateCommentRequest>,
@@ -137,6 +178,16 @@ pub async fn create(
     Ok(HttpResponse::Created().json(comment.to_response()))
 }
 
+/// Create a reply to an existing comment.
+///
+/// Sets the parent_id to the comment identified by the path parameter.
+/// Requires customer role or above.
+///
+/// # Response
+///
+/// `201 Created` — `CommentResponse` for the new reply
+/// `403 Forbidden` — insufficient role
+/// `422 Unprocessable` — empty content
 pub async fn create_reply(
     user: CurrentUser,
     path: web::Path<i32>,

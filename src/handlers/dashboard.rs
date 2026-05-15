@@ -1,3 +1,13 @@
+//! Dashboard handlers
+//!
+//! Provides dashboard-specific endpoints for authenticated users.
+//!
+//! # Endpoints
+//!
+//! | Function | Method | Route | Auth | Description |
+//! |----------|--------|-------|------|-------------|
+//! | `subscribed_artists` | GET | `/v1/dashboard/subscribed_artists` | auth | List artists the user is subscribed to via mail |
+
 use actix_web::{web, HttpResponse};
 use serde::Serialize;
 use sqlx::FromRow;
@@ -14,6 +24,7 @@ struct SubscribedArtistRow {
     intro: Option<String>,
 }
 
+/// Response for a subscribed artist on the dashboard.
 #[derive(Debug, Serialize)]
 struct SubscribedArtistResponse {
     id: i64,
@@ -22,6 +33,15 @@ struct SubscribedArtistResponse {
     image_thumbnail_urls: Vec<String>,
 }
 
+/// List artists the authenticated user is subscribed to.
+///
+/// Returns artists that have an active mail subscription for the user
+/// (unsubscribed_at IS NULL). Includes thumbnail image URLs from S3.
+/// Requires authentication.
+///
+/// # Response
+///
+/// `200 OK` — JSON array of `SubscribedArtistResponse`
 pub async fn subscribed_artists(
     user: CurrentUser,
     state: web::Data<AppState>,
