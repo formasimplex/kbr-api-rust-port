@@ -12,10 +12,10 @@
 //! | `delete_image` | DELETE | `/v1/storage/blob/{blob_id}` | artist+ | Delete an image blob from S3 storage |
 
 use actix_multipart::Multipart;
+use futures_util::StreamExt;
+use rs_vips::voption::Setter;
 
 use actix_web::{web, HttpResponse};
-use serde::Serialize;
-use sqlx::FromRow;
 
 use crate::app::AppState;
 use crate::auth::middleware::CurrentUser;

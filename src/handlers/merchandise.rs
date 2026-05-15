@@ -815,5 +815,168 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
+
+        let body: Vec<serde_json::Value> = test::read_body_json(resp).await;
+        assert!(body.is_empty());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn by_artist_returns_empty_when_no_merchandise() {
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("JWT_SECRET", TEST_SECRET);
+        }
+        let state = web::Data::new(get_state().await);
+        let (artist_id, _producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
+
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(get_state().await))
+                .configure(config_routes),
+        )
+        .await;
+
+        let req = test::TestRequest::get()
+            .uri(&format!("/v1/artist_merchandise/by_artist/{}", artist_id))
+            .insert_header(("Authorization", format!("Bearer {}", admin_token())))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 200);
+
+        let body: Vec<serde_json::Value> = test::read_body_json(resp).await;
+        assert!(body.is_empty());
+
+        let _ = cleanup_by_artist_name(&state.db, &artist_name, &producer_name).await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn merchandise_unauthenticated_returns_401() {
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("JWT_SECRET", TEST_SECRET);
+        }
+        let state = web::Data::new(get_state().await);
+        let app = test::init_service(
+            App::new()
+                .app_data(state)
+                .configure(config_routes),
+        )
+        .await;
+
+        let req = test::TestRequest::get()
+            .uri("/v1/artist_merchandise")
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 401);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn merchandise_update_partial_preserves_unsent_fields() {
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("JWT_SECRET", TEST_SECRET);
+        }
+        let state = web::Data::new(get_state().await);
+        let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
+
+        let suffix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
+        let original_title = format!("Partial {}", suffix);
+
+        let id: i64 = sqlx::query_scalar::<_, i64>(
+            r"INSERT INTO artist_merchandise (artist_id, producer_id, merch_title, description, set_price, cost_price, created_at, updated_at)
+               VALUES ($1, $2, $3, 'Original desc', 19.99, 8.50, NOW(), NOW())
+               RETURNING id"
+        )
+        .bind(artist_id)
+        .bind(producer_id)
+        .bind(&original_title)
+        .fetch_one(&state.db)
+        .await
+        .expect("Failed to seed merchandise");
+
+        let app = test::init_service(
+            App::new()
+                .app_data(state.clone())
+                .configure(config_routes),
+        )
+        .await;
+
+        let req = test::TestRequest::put()
+            .uri(&format!("/v1/artist_merchandise/{}", id))
+            .insert_header(("Authorization", format!("Bearer {}", admin_token())))
+            .set_json(serde_json::json!({
+                "description": "Updated desc only"
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 200);
+
+        let body: serde_json::Value = test::read_body_json(resp).await;
+        assert_eq!(body["merch_title"], original_title);
+        assert_eq!(body["description"], "Updated desc only");
+        assert_eq!(body["set_price"], 19.99);
+        assert_eq!(body["cost_price"], 8.50);
+
+        let _ = sqlx::query(&format!(r"DELETE FROM artist_merchandise WHERE id = {}", id))
+            .execute(&state.db)
+            .await;
+        let _ = cleanup_by_artist_name(&state.db, &artist_name, &producer_name).await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn merchandise_create_all_fields() {
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("JWT_SECRET", TEST_SECRET);
+        }
+        let state = web::Data::new(get_state().await);
+        let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
+
+        let suffix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
+        let title = format!("Full Item {}", suffix);
+
+        let app = test::init_service(
+            App::new()
+                .app_data(state.clone())
+                .configure(config_routes),
+        )
+        .await;
+
+        let req = test::TestRequest::post()
+            .uri("/v1/artist_merchandise")
+            .insert_header(("Authorization", format!("Bearer {}", admin_token())))
+            .set_json(serde_json::json!({
+                "artist_id": artist_id,
+                "producer_id": producer_id,
+                "merchandise_id": "shopify-full-test",
+                "description": "Full test description",
+                "created_on_producer": true,
+                "merch_title": title,
+                "merch_product_title": "Product Title",
+                "set_price": 34.99,
+                "cost_price": 15.00
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 201);
+
+        let body: serde_json::Value = test::read_body_json(resp).await;
+        assert_eq!(body["merch_title"], title);
+        assert_eq!(body["merchandise_id"], "shopify-full-test");
+        assert_eq!(body["created_on_producer"], true);
+        assert_eq!(body["merch_product_title"], "Product Title");
+        assert_eq!(body["set_price"], 34.99);
+        assert_eq!(body["cost_price"], 15.00);
+
+        let _ = sqlx::query(r"DELETE FROM artist_merchandise WHERE merchandise_id = 'shopify-full-test'")
+            .execute(&state.db)
+            .await;
+        let _ = cleanup_by_artist_name(&state.db, &artist_name, &producer_name).await;
     }
 }
