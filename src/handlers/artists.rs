@@ -1,3 +1,21 @@
+//! Artist handlers
+//!
+//! Provides CRUD endpoints for artist management, including artist links
+//! (social media, streaming platforms). Reading is public; creation requires
+//! admin; updates and link management require artist+ role.
+//!
+//! # Endpoints
+//!
+//! | Function | Method | Route | Auth | Description |
+//! |----------|--------|-------|------|-------------|
+//! | `index` | GET | `/v1/artists` | public | List all artists with images |
+//! | `show` | GET | `/v1/artist/{id}` | public | Retrieve a single artist with images |
+//! | `create` | POST | `/v1/artist` | admin | Create a new artist |
+//! | `update` | PUT | `/v1/artist/{id}` | artist+ | Update artist details |
+//! | `add_artist_links` | POST | `/v1/artist/add_artist_links` | artist+ | Add a social/streaming link |
+//! | `delete_artist_links` | POST | `/v1/artist/delete_artist_links` | artist+ | Remove an artist link |
+//! | `available_link_types` | GET | `/v1/available_link_types` | public | List valid link type options |
+
 use actix_web::{web, HttpResponse};
 use sqlx::FromRow;
 
@@ -42,7 +60,15 @@ impl From<ArtistRow> for Artist {
     }
 }
 
-  pub async fn index(state: web::Data<AppState>) -> Result<HttpResponse, AppError> {
+/// List all artists.
+///
+/// Returns all artists ordered by ID, including associated image and thumbnail
+/// URLs from S3 storage. No authentication required.
+///
+/// # Response
+///
+/// `200 OK` — JSON array of `ArtistResponse`
+pub async fn index(state: web::Data<AppState>) -> Result<HttpResponse, AppError> {
     let rows = sqlx::query_as::<_, ArtistRow>(
         r#"SELECT id, name, genre, bio, user_id, prospect,
            "spotifyId" AS spotify_id, "subHeading" AS sub_heading, intro,
@@ -65,6 +91,15 @@ impl From<ArtistRow> for Artist {
     Ok(HttpResponse::Ok().json(responses))
 }
 
+/// Retrieve a single artist by ID.
+///
+/// Includes associated image and thumbnail URLs from S3 storage.
+/// No authentication required.
+///
+/// # Response
+///
+/// `200 OK` — `ArtistResponse`
+/// `404 Not Found` — artist does not exist
 pub async fn show(
     state: web::Data<AppState>,
     path: web::Path<i64>,
@@ -94,6 +129,15 @@ pub async fn show(
     }
 }
 
+/// Create a new artist.
+///
+/// Validates intro (max 300 chars) and bio (max 3000 chars). Requires admin role.
+///
+/// # Response
+///
+/// `201 Created` — `ArtistResponse` for the new artist
+/// `403 Forbidden` — non-admin user
+/// `422 Unprocessable Entity` — validation error (intro/bio too long)
 pub async fn create(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -134,6 +178,17 @@ pub async fn create(
     Ok(HttpResponse::Created().json(artist.to_response(Vec::new(), Vec::new())))
 }
 
+/// Update artist details.
+///
+/// Performs a partial update using COALESCE — only provided fields are changed.
+/// Validates intro (max 300 chars) and bio (max 3000 chars). Requires artist+ role.
+///
+/// # Response
+///
+/// `200 OK` — updated `ArtistResponse`
+/// `403 Forbidden` — role below artist
+/// `404 Not Found` — artist does not exist
+/// `422 Unprocessable Entity` — validation error (intro/bio too long)
 pub async fn update(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -184,6 +239,15 @@ pub async fn update(
     Ok(HttpResponse::Ok().json(artist.to_response(Vec::new(), Vec::new())))
 }
 
+/// Add a social/streaming link for an artist.
+///
+/// Validates the URL format. Requires artist+ role.
+///
+/// # Response
+///
+/// `201 Created` — `ArtistLinkResponse` for the new link
+/// `403 Forbidden` — role below artist
+/// `422 Unprocessable Entity` — invalid URL format
 pub async fn add_artist_links(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -214,6 +278,16 @@ pub async fn add_artist_links(
     Ok(HttpResponse::Created().json(row.to_response()))
 }
 
+/// Remove an artist link by ID.
+///
+/// Accepts a JSON body with an `id` field. Requires artist+ role.
+///
+/// # Response
+///
+/// `200 OK` — confirmation message
+/// `403 Forbidden` — role below artist
+/// `404 Not Found` — link does not exist
+/// `422 Unprocessable Entity` — missing link id
 pub async fn delete_artist_links(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -242,6 +316,14 @@ pub async fn delete_artist_links(
     })))
 }
 
+/// List available artist link types.
+///
+/// Returns the set of valid link type identifiers (e.g., Spotify, Instagram)
+/// that can be used when creating artist links. No authentication required.
+///
+/// # Response
+///
+/// `200 OK` — JSON array of link type objects
 pub async fn available_link_types() -> Result<HttpResponse, AppError> {
     let types = ArtistLink::available_link_types();
     Ok(HttpResponse::Ok().json(types))

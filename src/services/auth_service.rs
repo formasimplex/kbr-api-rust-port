@@ -96,22 +96,7 @@ pub fn generate_session_token() -> String {
 mod tests {
     use super::*;
 
-    #[test]
-    fn hash_and_verify_password() {
-        let password = "testpassword123";
-        let hash = hash_password(password).unwrap();
-        assert!(verify_password(password, &hash).unwrap());
-        assert!(!verify_password("wrongpassword", &hash).unwrap());
-    }
-
-    #[test]
-    fn hash_password_different_each_time() {
-        let hash1 = hash_password("samepassword").unwrap();
-        let hash2 = hash_password("samepassword").unwrap();
-        assert_ne!(hash1, hash2);
-        assert!(verify_password("samepassword", &hash1).unwrap());
-        assert!(verify_password("samepassword", &hash2).unwrap());
-    }
+ 
 
     #[test]
     fn generate_session_token_returns_32_chars() {

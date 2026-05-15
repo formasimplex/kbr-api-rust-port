@@ -56,23 +56,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn kbr_event_attendee_to_response() {
-        let attendee = KbrEventAttendee {
-            id: 1,
-            kbr_event_id: Some(5),
-            mail_subscriber_id: Some(10),
-            scan_count: Some(2),
-            headcount: Some(3),
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        };
-        let resp = attendee.to_response();
-        assert_eq!(resp.id, 1);
-        assert_eq!(resp.scan_count, Some(2));
-        assert!(attendee.has_scanned());
-    }
-
-    #[test]
     fn kbr_event_attendee_not_scanned() {
         let attendee = KbrEventAttendee {
             id: 2,

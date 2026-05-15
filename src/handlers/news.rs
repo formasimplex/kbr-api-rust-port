@@ -1,3 +1,20 @@
+//! News handlers
+//!
+//! Provides endpoints for news article management including creation, updates,
+//! comment toggling, and playlist integration. Read endpoints are public;
+//! write operations require authentication with ownership or admin verification.
+//!
+//! # Endpoints
+//!
+//! | Function | Method | Route | Auth | Description |
+//! |----------|--------|-------|------|-------------|
+//! | `index` | GET | `/v1/news` | public | List all news articles |
+//! | `show` | GET | `/v1/news/{id}` | public | Retrieve a single news article by ID |
+//! | `create` | POST | `/v1/news` | auth | Create a new news article |
+//! | `update` | PUT | `/v1/news/{id}` | auth | Update news active/comments status |
+//! | `toggle_comments` | POST | `/v1/news/{id}/toggle_comments` | auth | Toggle comments on/off for a news article |
+//! | `add_to_playlist` | POST | `/v1/news/add_to_playlist` | auth | Add a news article to a playlist |
+
 use actix_web::{web, HttpResponse};
 use chrono::NaiveDateTime;
 use sqlx::FromRow;
@@ -45,6 +62,13 @@ impl From<NewsRow> for News {
 const NEWS_COLUMNS: &str =
     "id, url, title, vote_score, flagged, flagged_at, user_id, image_url, active, comments_enabled, created_at, updated_at";
 
+/// List all news articles.
+///
+/// Returns all news articles ordered by ID. No authentication required.
+///
+/// # Response
+///
+/// `200 OK` — JSON array of `NewsResponse`
 pub async fn index(state: web::Data<AppState>) -> Result<HttpResponse, AppError> {
     let rows = sqlx::query_as::<_, NewsRow>(
         &format!(r"SELECT {} FROM news ORDER BY id", NEWS_COLUMNS),
@@ -57,6 +81,14 @@ pub async fn index(state: web::Data<AppState>) -> Result<HttpResponse, AppError>
     Ok(HttpResponse::Ok().json(responses))
 }
 
+/// Retrieve a single news article by ID.
+///
+/// No authentication required.
+///
+/// # Response
+///
+/// `200 OK` — `NewsResponse`
+/// `404 Not Found` — news article does not exist
 pub async fn show(
     state: web::Data<AppState>,
     path: web::Path<i64>,
@@ -78,6 +110,15 @@ pub async fn show(
     }
 }
 
+/// Create a new news article.
+///
+/// Requires authentication. Validates URL safety to prevent malicious links.
+/// The creating user is recorded as the article owner.
+///
+/// # Response
+///
+/// `201 Created` — `NewsResponse`
+/// `422 Unprocessable` — URL is invalid or unsafe
 pub async fn create(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -112,6 +153,16 @@ pub async fn create(
     Ok(HttpResponse::Created().json(news.to_response()))
 }
 
+/// Update a news article's active status and/or comments setting.
+///
+/// Requires authentication. Only the article owner or an admin can update.
+/// Supports partial updates of `active` and `comments_enabled` fields.
+///
+/// # Response
+///
+/// `200 OK` — `NewsResponse`
+/// `403 Forbidden` — user is not the owner or admin
+/// `404 Not Found` — news article does not exist
 pub async fn update(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -201,6 +252,16 @@ pub async fn update(
     Ok(HttpResponse::Ok().json(news.to_response()))
 }
 
+/// Toggle comments on/off for a news article.
+///
+/// Requires authentication. Only the article owner or an admin can toggle.
+/// Flips the `comments_enabled` boolean.
+///
+/// # Response
+///
+/// `200 OK` — `NewsResponse` with updated comments_enabled value
+/// `403 Forbidden` — user is not the owner or admin
+/// `404 Not Found` — news article does not exist
 pub async fn toggle_comments(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -241,6 +302,15 @@ pub async fn toggle_comments(
     Ok(HttpResponse::Ok().json(news.to_response()))
 }
 
+/// Add a news article to a playlist.
+///
+/// Requires authentication. Request body must contain `news_id` and `playlist_id`.
+/// Automatically calculates the next position in the playlist.
+///
+/// # Response
+///
+/// `200 OK` — JSON object with confirmation message and user ID
+/// `422 Unprocessable` — missing news_id or playlist_id
 pub async fn add_to_playlist(
     state: web::Data<AppState>,
     user: CurrentUser,

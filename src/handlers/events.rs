@@ -1,3 +1,18 @@
+//! Event handlers
+//!
+//! Provides endpoints for event management including creation, listing,
+//! and updates. Read endpoints are public; write operations require artist+ role.
+//!
+//! # Endpoints
+//!
+//! | Function | Method | Route | Auth | Description |
+//! |----------|--------|-------|------|-------------|
+//! | `index` | GET | `/v1/kbrevents` | public | List all events |
+//! | `show` | GET | `/v1/kbrevent/{id}` | public | Retrieve a single event by ID |
+//! | `index_by_user` | GET | `/v1/kbr_events_by_user` | artist+ | List events for current user |
+//! | `create` | POST | `/v1/kbrevents` | artist+ | Create a new event |
+//! | `update` | PUT | `/v1/kbrevents/{id}` | artist+ | Update an existing event |
+
 use actix_web::{web, HttpResponse};
 use sqlx::FromRow;
 
@@ -44,6 +59,13 @@ impl From<KbrEventRow> for KbrEvent {
     }
 }
 
+/// List all events.
+///
+/// Returns all events ordered by ID. No authentication required.
+///
+/// # Response
+///
+/// `200 OK` — JSON array of `KbrEventResponse`
 pub async fn index(state: web::Data<AppState>) -> Result<HttpResponse, AppError> {
     let rows = sqlx::query_as::<_, KbrEventRow>(
         r#"SELECT id, name, description, active, event_start_date, event_end_date,
@@ -58,6 +80,14 @@ pub async fn index(state: web::Data<AppState>) -> Result<HttpResponse, AppError>
     Ok(HttpResponse::Ok().json(responses))
 }
 
+/// Retrieve a single event by ID.
+///
+/// No authentication required.
+///
+/// # Response
+///
+/// `200 OK` — `KbrEventResponse`
+/// `404 Not Found` — event does not exist
 pub async fn show(
     state: web::Data<AppState>,
     path: web::Path<i64>,
@@ -81,6 +111,15 @@ pub async fn show(
     }
 }
 
+/// List events for the current user.
+///
+/// Admins see all events. Artists see only events they created.
+/// Requires artist+ role.
+///
+/// # Response
+///
+/// `200 OK` — JSON array of `KbrEventResponse`
+/// `403 Forbidden` — user lacks required role
 pub async fn index_by_user(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -111,6 +150,16 @@ pub async fn index_by_user(
     Ok(HttpResponse::Ok().json(responses))
 }
 
+/// Create a new event.
+///
+/// Requires artist+ role. Validates that name, description, and dates are
+/// provided. Strips carriage returns and newlines from the description.
+///
+/// # Response
+///
+/// `201 Created` — `KbrEventResponse`
+/// `403 Forbidden` — user lacks required role
+/// `422 Unprocessable` — validation failure
 pub async fn create(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -153,6 +202,17 @@ pub async fn create(
     Ok(HttpResponse::Created().json(event.to_response()))
 }
 
+/// Update an existing event.
+///
+/// Requires artist+ role. Updates name, description, active status, ticket URL,
+/// and external URL using COALESCE for partial updates. Strips carriage returns
+/// and newlines from name and description.
+///
+/// # Response
+///
+/// `200 OK` — `KbrEventResponse`
+/// `403 Forbidden` — user lacks required role
+/// `404 Not Found` — event does not exist
 pub async fn update(
     state: web::Data<AppState>,
     user: CurrentUser,

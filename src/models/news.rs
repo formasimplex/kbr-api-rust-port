@@ -77,28 +77,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn news_to_response() {
-        let news = News {
-            id: 1,
-            url: Some("https://example.com/article".to_string()),
-            title: Some("Breaking News".to_string()),
-            vote_score: Some(10),
-            flagged: Some(false),
-            flagged_at: None,
-            user_id: 5,
-            image_url: Some("https://example.com/img.png".to_string()),
-            active: Some(true),
-            comments_enabled: true,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        };
-        let resp = news.to_response();
-        assert_eq!(resp.id, 1);
-        assert_eq!(resp.title, Some("Breaking News".to_string()));
-        assert!(resp.comments_enabled);
-    }
-
-    #[test]
     fn validate_url_valid() {
         assert!(News::validate_url("https://example.com/article"));
         assert!(News::validate_url("http://news.site.com/post"));

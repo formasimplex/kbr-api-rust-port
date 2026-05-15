@@ -1,3 +1,22 @@
+//! Campaign handlers
+//!
+//! Provides endpoints for campaign management including creation, activation,
+//! and soft-deletion. Read endpoints are public; write operations require
+//! artist+ role.
+//!
+//! # Endpoints
+//!
+//! | Function | Method | Route | Auth | Description |
+//! |----------|--------|-------|------|-------------|
+//! | `index` | GET | `/v1/campaigns` | public | List all non-deleted campaigns |
+//! | `index_by_user` | GET | `/v1/campaigns_by_user` | artist+ | List campaigns for current user |
+//! | `active_campaigns` | GET | `/v1/active_campaigns` | public | List only active campaigns |
+//! | `show` | GET | `/v1/campaign/{id}` | public | Retrieve a single campaign by ID |
+//! | `create` | POST | `/v1/campaigns` | artist+ | Create a new campaign |
+//! | `update` | POST | `/v1/campaign/{id}` | artist+ | Update an existing campaign |
+//! | `destroy` | DELETE | `/v1/campaign/{id}` | artist+ | Soft-delete a campaign |
+//! | `activate_campaign` | POST | `/v1/activate_campaign` | artist+ | Activate a campaign |
+
 use actix_web::{web, HttpResponse};
 use sqlx::FromRow;
 
@@ -48,6 +67,14 @@ const CAMPAIGN_SELECT: &str =
        campaign_start_date, campaign_end_date, progress, album_id,
        deleted_at, created_at, updated_at FROM campaigns"#;
 
+/// List all non-deleted campaigns.
+///
+/// Returns all campaigns where `deleted_at` is NULL, ordered by ID.
+/// No authentication required.
+///
+/// # Response
+///
+/// `200 OK` — JSON array of `CampaignResponse`
 pub async fn index(state: web::Data<AppState>) -> Result<HttpResponse, AppError> {
     let rows = sqlx::query_as::<_, CampaignRow>(
         &format!("{} WHERE deleted_at IS NULL ORDER BY id", CAMPAIGN_SELECT),
@@ -60,6 +87,15 @@ pub async fn index(state: web::Data<AppState>) -> Result<HttpResponse, AppError>
     Ok(HttpResponse::Ok().json(responses))
 }
 
+/// List campaigns for the current user.
+///
+/// Admins see all non-deleted campaigns. Artists see only their own campaigns.
+/// Requires artist+ role.
+///
+/// # Response
+///
+/// `200 OK` — JSON array of `CampaignResponse`
+/// `403 Forbidden` — user lacks required role
 pub async fn index_by_user(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -86,6 +122,14 @@ pub async fn index_by_user(
     Ok(HttpResponse::Ok().json(responses))
 }
 
+/// List only active campaigns.
+///
+/// Returns campaigns where `active` is true and `deleted_at` is NULL.
+/// No authentication required.
+///
+/// # Response
+///
+/// `200 OK` — JSON array of `CampaignResponse`
 pub async fn active_campaigns(state: web::Data<AppState>) -> Result<HttpResponse, AppError> {
     let rows = sqlx::query_as::<_, CampaignRow>(
         &format!("{} WHERE active = true AND deleted_at IS NULL ORDER BY id", CAMPAIGN_SELECT),
@@ -98,6 +142,14 @@ pub async fn active_campaigns(state: web::Data<AppState>) -> Result<HttpResponse
     Ok(HttpResponse::Ok().json(responses))
 }
 
+/// Retrieve a single campaign by ID.
+///
+/// No authentication required.
+///
+/// # Response
+///
+/// `200 OK` — `CampaignResponse`
+/// `404 Not Found` — campaign does not exist
 pub async fn show(
     state: web::Data<AppState>,
     path: web::Path<i64>,
@@ -118,6 +170,16 @@ pub async fn show(
     }
 }
 
+/// Create a new campaign.
+///
+/// Requires artist+ role. Validates the request body and creates a campaign
+/// with `active` and `deleted_at` set to false/NULL respectively.
+///
+/// # Response
+///
+/// `201 Created` — `CampaignResponse`
+/// `403 Forbidden` — user lacks required role
+/// `422 Unprocessable` — validation failure
 pub async fn create(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -154,6 +216,17 @@ pub async fn create(
     Ok(HttpResponse::Created().json(campaign.to_response()))
 }
 
+/// Update an existing campaign.
+///
+/// Requires artist+ role. Validates `vinyl_sold_count` is between 0 and 100.
+/// Uses COALESCE to only update provided fields.
+///
+/// # Response
+///
+/// `200 OK` — `CampaignResponse`
+/// `403 Forbidden` — user lacks required role
+/// `404 Not Found` — campaign does not exist
+/// `422 Unprocessable` — validation failure
 pub async fn update(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -204,6 +277,16 @@ pub async fn update(
     Ok(HttpResponse::Ok().json(campaign.to_response()))
 }
 
+/// Soft-delete a campaign.
+///
+/// Requires artist+ role. Sets `deleted_at` to current timestamp rather than
+/// removing the row permanently.
+///
+/// # Response
+///
+/// `200 OK` — JSON object with confirmation message
+/// `403 Forbidden` — user lacks required role
+/// `404 Not Found` — campaign does not exist or already deleted
 pub async fn destroy(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -235,6 +318,17 @@ pub async fn destroy(
     })))
 }
 
+/// Activate a campaign.
+///
+/// Requires artist+ role. Sets `active` to true for the given campaign ID.
+/// Request body must contain `campaign_id`.
+///
+/// # Response
+///
+/// `200 OK` — JSON object with confirmation message and campaign ID
+/// `403 Forbidden` — user lacks required role
+/// `404 Not Found` — campaign does not exist
+/// `422 Unprocessable` — missing or invalid campaign_id
 pub async fn activate_campaign(
     state: web::Data<AppState>,
     user: CurrentUser,

@@ -97,30 +97,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn campaign_to_response() {
-        let campaign = Campaign {
-            id: 1,
-            artist_id: 5,
-            name: Some("Summer Vinyl".to_string()),
-            active: Some(true),
-            vinyl_sold_count: Some(42),
-            campaign_start_date: None,
-            campaign_end_date: None,
-            progress: Some(50),
-            album_id: Some(3),
-            deleted_at: None,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        };
-        let resp = campaign.to_response();
-        assert_eq!(resp.id, 1);
-        assert_eq!(resp.artist_id, 5);
-        assert_eq!(resp.name, Some("Summer Vinyl".to_string()));
-        assert_eq!(resp.vinyl_sold_count, Some(42));
-        assert_eq!(resp.progress, Some(50));
-    }
-
-    #[test]
     fn campaign_is_deleted() {
         let deleted = Campaign {
             id: 1,

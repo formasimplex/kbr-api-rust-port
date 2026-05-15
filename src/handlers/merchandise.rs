@@ -1,3 +1,20 @@
+//! Merchandise handlers
+//!
+//! Provides CRUD endpoints for artist merchandise management and a Shopify
+//! cache retrieval endpoint. All endpoints require authentication.
+//!
+//! # Endpoints
+//!
+//! | Function | Method | Route | Auth | Description |
+//! |----------|--------|-------|------|-------------|
+//! | `index` | GET | `/v1/merchandise` or `/v1/artist_merchandise` | auth | List all merchandise items |
+//! | `show` | GET | `/v1/artist_merchandise/{id}` | auth | Retrieve a single merchandise item by ID |
+//! | `by_artist` | GET | `/v1/artist_merchandise/by_artist/{artist_id}` | auth | List merchandise for a specific artist |
+//! | `create` | POST | `/v1/artist_merchandise` | auth | Create a new merchandise item |
+//! | `update` | PUT | `/v1/artist_merchandise/{id}` | auth | Update an existing merchandise item |
+//! | `destroy` | DELETE | `/v1/artist_merchandise/{id}` | auth | Delete a merchandise item |
+//! | `cache_update` | GET | `/v1/merchandise/cache_update` | auth | Retrieve Shopify JSON cache entries |
+
 use actix_web::{web, HttpResponse};
 use sqlx::FromRow;
 
@@ -70,6 +87,13 @@ const MERCH_SELECT: &str = r"SELECT id, artist_id, producer_id, merchandise_id, 
     created_on_producer, merch_title, merch_product_title, set_price::float8, cost_price::float8,
     created_at, updated_at FROM artist_merchandise";
 
+/// List all merchandise items.
+///
+/// Returns all merchandise ordered by ID. Requires authentication.
+///
+/// # Response
+///
+/// `200 OK` — JSON array of `ArtistMerchandiseResponse`
 pub async fn index(
     _user: CurrentUser,
     state: web::Data<AppState>,
@@ -85,6 +109,14 @@ pub async fn index(
     Ok(HttpResponse::Ok().json(responses))
 }
 
+/// Retrieve a single merchandise item by ID.
+///
+/// Requires authentication.
+///
+/// # Response
+///
+/// `200 OK` — `ArtistMerchandiseResponse`
+/// `404 Not Found` — merchandise item does not exist
 pub async fn show(
     _user: CurrentUser,
     state: web::Data<AppState>,
@@ -107,6 +139,14 @@ pub async fn show(
     }
 }
 
+/// List merchandise for a specific artist.
+///
+/// Returns all merchandise items associated with the given artist ID.
+/// Requires authentication.
+///
+/// # Response
+///
+/// `200 OK` — JSON array of `ArtistMerchandiseResponse`
 pub async fn by_artist(
     _user: CurrentUser,
     state: web::Data<AppState>,
@@ -126,6 +166,14 @@ pub async fn by_artist(
     Ok(HttpResponse::Ok().json(responses))
 }
 
+/// Create a new merchandise item.
+///
+/// Requires authentication. Validates that `merch_title` is non-empty.
+///
+/// # Response
+///
+/// `201 Created` — `ArtistMerchandiseResponse`
+/// `422 Unprocessable` — merch_title is empty
 pub async fn create(
     state: web::Data<AppState>,
     _user: CurrentUser,
@@ -164,6 +212,15 @@ pub async fn create(
     Ok(HttpResponse::Created().json(merch.to_response()))
 }
 
+/// Update an existing merchandise item.
+///
+/// Requires authentication. Uses COALESCE for partial updates of title,
+/// product title, description, set price, and cost price.
+///
+/// # Response
+///
+/// `200 OK` — `ArtistMerchandiseResponse`
+/// `404 Not Found` — merchandise item does not exist
 pub async fn update(
     state: web::Data<AppState>,
     _user: CurrentUser,
@@ -211,6 +268,14 @@ pub async fn update(
     }
 }
 
+/// Delete a merchandise item.
+///
+/// Requires authentication. Permanently removes the row from the database.
+///
+/// # Response
+///
+/// `200 OK` — JSON object with confirmation message
+/// `404 Not Found` — merchandise item does not exist
 pub async fn destroy(
     state: web::Data<AppState>,
     _user: CurrentUser,
@@ -232,6 +297,14 @@ pub async fn destroy(
     })))
 }
 
+/// Retrieve Shopify JSON cache entries.
+///
+/// Returns all cached Shopify JSON entries ordered by ID.
+/// Requires authentication.
+///
+/// # Response
+///
+/// `200 OK` — JSON array of `ShopifyJsonCacheResponse`
 pub async fn cache_update(
     _user: CurrentUser,
     state: web::Data<AppState>,

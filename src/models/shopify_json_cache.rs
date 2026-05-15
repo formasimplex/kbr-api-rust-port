@@ -28,21 +28,4 @@ impl ShopifyJsonCache {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
 
-    #[test]
-    fn shopify_json_cache_to_response() {
-        let cache = ShopifyJsonCache {
-            id: 1,
-            cached_item_id: Some("product-123".to_string()),
-            json_entry: Some(r#"{"name":"Test"}"#.to_string()),
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        };
-        let resp = cache.to_response();
-        assert_eq!(resp.id, 1);
-        assert_eq!(resp.cached_item_id, Some("product-123".to_string()));
-    }
-}

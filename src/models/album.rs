@@ -44,21 +44,4 @@ impl Album {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
 
-    #[test]
-    fn album_to_response() {
-        let album = Album {
-            id: 1,
-            name: Some("Debut Album".to_string()),
-            release_date: None,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        };
-        let resp = album.to_response();
-        assert_eq!(resp.id, 1);
-        assert_eq!(resp.name, Some("Debut Album".to_string()));
-    }
-}

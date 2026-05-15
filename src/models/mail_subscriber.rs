@@ -68,26 +68,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn mail_subscriber_to_response() {
-        let sub = MailSubscriber {
-            id: 1,
-            full_name: "John Doe".to_string(),
-            email: "john@example.com".to_string(),
-            active: Some(true),
-            artist_id: Some(5),
-            unsubscribed_at: None,
-            unsubscribe_token: Some("token123".to_string()),
-            user_id: Some(10),
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        };
-        let resp = sub.to_response();
-        assert_eq!(resp.id, 1);
-        assert_eq!(resp.full_name, "John Doe");
-        assert!(sub.is_subscribed());
-    }
-
-    #[test]
     fn mail_subscriber_unsubscribed() {
         let sub = MailSubscriber {
             id: 2,

@@ -1,3 +1,14 @@
+//! Authentication handlers
+//!
+//! Provides endpoints for user login and session management.
+//!
+//! # Endpoints
+//!
+//! | Function | Method | Route | Auth | Description |
+//! |----------|--------|-------|------|-------------|
+//! | `login` | POST | `/v1/auth/login` | public | Authenticate user and return JWT |
+//! | `session` | GET | `/v1/auth/session` | auth | Return current user session data |
+
 use actix_web::{web, HttpResponse};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
@@ -36,17 +47,29 @@ impl From<UserRow> for User {
     }
 }
 
+/// Request body for the login endpoint.
 #[derive(Debug, Deserialize)]
 pub struct LoginParams {
     pub email: String,
     pub password: String,
 }
 
+/// Error response returned on failed login attempts.
 #[derive(Debug, Serialize)]
 pub struct LoginErrorResponse {
     pub error: String,
 }
 
+/// Authenticate a user and return a JWT token.
+///
+/// Accepts email/username and password. Looks up the user by normalized email
+/// or username, verifies the bcrypt password hash, and returns a JWT along
+/// with user data on success.
+///
+/// # Response
+///
+/// `200 OK` — JSON with `token`, `id`, `email`, `role`, etc.
+/// `401 Unauthorized` — `LoginErrorResponse` with `"Invalid credentials"`
 pub async fn login(
     state: web::Data<AppState>,
     body: web::Json<LoginParams>,
@@ -86,6 +109,15 @@ pub async fn login(
     }
 }
 
+/// Return current authenticated user session data.
+///
+/// Validates the JWT from the Authorization header, looks up the user
+/// from the database, and returns fresh session data including a new token.
+///
+/// # Response
+///
+/// `200 OK` — JSON with `id`, `email`, `role`, `token`, etc.
+/// `401 Unauthorized` — missing or invalid JWT
 pub async fn session(
     state: web::Data<AppState>,
     user: CurrentUser,

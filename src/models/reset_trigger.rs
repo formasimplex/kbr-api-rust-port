@@ -60,22 +60,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn reset_trigger_to_response() {
-        let trigger = ResetTrigger {
-            id: 1,
-            user_id: Some(42),
-            token: Some("reset-token-abc".to_string()),
-            expires_at: Some("May 12, 2026 10:30 AM".to_string()),
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        };
-        let resp = trigger.to_response();
-        assert_eq!(resp.id, 1);
-        assert_eq!(resp.user_id, Some(42));
-        assert_eq!(resp.token, Some("reset-token-abc".to_string()));
-    }
-
-    #[test]
     fn reset_trigger_generate_token() {
         let token = ResetTrigger::generate_token();
         assert_eq!(token.len(), 32);

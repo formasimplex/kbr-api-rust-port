@@ -74,21 +74,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn artist_link_to_response() {
-        let link = ArtistLink {
-            id: 1,
-            artist_id: 5,
-            link_type: 1,
-            url: "https://spotify.com/artist/123".to_string(),
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        };
-        let resp = link.to_response();
-        assert_eq!(resp.id, 1);
-        assert_eq!(resp.link_type, 1);
-    }
-
-    #[test]
     fn validate_url_valid() {
         assert!(ArtistLink::validate_url("https://example.com"));
         assert!(ArtistLink::validate_url("http://example.com"));

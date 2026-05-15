@@ -1,3 +1,16 @@
+//! Producer handlers
+//!
+//! Provides CRUD endpoints for record producer/pressing plant management.
+//! All endpoints require authentication.
+//!
+//! # Endpoints
+//!
+//! | Function | Method | Route | Auth | Description |
+//! |----------|--------|-------|------|-------------|
+//! | `index` | GET | `/v1/producers` | auth | List all producers |
+//! | `create` | POST | `/v1/producers` | auth | Create a new producer |
+//! | `update` | PUT | `/v1/producers/{id}` | auth | Update producer details |
+
 use actix_web::{web, HttpResponse};
 use sqlx::FromRow;
 
@@ -27,6 +40,13 @@ impl From<ProducerRow> for Producer {
     }
 }
 
+/// List all producers.
+///
+/// Returns all producers ordered by ID. Requires authentication.
+///
+/// # Response
+///
+/// `200 OK` — JSON array of `ProducerResponse`
 pub async fn index(
     _user: CurrentUser,
     state: web::Data<AppState>,
@@ -42,6 +62,14 @@ pub async fn index(
     Ok(HttpResponse::Ok().json(responses))
 }
 
+/// Create a new producer.
+///
+/// Validates that producer_name is non-empty. Requires authentication.
+///
+/// # Response
+///
+/// `201 Created` — `ProducerResponse` for the new producer
+/// `422 Unprocessable Entity` — empty producer_name
 pub async fn create(
     state: web::Data<AppState>,
     _user: CurrentUser,
@@ -69,6 +97,16 @@ pub async fn create(
     Ok(HttpResponse::Created().json(producer.to_response()))
 }
 
+/// Update producer details.
+///
+/// Performs a partial update using COALESCE — only provided fields are changed.
+/// Validates that producer_name is non-empty if provided. Requires authentication.
+///
+/// # Response
+///
+/// `200 OK` — updated `ProducerResponse`
+/// `404 Not Found` — producer does not exist
+/// `422 Unprocessable Entity` — empty producer_name
 pub async fn update(
     state: web::Data<AppState>,
     _user: CurrentUser,

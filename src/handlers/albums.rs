@@ -1,3 +1,16 @@
+//! Album handlers
+//!
+//! Provides CRUD endpoints for album management. Albums are public to read;
+//! creation requires admin role.
+//!
+//! # Endpoints
+//!
+//! | Function | Method | Route | Auth | Description |
+//! |----------|--------|-------|------|-------------|
+//! | `index` | GET | `/v1/albums` | public | List all albums |
+//! | `show` | GET | `/v1/album/{id}` | public | Retrieve a single album by ID |
+//! | `create` | POST | `/v1/albums` | admin | Create a new album |
+
 use actix_web::{web, HttpResponse};
 use chrono::NaiveDate;
 use sqlx::FromRow;
@@ -28,6 +41,13 @@ impl From<AlbumRow> for Album {
     }
 }
 
+/// List all albums.
+///
+/// Returns all albums ordered by ID. No authentication required.
+///
+/// # Response
+///
+/// `200 OK` — JSON array of `AlbumResponse`
 pub async fn index(state: web::Data<AppState>) -> Result<HttpResponse, AppError> {
     let rows = sqlx::query_as::<_, AlbumRow>(
         r"SELECT id, name, release_date, created_at, updated_at FROM albums ORDER BY id"
@@ -40,6 +60,14 @@ pub async fn index(state: web::Data<AppState>) -> Result<HttpResponse, AppError>
     Ok(HttpResponse::Ok().json(responses))
 }
 
+/// Retrieve a single album by ID.
+///
+/// No authentication required.
+///
+/// # Response
+///
+/// `200 OK` — `AlbumResponse`
+/// `404 Not Found` — album does not exist
 pub async fn show(
     state: web::Data<AppState>,
     path: web::Path<i64>,
@@ -61,6 +89,15 @@ pub async fn show(
     }
 }
 
+/// Create a new album.
+///
+/// Validates release_date format (YYYY-MM-DD). Requires admin role.
+///
+/// # Response
+///
+/// `201 Created` — `AlbumResponse` for the new album
+/// `400 Bad Request` — invalid release_date format
+/// `403 Forbidden` — non-admin user
 pub async fn create(
     state: web::Data<AppState>,
     user: CurrentUser,

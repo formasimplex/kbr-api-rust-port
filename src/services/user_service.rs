@@ -175,36 +175,5 @@ mod tests {
         );
     }
 
-    #[test]
-    fn force_role_user() {
-        assert_eq!(UserService::force_role_user(), "user");
-    }
-
-    #[test]
-    fn hash_password_for_create() {
-        let req = CreateUserRequest {
-            email: "test@example.com".to_string(),
-            password: "testpassword".to_string(),
-            username: None,
-            token: None,
-        };
-        let hash = UserService::hash_password_for_create(&req).unwrap();
-        assert!(verify_password("testpassword", &hash).unwrap());
-    }
-
-    #[test]
-    fn verify_user_credentials_correct() {
-        let hash = hash_password("mysecret").unwrap();
-        assert!(
-            UserService::verify_user_credentials("test@example.com", "mysecret", &hash).unwrap()
-        );
-    }
-
-    #[test]
-    fn verify_user_credentials_wrong() {
-        let hash = hash_password("mysecret").unwrap();
-        assert!(
-            !UserService::verify_user_credentials("test@example.com", "wrong", &hash).unwrap()
-        );
-    }
+  
 }

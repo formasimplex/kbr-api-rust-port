@@ -1,3 +1,15 @@
+//! Campaign pages handlers
+//!
+//! Provides read-only endpoints for campaign page management. Index requires
+//! admin role; show requires any authenticated user.
+//!
+//! # Endpoints
+//!
+//! | Function | Method | Route | Auth | Description |
+//! |----------|--------|-------|------|-------------|
+//! | `index` | GET | `/v1/campaign_pages` | admin | List all campaign pages |
+//! | `show` | GET | `/v1/campaign_pages/{id}` | auth | Retrieve a single campaign page by ID |
+
 use actix_web::{web, HttpResponse};
 use sqlx::FromRow;
 
@@ -39,6 +51,14 @@ const CAMPAIGN_PAGE_SELECT: &str =
     r#"SELECT id, campaign_id, title, description, page_type,
        inventory_item_id, inventory_url, created_at, updated_at FROM campaign_pages"#;
 
+/// List all campaign pages.
+///
+/// Returns all campaign pages ordered by ID. Requires admin role.
+///
+/// # Response
+///
+/// `200 OK` — JSON array of `CampaignPageResponse`
+/// `403 Forbidden` — user is not an admin
 pub async fn index(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -57,6 +77,14 @@ pub async fn index(
     Ok(HttpResponse::Ok().json(responses))
 }
 
+/// Retrieve a single campaign page by ID.
+///
+/// Requires authenticated user.
+///
+/// # Response
+///
+/// `200 OK` — `CampaignPageResponse`
+/// `404 Not Found` — campaign page does not exist
 pub async fn show(
     state: web::Data<AppState>,
     _user: CurrentUser,

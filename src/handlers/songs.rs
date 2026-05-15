@@ -1,3 +1,16 @@
+//! Song handlers
+//!
+//! Provides CRUD endpoints for song/track management. Songs are public to read;
+//! creation requires admin role.
+//!
+//! # Endpoints
+//!
+//! | Function | Method | Route | Auth | Description |
+//! |----------|--------|-------|------|-------------|
+//! | `index` | GET | `/v1/songs` | public | List all songs |
+//! | `show` | GET | `/v1/song/{id}` | public | Retrieve a single song by ID |
+//! | `create` | POST | `/v1/songs` | admin | Create a new song |
+
 use actix_web::{web, HttpResponse};
 use sqlx::FromRow;
 
@@ -31,6 +44,13 @@ impl From<SongRow> for Song {
     }
 }
 
+/// List all songs.
+///
+/// Returns all songs ordered by ID. No authentication required.
+///
+/// # Response
+///
+/// `200 OK` — JSON array of `SongResponse`
 pub async fn index(state: web::Data<AppState>) -> Result<HttpResponse, AppError> {
     let rows = sqlx::query_as::<_, SongRow>(
         r"SELECT id, name, duration, album_id, artist_id, created_at, updated_at FROM songs ORDER BY id"
@@ -43,6 +63,14 @@ pub async fn index(state: web::Data<AppState>) -> Result<HttpResponse, AppError>
     Ok(HttpResponse::Ok().json(responses))
 }
 
+/// Retrieve a single song by ID.
+///
+/// No authentication required.
+///
+/// # Response
+///
+/// `200 OK` — `SongResponse`
+/// `404 Not Found` — song does not exist
 pub async fn show(
     state: web::Data<AppState>,
     path: web::Path<i64>,
@@ -64,6 +92,14 @@ pub async fn show(
     }
 }
 
+/// Create a new song.
+///
+/// Requires admin role. Associates the song with an album and artist via IDs.
+///
+/// # Response
+///
+/// `201 Created` — `SongResponse` for the new song
+/// `403 Forbidden` — non-admin user
 pub async fn create(
     state: web::Data<AppState>,
     user: CurrentUser,

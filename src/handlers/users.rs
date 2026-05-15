@@ -1,3 +1,17 @@
+//! User management handlers
+//!
+//! Provides CRUD endpoints for user accounts. Admins can manage all users;
+//! regular users can only view and update their own profile.
+//!
+//! # Endpoints
+//!
+//! | Function | Method | Route | Auth | Description |
+//! |----------|--------|-------|------|-------------|
+//! | `index` | GET | `/v1/users` | admin | List all users |
+//! | `show` | GET | `/v1/user/{id}` | auth | Retrieve a user (self or admin) |
+//! | `create` | POST | `/v1/users` | public | Create a new user account |
+//! | `update` | PUT | `/v1/user/{id}` | auth | Update a user (self or admin) |
+
 use actix_web::{web, HttpResponse};
 use sqlx::FromRow;
 
@@ -34,6 +48,14 @@ impl From<UserRow> for User {
     }
 }
 
+/// List all users.
+///
+/// Returns all users ordered by ID. Requires admin role.
+///
+/// # Response
+///
+/// `200 OK` — JSON array of `UserResponse`
+/// `403 Forbidden` — non-admin user
 pub async fn index(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -52,6 +74,15 @@ pub async fn index(
     Ok(HttpResponse::Ok().json(responses))
 }
 
+/// Retrieve a single user by ID.
+///
+/// Admins can view any user. Regular users can only view their own profile.
+///
+/// # Response
+///
+/// `200 OK` — `UserResponse`
+/// `403 Forbidden` — non-admin viewing another user
+/// `404 Not Found` — user does not exist
 pub async fn show(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -76,6 +107,16 @@ pub async fn show(
     }
 }
 
+/// Create a new user account.
+///
+/// Validates email format, password strength, and optionally a sign-up token.
+/// The role is always forced to "user" regardless of input. No authentication
+/// required for public sign-up.
+///
+/// # Response
+///
+/// `201 Created` — `UserResponse` for the new user
+/// `422 Unprocessable Entity` — validation error
 pub async fn create(
     state: web::Data<AppState>,
     body: web::Json<CreateUserRequest>,
@@ -112,6 +153,17 @@ pub async fn create(
     Ok(HttpResponse::Created().json(new_user.to_response()))
 }
 
+/// Update a user's profile.
+///
+/// Admins can update any user field. Regular users can only update their own
+/// profile and cannot change their role. Password changes are hashed with bcrypt.
+///
+/// # Response
+///
+/// `200 OK` — updated `UserResponse`
+/// `403 Forbidden` — non-admin viewing another user or attempting role change
+/// `404 Not Found` — user does not exist
+/// `422 Unprocessable Entity` — validation error
 pub async fn update(
     state: web::Data<AppState>,
     user: CurrentUser,

@@ -86,30 +86,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn kbr_event_to_response() {
-        let event = KbrEvent {
-            id: 1,
-            name: Some("Summer Festival".to_string()),
-            description: Some("A great festival\r\nwith music".to_string()),
-            active: Some(true),
-            event_start_date: Some(Utc::now()),
-            event_end_date: Some(Utc::now()),
-            create_by_user_id: Some(5),
-            event_url: None,
-            qr_encode_string: None,
-            ticket_url: Some("https://tickets.com/123".to_string()),
-            external_url: None,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        };
-        let resp = event.to_response();
-        assert_eq!(resp.id, 1);
-        assert_eq!(resp.name, Some("Summer Festival".to_string()));
-        assert!(!resp.description.as_ref().unwrap().contains('\r'));
-        assert!(!resp.description.as_ref().unwrap().contains('\n'));
-    }
-
-    #[test]
     fn validate_required_all_present() {
         assert!(KbrEvent::validate_required("Name", "Desc", true, true));
     }

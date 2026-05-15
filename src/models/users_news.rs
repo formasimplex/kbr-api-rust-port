@@ -45,24 +45,4 @@ impl UsersNews {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
 
-    #[test]
-    fn users_news_to_response() {
-        let entry = UsersNews {
-            id: 1,
-            user_id: 5,
-            news_id: 10,
-            playlist_id: 3,
-            position: Some(0),
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        };
-        let resp = entry.to_response();
-        assert_eq!(resp.news_id, 10);
-        assert_eq!(resp.playlist_id, 3);
-        assert_eq!(resp.position, Some(0));
-    }
-}

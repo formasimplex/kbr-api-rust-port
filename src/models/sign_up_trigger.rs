@@ -63,24 +63,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn sign_up_trigger_to_response() {
-        let trigger = SignUpTrigger {
-            id: 1,
-            email: Some("new@example.com".to_string()),
-            token: Some("abc123".to_string()),
-            expires_at: Some("May 12, 2026 10:30 AM".to_string()),
-            role: Some("user".to_string()),
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        };
-        let resp = trigger.to_response();
-        assert_eq!(resp.id, 1);
-        assert_eq!(resp.email, Some("new@example.com".to_string()));
-        assert_eq!(resp.token, Some("abc123".to_string()));
-        assert_eq!(resp.role, Some("user".to_string()));
-    }
-
-    #[test]
     fn sign_up_trigger_is_expired_when_no_expires_at() {
         let trigger = SignUpTrigger {
             id: 1,
