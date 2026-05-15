@@ -5,3 +5,5 @@ pub mod campaign_service;
 pub mod storage_service;
 pub mod shopify_client;
 pub mod shopify_graph_ql;
+pub mod mailchimp_client;
+pub mod safe_browsing;

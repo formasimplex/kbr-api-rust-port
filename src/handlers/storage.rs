@@ -364,7 +364,7 @@ mod tests {
                 .with_path_style()
         });
 
-        let state = web::Data::new(AppState { db: pool, s3, shopify: None });
+        let state = web::Data::new(AppState { db: pool, s3, shopify: None, mailchimp: None, safe_browsing: None });
 
         let app = test::init_service(
             App::new()
@@ -411,7 +411,7 @@ mod tests {
                 .with_path_style()
         });
 
-        let state = web::Data::new(AppState { db: pool, s3, shopify: None });
+        let state = web::Data::new(AppState { db: pool, s3, shopify: None, mailchimp: None, safe_browsing: None });
 
         let app = test::init_service(
             App::new()

@@ -3,6 +3,8 @@ use actix_web::{HttpServer, web, dev::Server};
 use crate::app::AppState;
 use crate::cors::get_cors;
 use crate::db::pool::connect;
+use crate::services::mailchimp_client::MailchimpClient;
+use crate::services::safe_browsing::SafeBrowsingClient;
 use crate::services::shopify_client::ShopifyClient;
 use crate::services::storage_service::{S3Config, create_s3_bucket};
 
@@ -30,6 +32,22 @@ pub async fn setup_web_server() -> std::io::Result<Server> {
         );
     }
 
+    let mailchimp = MailchimpClient::new_from_env();
+    if mailchimp.is_none() {
+        tracing::warn!(
+            "Mailchimp client not configured (MAILCHIMP_API_KEY not set). \
+             Subscriber sync will be skipped."
+        );
+    }
+
+    let safe_browsing = SafeBrowsingClient::new_from_env();
+    if safe_browsing.is_none() {
+        tracing::warn!(
+            "Safe Browsing client not configured (GOOGLE_SAFE_BROWSING_API_KEY not set). \
+             URL safety checks will be skipped."
+        );
+    }
+
     let addr: std::net::SocketAddr = std::env::var("BIND_ADDR")
         .unwrap_or_else(|_| "127.0.0.1:8181".to_string())
         .parse()
@@ -44,6 +62,8 @@ pub async fn setup_web_server() -> std::io::Result<Server> {
                 db: pool.clone(),
                 s3: s3.clone(),
                 shopify: shopify.clone(),
+                mailchimp: mailchimp.clone(),
+                safe_browsing: safe_browsing.clone(),
             }))
             .configure(crate::handlers::data_api::config_routes)
             .configure(crate::handlers::health::config_routes)

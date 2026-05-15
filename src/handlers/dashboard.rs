@@ -118,7 +118,7 @@ mod tests {
                 .with_path_style()
         });
 
-        AppState { db: pool, s3, shopify: None }
+        AppState { db: pool, s3, shopify: None, mailchimp: None, safe_browsing: None }
     }
 
     fn user_token(user_id: i64) -> String {

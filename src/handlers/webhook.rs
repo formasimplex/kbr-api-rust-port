@@ -220,7 +220,7 @@ mod tests {
                 .with_path_style()
         });
 
-        AppState { db: pool, s3, shopify: None }
+        AppState { db: pool, s3, shopify: None, mailchimp: None, safe_browsing: None }
     }
 
     async fn seed_campaign_with_page() -> (i64, i64, String) {

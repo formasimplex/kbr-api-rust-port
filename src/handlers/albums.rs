@@ -169,7 +169,7 @@ async fn get_state() -> AppState {
                 .with_path_style()
         });
 
-        AppState { db: pool, s3, shopify: None }
+        AppState { db: pool, s3, shopify: None, mailchimp: None, safe_browsing: None }
     }
 
     async fn connect_with_url(url: &str) -> sqlx::PgPool {

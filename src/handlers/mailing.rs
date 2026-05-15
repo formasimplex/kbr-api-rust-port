@@ -199,11 +199,13 @@ pub async fn artist_mail_subscriber(
 /// Subscribe an email to an artist's mailing list.
 ///
 /// Requires admin role. Associates the subscriber with the authenticated
-/// user's ID. Validates email format and checks for duplicates.
+/// user's ID. Validates email format and checks for duplicates. Syncs with
+/// Mailchimp if configured (non-fatal if Mailchimp fails).
 ///
 /// # Response
 ///
 /// `201 Created` — `MailSubscriberResponse` for the new subscriber
+/// `200 OK` — subscriber created but Mailchimp sync failed (includes `mailchimp_error: true`)
 /// `403 Forbidden` — insufficient role
 /// `400 Bad Request` — missing artist_id
 /// `422 Unprocessable` — invalid email or duplicate subscription
@@ -258,16 +260,31 @@ pub async fn add_mail_subscriber_with_user(
     .await?;
 
     let subscriber: MailSubscriber = row.into();
+
+    if let Some(ref mc) = state.mailchimp
+        && let Err(e) = mc.subscribe(&body.email, &body.full_name).await
+    {
+        tracing::warn!(error = %e, email = %body.email, "Mailchimp subscribe failed");
+        return Ok(HttpResponse::Ok().json(serde_json::json!({
+            "status": 500,
+            "message": e.to_string(),
+            "subscriber": subscriber.to_response(),
+            "mailchimp_error": true
+        })));
+    }
+
     Ok(HttpResponse::Created().json(subscriber.to_response()))
 }
 
 /// Subscribe an email to a mailing list.
 ///
 /// Public endpoint — no authentication required. Validates email format.
+/// Syncs with Mailchimp if configured (non-fatal if Mailchimp fails).
 ///
 /// # Response
 ///
 /// `201 Created` — `MailSubscriberResponse` for the new subscriber
+/// `200 OK` — subscriber created but Mailchimp sync failed (includes `mailchimp_error: true`)
 /// `422 Unprocessable` — invalid email
 pub async fn add_mail_subscriber(
     state: web::Data<AppState>,
@@ -297,6 +314,19 @@ pub async fn add_mail_subscriber(
     .await?;
 
     let subscriber: MailSubscriber = row.into();
+
+    if let Some(ref mc) = state.mailchimp
+        && let Err(e) = mc.subscribe(&body.email, &body.full_name).await
+    {
+        tracing::warn!(error = %e, email = %body.email, "Mailchimp subscribe failed");
+        return Ok(HttpResponse::Ok().json(serde_json::json!({
+            "status": 500,
+            "message": e.to_string(),
+            "subscriber": subscriber.to_response(),
+            "mailchimp_error": true
+        })));
+    }
+
     Ok(HttpResponse::Created().json(subscriber.to_response()))
 }
 
@@ -385,7 +415,8 @@ pub async fn request_unsubscribe(
 /// Process an unsubscribe request with verification token.
 ///
 /// Public endpoint — no authentication required. Sets unsubscribed_at
-/// for the subscriber matching the given token.
+/// for the subscriber matching the given token. Syncs with Mailchimp
+/// if configured (non-fatal if Mailchimp fails).
 ///
 /// # Response
 ///
@@ -403,24 +434,31 @@ pub async fn process_unsubscribe(
 
     let now = chrono::Utc::now().naive_utc();
 
-    let result = sqlx::query(
+    let row = sqlx::query_as::<_, (String,)>(
         r#"UPDATE mail_subscribers SET unsubscribed_at = $1, updated_at = $2
-           WHERE unsubscribe_token = $3 AND unsubscribed_at IS NULL"#,
+           WHERE unsubscribe_token = $3 AND unsubscribed_at IS NULL
+           RETURNING email"#,
     )
     .bind(now)
     .bind(now)
     .bind(&token)
-    .execute(&state.db)
+    .fetch_optional(&state.db)
     .await?;
 
-    if result.rows_affected() == 0 {
-        return Err(AppError::NotFound("Invalid or expired unsubscribe token".to_string()));
+    match row {
+        Some((email,)) => {
+            if let Some(ref mc) = state.mailchimp {
+                if let Err(e) = mc.unsubscribe(&email).await {
+                    tracing::warn!(error = %e, email = %email, "Mailchimp unsubscribe failed");
+                }
+            }
+            Ok(HttpResponse::Ok().json(serde_json::json!({
+                "message": "Unsubscribed successfully",
+                "status": "success"
+            })))
+        }
+        None => Err(AppError::NotFound("Invalid or expired unsubscribe token".to_string())),
     }
-
-    Ok(HttpResponse::Ok().json(serde_json::json!({
-        "message": "Unsubscribed successfully",
-        "status": "success"
-    })))
 }
 
 pub fn config_routes(cfg: &mut web::ServiceConfig) {
@@ -469,7 +507,7 @@ mod tests {
                 .with_path_style()
         });
 
-        AppState { db: pool, s3, shopify: None }
+        AppState { db: pool, s3, shopify: None, mailchimp: None, safe_browsing: None }
     }
 
     fn admin_token() -> String {

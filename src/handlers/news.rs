@@ -112,13 +112,13 @@ pub async fn show(
 
 /// Create a new news article.
 ///
-/// Requires authentication. Validates URL safety to prevent malicious links.
-/// The creating user is recorded as the article owner.
+/// Requires authentication. Validates URL format and checks against Google
+/// Safe Browsing if configured. The creating user is recorded as the article owner.
 ///
 /// # Response
 ///
 /// `201 Created` — `NewsResponse`
-/// `422 Unprocessable` — URL is invalid or unsafe
+/// `422 Unprocessable` — URL is invalid or malicious
 pub async fn create(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -126,6 +126,12 @@ pub async fn create(
 ) -> Result<HttpResponse, AppError> {
     if !News::validate_url(&body.url) {
         return Err(AppError::Validation("Invalid or unsafe URL".to_string()));
+    }
+
+    if let Some(ref sb) = state.safe_browsing
+        && sb.is_malicious(&body.url).await
+    {
+        return Err(AppError::UnprocessableEntity("The URL provided is malicious".to_string()));
     }
 
     let now = chrono::Utc::now().naive_utc();
@@ -394,7 +400,7 @@ mod tests {
                 .with_path_style()
         });
 
-        AppState { db: pool, s3, shopify: None }
+        AppState { db: pool, s3, shopify: None, mailchimp: None, safe_browsing: None }
     }
 
     fn admin_token() -> String {

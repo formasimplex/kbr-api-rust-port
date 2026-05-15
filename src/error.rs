@@ -44,6 +44,12 @@ pub enum AppError {
 
     #[error("Shopify API error: {0}")]
     Shopify(String),
+
+    #[error("Mailchimp API error: {0}")]
+    Mailchimp(String),
+
+    #[error("Safe Browsing error: {0}")]
+    SafeBrowsing(String),
 }
 
 impl actix_web::ResponseError for AppError {
@@ -63,6 +69,8 @@ impl actix_web::ResponseError for AppError {
             Self::Io(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Self::Storage(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Self::Shopify(_) => StatusCode::BAD_GATEWAY,
+            Self::Mailchimp(_) => StatusCode::BAD_GATEWAY,
+            Self::SafeBrowsing(_) => StatusCode::BAD_GATEWAY,
         }
     }
 
@@ -148,5 +156,19 @@ mod tests {
         let err = AppError::Shopify("GraphQL mutation failed".into());
         assert_eq!(err.status_code(), StatusCode::BAD_GATEWAY);
         assert_eq!(err.to_string(), "Shopify API error: GraphQL mutation failed");
+    }
+
+    #[test]
+    fn mailchimp_error_returns_502() {
+        let err = AppError::Mailchimp("API rate limit".into());
+        assert_eq!(err.status_code(), StatusCode::BAD_GATEWAY);
+        assert_eq!(err.to_string(), "Mailchimp API error: API rate limit");
+    }
+
+    #[test]
+    fn safe_browsing_error_returns_502() {
+        let err = AppError::SafeBrowsing("request failed".into());
+        assert_eq!(err.status_code(), StatusCode::BAD_GATEWAY);
+        assert_eq!(err.to_string(), "Safe Browsing error: request failed");
     }
 }

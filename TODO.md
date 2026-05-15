@@ -1,8 +1,8 @@
 # TODO.md — kbr-api-rust
 
-## Status: Phase 4 Complete (Shopify GraphQL Integration), 314 tests passing
+## Status: Phase 3 + 4 Complete (Mailchimp, Safe Browsing, Shopify GraphQL), 327 tests passing
 
-### ✅ All 25 Handlers Converted to Real SQLx Queries (314 tests passing)
+### ✅ All 25 Handlers Converted to Real SQLx Queries (327 tests passing)
 
 Every handler now queries PostgreSQL via `web::Data<AppState>`. Zero mock data remains. S3/ActiveStorage integration complete.
 
@@ -33,8 +33,8 @@ Every handler now queries PostgreSQL via `web::Data<AppState>`. Zero mock data r
 | Service | Used By | Complexity | Status |
 |---|---|---|---|
 | Shopify GraphQL | Merchandise sync (FE button), campaign activation | High — GraphQL client, 7 operations | ✅ Done (activation) |
-| Mailchimp REST | Subscriber add/unsubscribe | Medium — REST POST/PATCH | ⬜ Not started |
-| Google Safe Browsing | URL safety check on news creation | Low — single API call | ⬜ Not started |
+| Mailchimp REST | Subscriber add/unsubscribe | Medium — REST POST/PATCH | ✅ Done |
+| Google Safe Browsing | URL safety check on news creation | Low — single API call | ✅ Done |
 | OpenAI REST | AI text generation | Medium — REST API | ⏭️ Skipped (never used in production) |
 
 ### Priority 4: Background Jobs & Email
@@ -60,13 +60,13 @@ Every handler now queries PostgreSQL via `web::Data<AppState>`. Zero mock data r
 |-------|-------|-----------|--------|
 | **Phase 1** | CORS + Graceful Shutdown | 2h | ✅ Done |
 | **Phase 2** | 6 missing endpoints | 6h | ✅ Done |
-| **Phase 3** | Mailchimp + Safe Browsing | 4h | ⬜ Not started |
+| **Phase 3** | Mailchimp + Safe Browsing | 4h | ✅ Done |
 | **Phase 4** | Shopify GraphQL (merch sync + campaign activation) | 6h | ✅ Done |
 | **Phase 5** | In-process queue + Jobs + Email | 15-20h | ⬜ Not started |
 
 ### Completed
 
-- ✅ All 25 handlers with real SQLx queries (314 tests passing)
+- ✅ All 25 handlers with real SQLx queries (327 tests passing)
 - ✅ S3/ActiveStorage integration (Linode Object Storage, rs-vips image processing)
 - ✅ All clippy warnings resolved (0 remaining across 26 files)
 - ✅ Data API endpoints (`last_logins`, `event_attendees_present`)
@@ -79,3 +79,5 @@ Every handler now queries PostgreSQL via `web::Data<AppState>`. Zero mock data r
 - ✅ News comments toggle (`POST /v1/news/:id/toggle_comments`)
 - ✅ Shopify GraphQL integration (ShopifyClient, ShopifyGraphQl, 6 operations)
 - ✅ Campaign activation rewrite (full Shopify flow: product, variant, publish)
+- ✅ Mailchimp REST integration (MailchimpClient, subscribe/unsubscribe, non-fatal sync)
+- ✅ Google Safe Browsing (SafeBrowsingClient, URL threat check on news creation, fail-open)
