@@ -53,6 +53,16 @@ pub struct UpdateCampaignRequest {
     pub campaign_end_date: Option<DateTime<Utc>>,
 }
 
+/// Request body for campaign activation.
+///
+/// Contains the campaign ID to activate and the desired start date.
+/// The end date is computed as `start_date + 45 days`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActivateCampaignRequest {
+    pub campaign_id: i64,
+    pub start_date: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct CampaignResponse {
     pub id: i64,

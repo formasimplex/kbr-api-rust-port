@@ -199,7 +199,7 @@ mod tests {
                 .with_path_style()
         });
 
-        AppState { db: pool, s3 }
+        AppState { db: pool, s3, shopify: None }
     }
 
     async fn seed_user() -> (i64, String) {

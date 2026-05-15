@@ -3,6 +3,7 @@ use actix_web::{HttpServer, web, dev::Server};
 use crate::app::AppState;
 use crate::cors::get_cors;
 use crate::db::pool::connect;
+use crate::services::shopify_client::ShopifyClient;
 use crate::services::storage_service::{S3Config, create_s3_bucket};
 
 pub async fn setup_web_server() -> std::io::Result<Server> {
@@ -21,6 +22,14 @@ pub async fn setup_web_server() -> std::io::Result<Server> {
         std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
     })?;
 
+    let shopify = ShopifyClient::new_from_env();
+    if shopify.is_none() {
+        tracing::warn!(
+            "Shopify client not configured (SHOPIFY_STORE/SHOPIFY_ACCESS_TOKEN not set). \
+             Campaign activation will fail at runtime."
+        );
+    }
+
     let addr: std::net::SocketAddr = std::env::var("BIND_ADDR")
         .unwrap_or_else(|_| "127.0.0.1:8181".to_string())
         .parse()
@@ -34,6 +43,7 @@ pub async fn setup_web_server() -> std::io::Result<Server> {
             .app_data(web::Data::new(AppState {
                 db: pool.clone(),
                 s3: s3.clone(),
+                shopify: shopify.clone(),
             }))
             .configure(crate::handlers::data_api::config_routes)
             .configure(crate::handlers::health::config_routes)

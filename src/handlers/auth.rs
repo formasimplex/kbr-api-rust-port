@@ -175,7 +175,7 @@ mod tests {
                 .with_path_style()
         });
 
-        AppState { db: pool, s3 }
+        AppState { db: pool, s3, shopify: None }
     }
 
     async fn seed_test_user(state: &AppState, email: &str, password: &str, role: &str) -> i64 {

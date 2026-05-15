@@ -41,6 +41,9 @@ pub enum AppError {
 
     #[error("storage error: {0}")]
     Storage(String),
+
+    #[error("Shopify API error: {0}")]
+    Shopify(String),
 }
 
 impl actix_web::ResponseError for AppError {
@@ -59,6 +62,7 @@ impl actix_web::ResponseError for AppError {
             Self::Bcrypt(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Self::Io(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Self::Storage(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            Self::Shopify(_) => StatusCode::BAD_GATEWAY,
         }
     }
 
@@ -137,5 +141,12 @@ mod tests {
         let sqlx_err = sqlx::Error::RowNotFound;
         let app_err: AppError = sqlx_err.into();
         matches!(app_err, AppError::Database(_));
+    }
+
+    #[test]
+    fn shopify_error_returns_502() {
+        let err = AppError::Shopify("GraphQL mutation failed".into());
+        assert_eq!(err.status_code(), StatusCode::BAD_GATEWAY);
+        assert_eq!(err.to_string(), "Shopify API error: GraphQL mutation failed");
     }
 }
