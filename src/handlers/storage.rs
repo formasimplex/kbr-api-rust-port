@@ -1,7 +1,21 @@
+//! Storage handlers
+//!
+//! Provides endpoints for uploading, listing, and deleting images via
+//! S3 storage. All endpoints require artist role or above.
+//!
+//! # Endpoints
+//!
+//! | Function | Method | Route | Auth | Description |
+//! |----------|--------|-------|------|-------------|
+//! | `upload` | POST | `/v1/storage/upload` | artist+ | Upload an image to S3 storage |
+//! | `get_images` | GET | `/v1/storage/images/{record_type}/{record_id}` | public | List images for a specific record type and ID |
+//! | `delete_image` | DELETE | `/v1/storage/blob/{blob_id}` | artist+ | Delete an image blob from S3 storage |
+
 use actix_multipart::Multipart;
+
 use actix_web::{web, HttpResponse};
-use futures_util::StreamExt;
-use rs_vips::voption::Setter;
+use serde::Serialize;
+use sqlx::FromRow;
 
 use crate::app::AppState;
 use crate::auth::middleware::CurrentUser;
@@ -13,6 +27,7 @@ use crate::services::storage_service::{
 
 const MAX_UPLOAD_SIZE: usize = 10 * 1024 * 1024; // 10MB
 
+/// Response for a successful image upload.
 #[derive(Debug, serde::Serialize)]
 pub struct UploadResponse {
     pub id: i64,
@@ -24,6 +39,17 @@ pub struct UploadResponse {
     pub thumbnail_url: String,
 }
 
+/// Upload an image to S3 storage.
+///
+/// Requires artist role or above. Accepts multipart form data with
+/// record_type, record_id, name (attachment name), and file fields.
+/// Generates original, medium (512px), and thumbnail (100px) variants.
+///
+/// # Response
+///
+/// `200 OK` — `UploadResponse` with URLs for the uploaded image
+/// `403 Forbidden` — insufficient role
+/// `422 Unprocessable` — missing fields, invalid file type, or file too large (>10MB)
 pub async fn upload(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -231,6 +257,14 @@ async fn process_and_upload_variant(
     generate_presigned_url(s3, &variant_key).await
 }
 
+/// List images for a specific record type and ID.
+///
+/// Returns presigned URLs for original images and thumbnails.
+/// No authentication required.
+///
+/// # Response
+///
+/// `200 OK` — JSON object with `image_urls` and `image_thumbnail_urls` arrays
 pub async fn get_images(
     state: web::Data<AppState>,
     path: web::Path<(String, i64)>,
@@ -251,6 +285,15 @@ pub async fn get_images(
     })))
 }
 
+/// Delete an image blob from S3 storage.
+///
+/// Requires artist role or above. Removes the blob and its variants
+/// from S3 and cleans up database records.
+///
+/// # Response
+///
+/// `200 OK` — confirmation message
+/// `403 Forbidden` — insufficient role
 pub async fn delete_image(
     state: web::Data<AppState>,
     user: CurrentUser,

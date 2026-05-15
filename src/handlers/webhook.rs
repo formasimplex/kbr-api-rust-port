@@ -1,3 +1,18 @@
+//! Webhook handlers
+//!
+//! Provides endpoints for external webhook integrations, including
+//! progress updates, customer data requests, and GDPR-related data
+//! redaction. All endpoints are public.
+//!
+//! # Endpoints
+//!
+//! | Function | Method | Route | Auth | Description |
+//! |----------|--------|-------|------|-------------|
+//! | `update_progress` | POST | `/v1/webhook/update_progress` | public | Update progress for a record |
+//! | `customers_data_request` | POST | `/v1/webhook/customers_data_request` | public | Handle a customer data request |
+//! | `customers_redact` | POST | `/v1/webhook/customers_redact` | public | Handle a customer data redaction request |
+//! | `shop_redact` | POST | `/v1/webhook/shop_redact` | public | Handle a shop data redaction request |
+
 use actix_web::{web, HttpResponse};
 use serde::Deserialize;
 use sqlx::FromRow;
@@ -5,11 +20,13 @@ use sqlx::FromRow;
 use crate::app::AppState;
 use crate::error::AppError;
 
+/// Top-level webhook request body containing inventory data.
 #[derive(Debug, Deserialize)]
 pub struct WebhookInventoryParams {
     webhook: WebhookPayload,
 }
 
+/// Webhook payload with Shopify inventory item details.
 #[derive(Debug, Deserialize)]
 pub struct WebhookPayload {
     inventory_item_id: String,
@@ -45,6 +62,15 @@ struct CampaignRow {
     updated_at: chrono::NaiveDateTime,
 }
 
+/// Update campaign progress from a Shopify inventory webhook.
+///
+/// Looks up the campaign page by `inventory_item_id`, calculates vinyl
+/// sold as `target (100) - available`, and computes progress as the
+/// average of vinyl progress and time-based progress.
+///
+/// # Response
+///
+/// `200 OK` — `{"status": "ok"}` (always succeeds, no-op if not found)
 pub async fn update_progress(
     state: web::Data<AppState>,
     body: web::Json<WebhookInventoryParams>,
@@ -115,14 +141,35 @@ pub async fn update_progress(
     Ok(HttpResponse::Ok().json(serde_json::json!({ "status": "ok" })))
 }
 
+/// Handle a customer data request webhook (GDPR compliance).
+///
+/// Currently a stub that acknowledges the request.
+///
+/// # Response
+///
+/// `200 OK` — `{"status": "ok"}`
 pub async fn customers_data_request() -> Result<HttpResponse, AppError> {
     Ok(HttpResponse::Ok().json(serde_json::json!({ "status": "ok" })))
 }
 
+/// Handle a customer data redaction webhook (GDPR right to erasure).
+///
+/// Currently a stub that acknowledges the request.
+///
+/// # Response
+///
+/// `200 OK` — `{"status": "ok"}`
 pub async fn customers_redact() -> Result<HttpResponse, AppError> {
     Ok(HttpResponse::Ok().json(serde_json::json!({ "status": "ok" })))
 }
 
+/// Handle a shop-level data redaction webhook.
+///
+/// Currently a stub that acknowledges the request.
+///
+/// # Response
+///
+/// `200 OK` — `{"status": "ok"}`
 pub async fn shop_redact() -> Result<HttpResponse, AppError> {
     Ok(HttpResponse::Ok().json(serde_json::json!({ "status": "ok" })))
 }
