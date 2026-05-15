@@ -1,4 +1,17 @@
+//! Sign-up trigger handlers
+//!
+//! Provides endpoints for managing sign-up triggers. Endpoints are
+//! public for use during user registration flows.
+//!
+//! # Endpoints
+//!
+//! | Function | Method | Route | Auth | Description |
+//! |----------|--------|-------|------|-------------|
+//! | `create` | POST | `/v1/sign_up_trigger` | public | Create a new sign-up trigger for an email address |
+//! | `show` | GET | `/v1/sign_up_trigger/{token}` | public | Retrieve an existing sign-up trigger by token |
+
 use actix_web::{web, HttpResponse};
+use serde::Deserialize;
 use sqlx::FromRow;
 
 use crate::app::AppState;
@@ -31,6 +44,15 @@ impl From<SignUpTriggerRow> for SignUpTrigger {
     }
 }
 
+/// Create a new sign-up trigger for an email address.
+///
+/// Generates a token and expiration time for the sign-up flow.
+/// Public endpoint.
+///
+/// # Response
+///
+/// `201 Created` — `SignUpTriggerResponse` with the new trigger
+/// `422 Unprocessable` — invalid email
 pub async fn create(
     state: web::Data<AppState>,
     body: web::Json<crate::models::sign_up_trigger::CreateSignUpTriggerRequest>,
@@ -61,6 +83,15 @@ pub async fn create(
     Ok(HttpResponse::Created().json(trigger.to_response()))
 }
 
+/// Retrieve an existing sign-up trigger by token.
+///
+/// Public endpoint. Returns the sign-up trigger details if the
+/// token exists.
+///
+/// # Response
+///
+/// `200 OK` — `SignUpTriggerResponse`
+/// `404 Not Found` — token does not exist
 pub async fn show(
     state: web::Data<AppState>,
     path: web::Path<String>,

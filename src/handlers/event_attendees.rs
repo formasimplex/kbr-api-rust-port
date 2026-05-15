@@ -1,4 +1,20 @@
+//! Event attendee handlers
+//!
+//! Provides endpoints for managing event attendees, including QR code
+//! scanning, listing attendees, and creating/updating attendee records.
+//! All endpoints require artist role or above.
+//!
+//! # Endpoints
+//!
+//! | Function | Method | Route | Auth | Description |
+//! |----------|--------|-------|------|-------------|
+//! | `qr_scan` | GET | `/v1/qr_scan/{id}` | public | Scan a QR code to increment attendee scan count |
+//! | `attendees_for_event` | GET | `/v1/kbr_event_attendees` | artist+ | List all attendees for a specific event by kbr_event_id query param |
+//! | `create` | POST | `/v1/kbr_event_attendees` | artist+ | Create new event attendee records from mail subscriber IDs |
+//! | `update` | POST | `/v1/kbr_event_update_txt` | artist+ | Return attendees for an event (used for text copy updates) |
+
 use actix_web::{web, HttpResponse};
+use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
 use crate::app::AppState;
@@ -35,6 +51,15 @@ impl From<EventAttendeeRow> for KbrEventAttendee {
     }
 }
 
+/// Scan a QR code to increment attendee scan count.
+///
+/// Increments the scan_count by 1 for the given attendee ID.
+/// No authentication required.
+///
+/// # Response
+///
+/// `200 OK` — `KbrEventAttendeeResponse` with updated scan count
+/// `404 Not Found` — attendee does not exist
 pub async fn qr_scan(
     path: web::Path<i64>,
     state: web::Data<AppState>,
@@ -60,6 +85,16 @@ pub async fn qr_scan(
     }
 }
 
+/// List all attendees for a specific event.
+///
+/// Requires artist role or above. The kbr_event_id is passed as a
+/// query parameter.
+///
+/// # Response
+///
+/// `200 OK` — JSON array of `KbrEventAttendeeResponse`
+/// `403 Forbidden` — insufficient role
+/// `400 Bad Request` — missing or invalid kbr_event_id
 pub async fn attendees_for_event(
     user: CurrentUser,
     query: web::Query<serde_json::Value>,
@@ -92,6 +127,16 @@ pub async fn attendees_for_event(
     Ok(HttpResponse::Ok().json(responses))
 }
 
+/// Create new event attendee records from mail subscriber IDs.
+///
+/// Requires artist role or above. Creates one attendee record per
+/// mail_subscriber_id in a transaction.
+///
+/// # Response
+///
+/// `201 Created` — JSON array of `KbrEventAttendeeResponse`
+/// `403 Forbidden` — insufficient role
+/// `422 Unprocessable` — empty mail_subscriber_ids
 pub async fn create(
     user: CurrentUser,
     body: web::Json<CreateEventAttendeeRequest>,
@@ -132,6 +177,15 @@ pub async fn create(
     Ok(HttpResponse::Created().json(responses))
 }
 
+/// Return attendees for an event.
+///
+/// Requires artist role or above. Used for text copy updates —
+/// returns all attendees matching the given kbr_event_id.
+///
+/// # Response
+///
+/// `200 OK` — JSON array of `KbrEventAttendeeResponse`
+/// `403 Forbidden` — insufficient role
 pub async fn update(
     user: CurrentUser,
     body: web::Json<UpdateEventAttendeeRequest>,

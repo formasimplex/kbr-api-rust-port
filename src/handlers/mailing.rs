@@ -1,4 +1,24 @@
+//! Mailing list handlers
+//!
+//! Provides endpoints for managing mail subscribers, including listing,
+//! subscribing, and unsubscribing. Most endpoints require authentication,
+//! but some are public for unsubscribe flows.
+//!
+//! # Endpoints
+//!
+//! | Function | Method | Route | Auth | Description |
+//! |----------|--------|-------|------|-------------|
+//! | `index` | GET | `/v1/mail_subscribers` | admin | List all mail subscribers |
+//! | `index_artist_subscribers` | GET | `/v1/artist_mailing_list` | admin | List subscribers for a specific artist by artist_id query param |
+//! | `artist_mail_subscriber` | POST | `/v1/artistmailsubscriber` | admin | Create a subscriber for an artist (with user_id from auth) |
+//! | `add_mail_subscriber_with_user` | POST | `/v1/addmailsubscriber_with_user` | admin | Subscribe an email to an artist's mailing list (with user_id from auth) |
+//! | `add_mail_subscriber` | POST | `/v1/addmailsubscriber` | public | Subscribe an email to a mailing list |
+//! | `unsubscribe` | POST | `/v1/mail_subscribers/unsubscribe` | auth | Unsubscribe the authenticated user from an artist's mailing list |
+//! | `request_unsubscribe` | POST | `/v1/unsubscribe` | public | Generate an unsubscribe token for an email address |
+//! | `process_unsubscribe` | GET | `/v1/unsubscribe/{token}` | public | Process an unsubscribe request with verification token |
+
 use actix_web::{web, HttpResponse};
+use serde::Deserialize;
 use sqlx::FromRow;
 
 use crate::app::AppState;
@@ -44,6 +64,14 @@ const SUBSCRIBER_SELECT: &str =
     r#"SELECT id, full_name, email, active, artist_id, unsubscribed_at,
        unsubscribe_token, user_id, created_at, updated_at FROM mail_subscribers"#;
 
+/// List all mail subscribers.
+///
+/// Requires admin role.
+///
+/// # Response
+///
+/// `200 OK` — JSON array of `MailSubscriberResponse`
+/// `403 Forbidden` — insufficient role
 pub async fn index(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -63,6 +91,15 @@ pub async fn index(
     Ok(HttpResponse::Ok().json(responses))
 }
 
+/// List subscribers for a specific artist.
+///
+/// Requires admin role. The artist_id is passed as a query parameter.
+///
+/// # Response
+///
+/// `200 OK` — JSON array of `MailSubscriberResponse`
+/// `403 Forbidden` — insufficient role
+/// `400 Bad Request` — missing or invalid artist_id
 pub async fn index_artist_subscribers(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -94,6 +131,17 @@ pub async fn index_artist_subscribers(
     Ok(HttpResponse::Ok().json(responses))
 }
 
+/// Create a subscriber for an artist.
+///
+/// Requires admin role. Associates the subscriber with the authenticated
+/// user's ID. Validates email format and checks for duplicates.
+///
+/// # Response
+///
+/// `201 Created` — `MailSubscriberResponse` for the new subscriber
+/// `403 Forbidden` — insufficient role
+/// `400 Bad Request` — missing artist_id
+/// `422 Unprocessable` — invalid email or duplicate subscription
 pub async fn artist_mail_subscriber(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -148,6 +196,17 @@ pub async fn artist_mail_subscriber(
     Ok(HttpResponse::Created().json(subscriber.to_response()))
 }
 
+/// Subscribe an email to an artist's mailing list.
+///
+/// Requires admin role. Associates the subscriber with the authenticated
+/// user's ID. Validates email format and checks for duplicates.
+///
+/// # Response
+///
+/// `201 Created` — `MailSubscriberResponse` for the new subscriber
+/// `403 Forbidden` — insufficient role
+/// `400 Bad Request` — missing artist_id
+/// `422 Unprocessable` — invalid email or duplicate subscription
 pub async fn add_mail_subscriber_with_user(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -202,6 +261,14 @@ pub async fn add_mail_subscriber_with_user(
     Ok(HttpResponse::Created().json(subscriber.to_response()))
 }
 
+/// Subscribe an email to a mailing list.
+///
+/// Public endpoint — no authentication required. Validates email format.
+///
+/// # Response
+///
+/// `201 Created` — `MailSubscriberResponse` for the new subscriber
+/// `422 Unprocessable` — invalid email
 pub async fn add_mail_subscriber(
     state: web::Data<AppState>,
     body: web::Json<CreateMailSubscriberRequest>,
@@ -233,6 +300,16 @@ pub async fn add_mail_subscriber(
     Ok(HttpResponse::Created().json(subscriber.to_response()))
 }
 
+/// Unsubscribe the authenticated user from an artist's mailing list.
+///
+/// Sets unsubscribed_at for the matching user_id/artist_id pair.
+/// Requires authentication.
+///
+/// # Response
+///
+/// `200 OK` — success status
+/// `400 Bad Request` — missing or invalid artist_id
+/// `404 Not Found` — subscription not found
 pub async fn unsubscribe(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -267,6 +344,16 @@ pub async fn unsubscribe(
     })))
 }
 
+/// Generate an unsubscribe token for an email address.
+///
+/// Public endpoint — no authentication required. Validates that the
+/// email exists in the system. Returns a token and unsubscribe URL.
+///
+/// # Response
+///
+/// `200 OK` — unsubscribe token and URL
+/// `404 Not Found` — email not found
+/// `422 Unprocessable` — email is required
 pub async fn request_unsubscribe(
     state: web::Data<AppState>,
     body: web::Json<serde_json::Value>,
@@ -295,6 +382,16 @@ pub async fn request_unsubscribe(
     })))
 }
 
+/// Process an unsubscribe request with verification token.
+///
+/// Public endpoint — no authentication required. Sets unsubscribed_at
+/// for the subscriber matching the given token.
+///
+/// # Response
+///
+/// `200 OK` — success confirmation
+/// `404 Not Found` — invalid or expired token
+/// `422 Unprocessable` — token is required
 pub async fn process_unsubscribe(
     state: web::Data<AppState>,
     path: web::Path<String>,

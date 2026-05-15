@@ -1,4 +1,18 @@
+//! Reset trigger handlers
+//!
+//! Provides endpoints for managing password reset triggers. All endpoints
+//! require authentication.
+//!
+//! # Endpoints
+//!
+//! | Function | Method | Route | Auth | Description |
+//! |----------|--------|-------|------|-------------|
+//! | `create` | POST | `/v1/reset_trigger` | public | Create a new password reset trigger for an email address |
+//! | `show` | GET | `/v1/reset_trigger/{token}` | public | Retrieve an existing reset trigger by token |
+//! | `update` | POST | `/v1/reset_trigger/{token}` | public | Reset password using a valid token |
+
 use actix_web::{web, HttpResponse};
+use serde::Deserialize;
 use sqlx::FromRow;
 
 use crate::app::AppState;
@@ -30,6 +44,15 @@ impl From<ResetTriggerRow> for ResetTrigger {
     }
 }
 
+/// Create a new password reset trigger for an email address.
+///
+/// Looks up the user by email and creates a reset trigger with a
+/// generated token and expiration time. Public endpoint.
+///
+/// # Response
+///
+/// `201 Created` — `ResetTriggerResponse` with the new trigger
+/// `422 Unprocessable` — invalid email
 pub async fn create(
     state: web::Data<AppState>,
     body: web::Json<crate::models::reset_trigger::CreateResetTriggerRequest>,
@@ -68,6 +91,15 @@ pub async fn create(
     Ok(HttpResponse::Created().json(trigger.to_response()))
 }
 
+/// Retrieve an existing reset trigger by token.
+///
+/// Public endpoint. Returns the reset trigger details if the token
+/// exists.
+///
+/// # Response
+///
+/// `200 OK` — `ResetTriggerResponse`
+/// `404 Not Found` — token does not exist
 pub async fn show(
     state: web::Data<AppState>,
     path: web::Path<String>,
@@ -90,6 +122,17 @@ pub async fn show(
     }
 }
 
+/// Reset password using a valid token.
+///
+/// Validates the token, checks password length (minimum 6 characters),
+/// hashes the new password, updates the user record, and deletes the
+/// reset trigger. Public endpoint.
+///
+/// # Response
+///
+/// `200 OK` — success confirmation
+/// `404 Not Found` — token does not exist or has no associated user
+/// `422 Unprocessable` — password too short
 pub async fn update(
     state: web::Data<AppState>,
     path: web::Path<String>,
