@@ -111,6 +111,14 @@ pub async fn create(
     .await?;
 
     let trigger: SignUpTrigger = row.into();
+
+    let _ = state
+        .job_handle
+        .send(crate::jobs::Job::SendSignUpTriggerEmail {
+            sign_up_trigger_id: trigger.id,
+        })
+        .await;
+
     Ok(HttpResponse::Created().json(trigger.to_response()))
 }
 

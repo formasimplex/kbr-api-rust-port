@@ -51,6 +51,9 @@ pub enum Job {
         attendee_id: i64,
         text_copy: String,
     },
+    SendSignUpTriggerEmail {
+        sign_up_trigger_id: i64,
+    },
 }
 
 /// Spawn the job worker task. Consumes jobs from the channel and dispatches
@@ -85,6 +88,19 @@ pub fn spawn_worker(handle: mpsc::Receiver<Job>, state: Arc<AppState>) {
                         tracing::error!(
                             attendee_id,
                             "Failed to send event update email: {}",
+                            e
+                        );
+                    }
+                }
+                Job::SendSignUpTriggerEmail {
+                    sign_up_trigger_id,
+                } => {
+                    if let Err(e) =
+                        email::send_sign_up_trigger_email(&state, sign_up_trigger_id).await
+                    {
+                        tracing::error!(
+                            sign_up_trigger_id,
+                            "Failed to send sign-up trigger email: {}",
                             e
                         );
                     }

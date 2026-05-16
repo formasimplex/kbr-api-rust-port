@@ -1,4 +1,5 @@
 pub mod qr_code_email;
+pub mod sign_up_trigger_email;
 pub mod text_copy_email;
 
 /// Render a template string by replacing {{placeholder}} with values.
