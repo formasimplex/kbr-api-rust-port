@@ -18,6 +18,7 @@ use sqlx::FromRow;
 use crate::app::AppState;
 use crate::auth::middleware::CurrentUser;
 use crate::error::AppError;
+use crate::models::sign_up_trigger::SignUpTrigger;
 use crate::models::user::{CreateUserRequest, UpdateUserRequest, User, UserResponse};
 use crate::services::user_service::UserService;
 
@@ -110,18 +111,54 @@ pub async fn show(
 /// Create a new user account.
 ///
 /// Validates email format, password strength, and optionally a sign-up token.
-/// The role is always forced to "user" regardless of input. No authentication
-/// required for public sign-up.
+/// When a token is provided, it must correspond to a valid, non-expired
+/// sign-up trigger whose email matches the request. The trigger is consumed
+/// (expired) upon successful user creation. The role is always forced to
+/// "user" regardless of input. No authentication required for public sign-up.
 ///
 /// # Response
 ///
 /// `201 Created` — `UserResponse` for the new user
-/// `422 Unprocessable Entity` — validation error
+/// `422 Unprocessable Entity` — validation error or invalid token
 pub async fn create(
     state: web::Data<AppState>,
     body: web::Json<CreateUserRequest>,
 ) -> Result<HttpResponse, AppError> {
     UserService::validate_create_request(&body)?;
+
+    if let Some(ref token) = body.token {
+        let trigger = sqlx::query_as::<_, (Option<String>, Option<String>)>(
+            r"SELECT email, expires_at FROM sign_up_triggers WHERE token = $1"
+        )
+        .bind(token)
+        .fetch_optional(&state.db)
+        .await?;
+
+        match trigger {
+            Some((trigger_email, trigger_expires)) => {
+                if let Some(expires_str) = trigger_expires {
+                    if let Some(expired_time) = SignUpTrigger::parse_expires_at(&expires_str) {
+                        if expired_time < chrono::Utc::now() {
+                            return Err(AppError::Validation(
+                                "Sign-up token has expired".to_string(),
+                            ));
+                        }
+                    }
+                }
+
+                if trigger_email.as_deref() != Some(&body.email) {
+                    return Err(AppError::Validation(
+                        "Email does not match sign-up token".to_string(),
+                    ));
+                }
+            }
+            None => {
+                return Err(AppError::Validation(
+                    "Invalid sign-up token".to_string(),
+                ));
+            }
+        }
+    }
 
     let password_digest = UserService::hash_password_for_create(&body)?;
     let role = UserService::force_role_user();
@@ -141,6 +178,18 @@ pub async fn create(
     .bind(now)
     .fetch_one(&state.db)
     .await?;
+
+    if body.token.is_some() {
+        let now_str = now.format("%b %d, %Y %I:%M %p").to_string();
+        let _ = sqlx::query(
+            r"UPDATE sign_up_triggers SET expires_at = $1, updated_at = $2 WHERE email = $3"
+        )
+        .bind(&now_str)
+        .bind(now)
+        .bind(&body.email)
+        .execute(&state.db)
+        .await;
+    }
 
     let new_user: User = row.into();
     Ok(HttpResponse::Created().json(new_user.to_response()))
@@ -266,7 +315,7 @@ mod tests {
     async fn seed_test_user(state: &AppState, email: &str, role: &str) -> i64 {
         let password_digest = UserService::hash_password_for_create(&CreateUserRequest {
             email: email.to_string(),
-            password: "password123".to_string(),
+            password: "Password123".to_string(),
             username: None,
             token: None,
         })
@@ -438,9 +487,8 @@ mod tests {
             .uri("/v1/users")
             .set_json(serde_json::json!({
                 "email": email,
-                "password": "password123",
-                "username": "newuser",
-                "token": "valid-trigger-token"
+                "password": "Password123",
+                "username": "newuser"
             }))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -449,6 +497,181 @@ mod tests {
         assert_eq!(body["role"], "user");
 
         cleanup_user(&state, &email).await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn user_create_with_valid_token_consumes_trigger() {
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("JWT_SECRET", TEST_SECRET);
+        }
+        let state = web::Data::new(get_state().await);
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
+        let email = format!("tokenuser{}@example.com", ts);
+
+        let token = format!("valid_token_{}", ts);
+        let future = (chrono::Utc::now() + chrono::Duration::days(1))
+            .format("%b %d, %Y %I:%M %p")
+            .to_string();
+        let now = chrono::Utc::now().naive_utc();
+        let trigger_id: i64 = sqlx::query_scalar(
+            r"INSERT INTO sign_up_triggers (email, token, expires_at, role, created_at, updated_at)
+               VALUES ($1, $2, $3, 'user', $4, $4) RETURNING id"
+        )
+        .bind(&email)
+        .bind(&token)
+        .bind(&future)
+        .bind(&now)
+        .fetch_one(&state.db)
+        .await
+        .expect("Failed to seed trigger");
+
+        let app =
+            test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
+
+        let req = test::TestRequest::post()
+            .uri("/v1/users")
+            .set_json(serde_json::json!({
+                "email": email,
+                "password": "Password123",
+                "username": "tokenuser",
+                "token": token
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 201);
+
+        let expired: Option<String> = sqlx::query_scalar(
+            r"SELECT expires_at FROM sign_up_triggers WHERE id = $1"
+        )
+        .bind(trigger_id)
+        .fetch_one(&state.db)
+        .await
+        .expect("Failed to check trigger");
+
+        assert!(
+            crate::models::sign_up_trigger::SignUpTrigger::parse_expires_at_for_test(
+                expired.as_deref()
+            )
+            .unwrap()
+                < chrono::Utc::now(),
+            "Trigger should be consumed"
+        );
+
+        cleanup_user(&state, &email).await;
+        let _ = sqlx::query(r"DELETE FROM sign_up_triggers WHERE email = $1")
+            .bind(&email)
+            .execute(&state.db)
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn user_create_with_expired_token_fails() {
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("JWT_SECRET", TEST_SECRET);
+        }
+        let state = web::Data::new(get_state().await);
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
+        let email = format!("expiredtoken{}@example.com", ts);
+
+        let token = format!("expired_token_{}", ts);
+        let past = (chrono::Utc::now() - chrono::Duration::days(1))
+            .format("%b %d, %Y %I:%M %p")
+            .to_string();
+        let now = chrono::Utc::now().naive_utc();
+        let _trigger_id: i64 = sqlx::query_scalar(
+            r"INSERT INTO sign_up_triggers (email, token, expires_at, role, created_at, updated_at)
+               VALUES ($1, $2, $3, 'user', $4, $4) RETURNING id"
+        )
+        .bind(&email)
+        .bind(&token)
+        .bind(&past)
+        .bind(&now)
+        .fetch_one(&state.db)
+        .await
+        .expect("Failed to seed trigger");
+
+        let app =
+            test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
+
+        let req = test::TestRequest::post()
+            .uri("/v1/users")
+            .set_json(serde_json::json!({
+                "email": email,
+                "password": "password123",
+                "username": "expireduser",
+                "token": token
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 422);
+
+        cleanup_user(&state, &email).await;
+        let _ = sqlx::query(r"DELETE FROM sign_up_triggers WHERE email = $1")
+            .bind(&email)
+            .execute(&state.db)
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn user_create_with_mismatched_email_token_fails() {
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("JWT_SECRET", TEST_SECRET);
+        }
+        let state = web::Data::new(get_state().await);
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
+        let trigger_email = format!("trigger_email_{}@example.com", ts);
+        let request_email = format!("request_email_{}@example.com", ts);
+
+        let token = format!("mismatch_token_{}", ts);
+        let future = (chrono::Utc::now() + chrono::Duration::days(1))
+            .format("%b %d, %Y %I:%M %p")
+            .to_string();
+        let now = chrono::Utc::now().naive_utc();
+        let _trigger_id: i64 = sqlx::query_scalar(
+            r"INSERT INTO sign_up_triggers (email, token, expires_at, role, created_at, updated_at)
+               VALUES ($1, $2, $3, 'user', $4, $4) RETURNING id"
+        )
+        .bind(&trigger_email)
+        .bind(&token)
+        .bind(&future)
+        .bind(&now)
+        .fetch_one(&state.db)
+        .await
+        .expect("Failed to seed trigger");
+
+        let app =
+            test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
+
+        let req = test::TestRequest::post()
+            .uri("/v1/users")
+            .set_json(serde_json::json!({
+                "email": request_email,
+                "password": "password123",
+                "username": "mismatchuser",
+                "token": token
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 422);
+
+        cleanup_user(&state, &trigger_email).await;
+        cleanup_user(&state, &request_email).await;
+        let _ = sqlx::query(r"DELETE FROM sign_up_triggers WHERE email = $1")
+            .bind(&trigger_email)
+            .execute(&state.db)
+            .await;
     }
 
     #[tokio::test(flavor = "current_thread")]
