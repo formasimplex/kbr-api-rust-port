@@ -106,7 +106,7 @@ async fn get_state() -> AppState {
     }
 
     fn user_token(user_id: i64) -> String {
-        encode_token_with_role(user_id, TEST_SECRET, 1, Some("user".to_string())).unwrap()
+        encode_token_with_role(user_id, TEST_SECRET, 1, Some("user".to_string()), 1).unwrap()
     }
 
     async fn seed_user(pool: &sqlx::PgPool) -> i64 {

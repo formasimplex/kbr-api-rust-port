@@ -5,7 +5,9 @@ use sqlx::FromRow;
 #[derive(Debug, Clone, FromRow, PartialEq, Eq)]
 pub struct ResetTrigger {
     pub id: i64,
+    pub email: Option<String>,
     pub user_id: Option<i32>,
+    pub full_name: Option<String>,
     pub token: Option<String>,
     pub expires_at: Option<String>,
     pub created_at: DateTime<Utc>,
@@ -52,6 +54,16 @@ impl ResetTrigger {
     pub fn generate_expires_at() -> String {
         let expires = Utc::now() + chrono::Duration::days(7);
         expires.format("%b %d, %Y %I:%M %p").to_string()
+    }
+
+    pub async fn find_by_id(pool: &sqlx::PgPool, id: i64) -> sqlx::Result<Option<Self>> {
+        sqlx::query_as::<_, Self>(
+            "SELECT id, email, user_id, full_name, token, expires_at, created_at, updated_at
+             FROM reset_triggers WHERE id = $1",
+        )
+        .bind(id)
+        .fetch_optional(pool)
+        .await
     }
 }
 

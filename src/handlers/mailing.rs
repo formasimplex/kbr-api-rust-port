@@ -18,7 +18,6 @@
 //! | `process_unsubscribe` | GET | `/v1/unsubscribe/{token}` | public | Process an unsubscribe request with verification token |
 
 use actix_web::{web, HttpResponse};
-use serde::Deserialize;
 use sqlx::FromRow;
 
 use crate::app::AppState;
@@ -54,6 +53,8 @@ impl From<MailSubscriberRow> for MailSubscriber {
             unsubscribed_at: row.unsubscribed_at.map(|dt| dt.and_utc()),
             unsubscribe_token: row.unsubscribe_token,
             user_id: row.user_id,
+            first_name: None,
+            last_name: None,
             created_at: row.created_at.and_utc(),
             updated_at: row.updated_at.and_utc(),
         }
@@ -495,7 +496,7 @@ async fn get_state() -> AppState {
     }
 
     fn admin_token() -> String {
-        encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string())).unwrap()
+        encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap()
     }
 
     async fn seed_user() -> i64 {
@@ -633,7 +634,7 @@ async fn get_state() -> AppState {
             std::env::set_var("DATABASE_URL", TEST_DB_URL);
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
-        let user_token = encode_token_with_role(99, TEST_SECRET, 3, Some("user".to_string())).unwrap();
+        let user_token = encode_token_with_role(99, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
         let state = web::Data::new(get_state().await);
         let app = test::init_service(
             App::new()
@@ -852,7 +853,7 @@ async fn get_state() -> AppState {
         let user_id = seed_user().await;
         let artist_id = seed_artist(user_id).await;
         let (sub_id, _) = seed_subscriber(artist_id, Some(user_id)).await;
-        let user_token = encode_token_with_role(user_id, TEST_SECRET, 3, Some("admin".to_string())).unwrap();
+        let user_token = encode_token_with_role(user_id, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap();
 
         let app = test::init_service(
             App::new()

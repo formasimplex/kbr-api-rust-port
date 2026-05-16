@@ -1,6 +1,9 @@
 pub mod qr_code_email;
 pub mod sign_up_trigger_email;
 pub mod text_copy_email;
+pub mod reset_trigger_email;
+pub mod prospect_welcome_email;
+pub mod unsubscribe_email;
 
 /// Render a template string by replacing {{placeholder}} with values.
 pub fn render(template: &str, vars: &[(&str, &str)]) -> String {

@@ -314,7 +314,7 @@ mod tests {
     }
 
     fn token() -> String {
-        encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string())).unwrap()
+        encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap()
     }
 
     #[tokio::test(flavor = "current_thread")]

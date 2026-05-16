@@ -10,7 +10,6 @@ use percent_encoding::{percent_encode, AsciiSet, NON_ALPHANUMERIC};
 use sqlx::FromRow;
 
 use crate::app::AppState;
-use crate::models::sign_up_trigger::SignUpTrigger;
 use crate::templates;
 
 /// HTML-escape a string for safe template interpolation.

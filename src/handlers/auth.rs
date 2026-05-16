@@ -28,6 +28,7 @@ struct UserRow {
     role: Option<String>,
     session_token: Option<String>,
     username: Option<String>,
+    token_version: i64,
     created_at: chrono::NaiveDateTime,
     updated_at: chrono::NaiveDateTime,
 }
@@ -39,6 +40,7 @@ struct UserRowNoPassword {
     role: Option<String>,
     session_token: Option<String>,
     username: Option<String>,
+    token_version: i64,
     created_at: chrono::NaiveDateTime,
     updated_at: chrono::NaiveDateTime,
 }
@@ -52,6 +54,9 @@ impl From<UserRow> for User {
             role: row.role,
             session_token: row.session_token,
             username: row.username,
+            first_name: None,
+            last_name: None,
+            token_version: row.token_version,
             created_at: row.created_at.and_utc(),
             updated_at: row.updated_at.and_utc(),
         }
@@ -67,6 +72,9 @@ impl From<UserRowNoPassword> for User {
             role: row.role,
             session_token: row.session_token,
             username: row.username,
+            first_name: None,
+            last_name: None,
+            token_version: row.token_version,
             created_at: row.created_at.and_utc(),
             updated_at: row.updated_at.and_utc(),
         }
@@ -108,7 +116,7 @@ pub async fn login(
     let normalized_email = UserService::normalize_email(&login_req.email);
 
     let user_row = sqlx::query_as::<_, UserRow>(
-        r"SELECT id, email, password_digest, role, session_token, username, created_at, updated_at
+        r"SELECT id, email, password_digest, role, session_token, username, COALESCE(token_version, 1) as token_version, created_at, updated_at
            FROM users WHERE email = $1 OR username = $2"
     )
     .bind(&normalized_email)
@@ -169,23 +177,14 @@ pub async fn login(
 ///
 /// `200 OK` — JSON with `id`, `email`, `role`, `token`, etc.
 /// `401 Unauthorized` — missing or invalid JWT
-pub async fn session(
+ pub async fn session(
     state: web::Data<AppState>,
     user: CurrentUser,
 ) -> Result<HttpResponse, AppError> {
-    if user.check_token_revoked(&state.db).await? {
-        tracing::warn!(
-            user_id = user.id,
-            event = "session_rejected",
-            reason = "token_revoked",
-        );
-        return Err(AppError::Unauthorized);
-    }
-
     let db_role = user.verify_role_with_db(&state.db).await?;
 
     let user_row = sqlx::query_as::<_, UserRowNoPassword>(
-        r"SELECT id, email, role, session_token, username, created_at, updated_at
+        r"SELECT id, email, role, session_token, username, COALESCE(token_version, 1) as token_version, created_at, updated_at
            FROM users WHERE id = $1"
     )
     .bind(user.id)
@@ -223,11 +222,38 @@ pub async fn session(
     }
 }
 
+/// Revoke the current user's JWT token.
+///
+/// Inserts the token's `jti` claim into the `revoked_tokens` table so that
+/// subsequent requests with the same token are rejected. The token is
+/// extracted from the `CurrentUser` by the middleware before this handler runs.
+///
+/// # Response
+///
+/// `200 OK` — JSON with `"message": "logged out successfully"`
+/// `401 Unauthorized` — missing or invalid JWT
+pub async fn logout(
+    state: web::Data<AppState>,
+    user: CurrentUser,
+) -> Result<HttpResponse, AppError> {
+    user.revoke_token(&state.db).await?;
+
+    tracing::info!(
+        user_id = user.id,
+        event = "logout_success",
+    );
+
+    Ok(HttpResponse::Ok().json(serde_json::json!({
+        "message": "logged out successfully"
+    })))
+}
+
 pub fn config_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::scope("/v1/auth")
             .route("/login", web::post().to(login))
-            .route("/session", web::get().to(session)),
+            .route("/session", web::get().to(session))
+            .route("/logout", web::post().to(logout)),
     );
 }
 
@@ -283,9 +309,9 @@ mod tests {
         let password_digest = auth_service::hash_password(password).unwrap();
         let now = chrono::Utc::now().naive_utc();
         let row = sqlx::query_as::<_, UserRow>(
-            r"INSERT INTO users (email, password_digest, role, session_token, username, created_at, updated_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7)
-               RETURNING id, email, password_digest, role, session_token, username, created_at, updated_at"
+            r"INSERT INTO users (email, password_digest, role, session_token, username, token_version, created_at, updated_at)
+               VALUES ($1, $2, $3, $4, $5, 1, $6, $7)
+               RETURNING id, email, password_digest, role, session_token, username, token_version, created_at, updated_at"
         )
         .bind(email)
         .bind(&password_digest)
@@ -423,7 +449,7 @@ mod tests {
             .as_millis();
         let email = format!("session{}@example.com", ts);
         let user_id = seed_test_user(&state, &email, "password123", "admin").await;
-        let token = crate::auth::jwt::encode_token_with_role(user_id, TEST_SECRET, 3, Some("admin".to_string())).unwrap();
+        let token = crate::auth::jwt::encode_token_with_role(user_id, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap();
 
         let app = test::init_service(
             App::new()
@@ -485,5 +511,152 @@ mod tests {
         };
         let json = serde_json::to_string(&err).unwrap();
         assert!(json.contains("Invalid credentials"));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn logout_success() {
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("JWT_SECRET", TEST_SECRET);
+        }
+        let state = get_state().await;
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
+        let email = format!("logout{}@example.com", ts);
+        let user_id = seed_test_user(&state, &email, "password123", "user").await;
+        let token = crate::auth::jwt::encode_token_with_role(user_id, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
+
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(get_state().await))
+                .app_data(web::Data::new(
+                    get_state().await.cookie_builder.clone()
+                ))
+                .configure(config_routes),
+        )
+        .await;
+
+        let req = test::TestRequest::post()
+            .uri("/v1/auth/logout")
+            .insert_header(("Authorization", format!("Bearer {}", token)))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 200);
+        let body: serde_json::Value = test::read_body_json(resp).await;
+        assert_eq!(body["message"], "logged out successfully");
+
+        cleanup_user(&state, &email).await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn logout_rejects_without_token() {
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("JWT_SECRET", TEST_SECRET);
+        }
+        let state = web::Data::new(get_state().await);
+        let app = test::init_service(
+            App::new()
+                .app_data(state)
+                .configure(config_routes),
+        )
+        .await;
+
+        let req = test::TestRequest::post()
+            .uri("/v1/auth/logout")
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 401);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn logout_prevents_further_session_requests() {
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("JWT_SECRET", TEST_SECRET);
+        }
+        let state = get_state().await;
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
+        let email = format!("logoutsession{}@example.com", ts);
+        let user_id = seed_test_user(&state, &email, "password123", "user").await;
+        let token = crate::auth::jwt::encode_token_with_role(user_id, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
+
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(get_state().await))
+                .app_data(web::Data::new(
+                    get_state().await.cookie_builder.clone()
+                ))
+                .configure(config_routes),
+        )
+        .await;
+
+        // Logout first
+        let req = test::TestRequest::post()
+            .uri("/v1/auth/logout")
+            .insert_header(("Authorization", format!("Bearer {}", token)))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 200);
+
+        // Same token should now be rejected
+        let req = test::TestRequest::get()
+            .uri("/v1/auth/session")
+            .insert_header(("Authorization", format!("Bearer {}", token)))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 401);
+
+        cleanup_user(&state, &email).await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn logout_idempotent() {
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("JWT_SECRET", TEST_SECRET);
+        }
+        let state = get_state().await;
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
+        let email = format!("logoutidempotent{}@example.com", ts);
+        let user_id = seed_test_user(&state, &email, "password123", "user").await;
+        let token = crate::auth::jwt::encode_token_with_role(user_id, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
+
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(get_state().await))
+                .app_data(web::Data::new(
+                    get_state().await.cookie_builder.clone()
+                ))
+                .configure(config_routes),
+        )
+        .await;
+
+        // First logout
+        let req = test::TestRequest::post()
+            .uri("/v1/auth/logout")
+            .insert_header(("Authorization", format!("Bearer {}", token)))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 200);
+
+        // Second logout with same token - middleware will reject since token is revoked
+        // This is expected behavior: once revoked, the token can't be used again
+        let req = test::TestRequest::post()
+            .uri("/v1/auth/logout")
+            .insert_header(("Authorization", format!("Bearer {}", token)))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 401);
+
+        cleanup_user(&state, &email).await;
     }
 }

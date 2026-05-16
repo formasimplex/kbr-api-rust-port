@@ -268,7 +268,7 @@ mod tests {
     #[test]
     fn get_product_query_contains_id() {
         let client = test_client();
-        let sg = ShopifyGraphQl::new(client);
+        let _sg = ShopifyGraphQl::new(client);
 
         let query = r#"
             query {

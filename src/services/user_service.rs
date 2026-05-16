@@ -74,7 +74,7 @@ mod tests {
     fn validate_create_request_valid() {
         let req = CreateUserRequest {
             email: "test@example.com".to_string(),
-            password: "password123".to_string(),
+            password: "Password123".to_string(),
             username: Some("testuser".to_string()),
             token: Some("valid-token".to_string()),
         };
@@ -85,7 +85,7 @@ mod tests {
     fn validate_create_request_invalid_email() {
         let req = CreateUserRequest {
             email: "not-an-email".to_string(),
-            password: "password123".to_string(),
+            password: "Password123".to_string(),
             username: None,
             token: None,
         };
@@ -109,7 +109,7 @@ mod tests {
     fn validate_create_request_empty_token() {
         let req = CreateUserRequest {
             email: "test@example.com".to_string(),
-            password: "password123".to_string(),
+            password: "Password123".to_string(),
             username: None,
             token: Some("".to_string()),
         };

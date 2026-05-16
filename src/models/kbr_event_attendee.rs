@@ -49,6 +49,16 @@ impl KbrEventAttendee {
     pub fn has_scanned(&self) -> bool {
         self.scan_count.unwrap_or(0) > 0
     }
+
+    pub async fn find_by_id(pool: &sqlx::PgPool, id: i64) -> sqlx::Result<Option<Self>> {
+        sqlx::query_as::<_, Self>(
+            "SELECT id, kbr_event_id, mail_subscriber_id, scan_count, headcount, created_at, updated_at
+             FROM kbr_event_attendees WHERE id = $1",
+        )
+        .bind(id)
+        .fetch_optional(pool)
+        .await
+    }
 }
 
 #[cfg(test)]

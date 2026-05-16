@@ -10,6 +10,9 @@ pub struct User {
     pub role: Option<String>,
     pub session_token: Option<String>,
     pub username: Option<String>,
+    pub first_name: Option<String>,
+    pub last_name: Option<String>,
+    pub token_version: i64,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -76,6 +79,17 @@ impl User {
     pub fn validate_role(role: &str) -> bool {
         matches!(role, "admin" | "user" | "customer" | "artist" | "staff")
     }
+
+    pub async fn find_by_id(pool: &sqlx::PgPool, id: i64) -> sqlx::Result<Option<Self>> {
+        sqlx::query_as::<_, Self>(
+            "SELECT id, email, password_digest, role, session_token, username,
+                    first_name, last_name, token_version, created_at, updated_at
+             FROM users WHERE id = $1",
+        )
+        .bind(id)
+        .fetch_optional(pool)
+        .await
+    }
 }
 
 #[cfg(test)]
@@ -91,6 +105,9 @@ mod tests {
             role: Some("admin".to_string()),
             session_token: None,
             username: Some("admin".to_string()),
+            first_name: None,
+            last_name: None,
+            token_version: 1,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };
@@ -110,6 +127,9 @@ mod tests {
             role: None,
             session_token: None,
             username: None,
+            first_name: None,
+            last_name: None,
+            token_version: 1,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };
@@ -133,15 +153,18 @@ mod tests {
 
     #[test]
     fn validate_password_valid() {
-        assert!(User::validate_password("password"));
-        assert!(User::validate_password("123456"));
-        assert!(User::validate_password("very-long-password"));
+        assert!(User::validate_password("Password1"));
+        assert!(User::validate_password("Abcdefg1"));
+        assert!(User::validate_password("VeryLongPassword123"));
     }
 
     #[test]
     fn validate_password_invalid() {
         assert!(!User::validate_password("12345"));
         assert!(!User::validate_password(""));
+        assert!(!User::validate_password("password"));
+        assert!(!User::validate_password("12345678"));
+        assert!(!User::validate_password("PASSWORD1"));
     }
 
     #[test]

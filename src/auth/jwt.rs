@@ -13,10 +13,16 @@ pub struct Claims {
     #[serde(default)]
     pub role: Option<String>,
     pub jti: String,
+    #[serde(default = "default_token_version")]
+    pub token_version: i64,
+}
+
+fn default_token_version() -> i64 {
+    1
 }
 
 pub fn encode_token(user_id: i64, secret: &str, expiry_days: u64) -> Result<String, AppError> {
-    encode_token_with_role(user_id, secret, expiry_days, None)
+    encode_token_with_role(user_id, secret, expiry_days, None, 1)
 }
 
 pub fn encode_token_with_role(
@@ -24,6 +30,7 @@ pub fn encode_token_with_role(
     secret: &str,
     expiry_days: u64,
     role: Option<String>,
+    token_version: i64,
 ) -> Result<String, AppError> {
     let now = Utc::now();
     let exp = now
@@ -37,6 +44,7 @@ pub fn encode_token_with_role(
         iat: now.timestamp() as u64,
         role,
         jti: Uuid::new_v4().to_string(),
+        token_version,
     };
 
     encode(
@@ -66,6 +74,7 @@ pub fn create_expired_token(user_id: i64, secret: &str) -> String {
         iat: Utc::now().timestamp() as u64 - 700,
         role: None,
         jti: Uuid::new_v4().to_string(),
+        token_version: 1,
     };
 
     encode(
@@ -154,6 +163,7 @@ mod tests {
             iat: 9999999900,
             role: None,
             jti: Uuid::new_v4().to_string(),
+            token_version: 1,
         };
         let json = serde_json::to_string(&claims).expect("should serialize");
         assert!(json.contains("\"user_id\":42"));

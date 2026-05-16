@@ -20,6 +20,11 @@ pub async fn setup_web_server() -> std::io::Result<Server> {
         std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
     })?;
 
+    crate::db::migrate::run_migrations(&pool).await.map_err(|e| {
+        tracing::error!("Failed to run database migrations: {}", e);
+        std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+    })?;
+
     let s3_config = S3Config::from_env().map_err(|e| {
         tracing::error!("Failed to load S3 config: {}", e);
         std::io::Error::new(std::io::ErrorKind::Other, e.to_string())

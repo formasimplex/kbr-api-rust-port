@@ -6,6 +6,8 @@ use sqlx::FromRow;
 pub struct SignUpTrigger {
     pub id: i64,
     pub email: Option<String>,
+    pub full_name: Option<String>,
+    pub confirmation_token: Option<String>,
     pub token: Option<String>,
     pub expires_at: Option<String>,
     pub role: Option<String>,
@@ -74,6 +76,16 @@ impl SignUpTrigger {
         let dt = chrono::NaiveDateTime::parse_from_str(s, "%b %d, %Y %I:%M %p").ok()?;
         Some(dt.and_utc())
     }
+
+    pub async fn find_by_id(pool: &sqlx::PgPool, id: i64) -> sqlx::Result<Option<Self>> {
+        sqlx::query_as::<_, Self>(
+            "SELECT id, email, full_name, confirmation_token, token, expires_at, role, created_at, updated_at
+             FROM sign_up_triggers WHERE id = $1",
+        )
+        .bind(id)
+        .fetch_optional(pool)
+        .await
+    }
 }
 
 #[cfg(test)]
@@ -81,10 +93,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn sign_up_trigger_is_expired_when_no_expires_at() {
+   fn sign_up_trigger_is_expired_when_no_expires_at() {
         let trigger = SignUpTrigger {
             id: 1,
             email: Some("test@example.com".to_string()),
+            full_name: None,
+            confirmation_token: None,
             token: Some("token".to_string()),
             expires_at: None,
             role: None,
@@ -102,6 +116,8 @@ mod tests {
         let trigger = SignUpTrigger {
             id: 1,
             email: Some("test@example.com".to_string()),
+            full_name: None,
+            confirmation_token: None,
             token: Some("token".to_string()),
             expires_at: Some(future),
             role: None,
@@ -119,6 +135,8 @@ mod tests {
         let trigger = SignUpTrigger {
             id: 1,
             email: Some("test@example.com".to_string()),
+            full_name: None,
+            confirmation_token: None,
             token: Some("token".to_string()),
             expires_at: Some(past),
             role: None,
@@ -133,6 +151,8 @@ mod tests {
         let trigger = SignUpTrigger {
             id: 1,
             email: Some("test@example.com".to_string()),
+            full_name: None,
+            confirmation_token: None,
             token: Some("token".to_string()),
             expires_at: Some("not-a-date".to_string()),
             role: None,

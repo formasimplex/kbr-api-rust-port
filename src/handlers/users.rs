@@ -30,6 +30,7 @@ struct UserRow {
     role: Option<String>,
     session_token: Option<String>,
     username: Option<String>,
+    token_version: i64,
     created_at: chrono::NaiveDateTime,
     updated_at: chrono::NaiveDateTime,
 }
@@ -43,6 +44,9 @@ impl From<UserRow> for User {
             role: row.role,
             session_token: row.session_token,
             username: row.username,
+            first_name: None,
+            last_name: None,
+            token_version: row.token_version,
             created_at: row.created_at.and_utc(),
             updated_at: row.updated_at.and_utc(),
         }
@@ -65,7 +69,7 @@ pub async fn index(
         return Err(AppError::Forbidden("Not Authorized".to_string()));
     }
     let rows = sqlx::query_as::<_, UserRow>(
-        r"SELECT id, email, password_digest, role, session_token, username, created_at, updated_at FROM users ORDER BY id"
+        r"SELECT id, email, password_digest, role, session_token, username, COALESCE(token_version, 1) as token_version, created_at, updated_at FROM users ORDER BY id"
     )
     .fetch_all(&state.db)
     .await?;
@@ -94,7 +98,7 @@ pub async fn show(
         return Err(AppError::Forbidden("Not Authorized".to_string()));
     }
     match sqlx::query_as::<_, UserRow>(
-        r"SELECT id, email, password_digest, role, session_token, username, created_at, updated_at FROM users WHERE id = $1"
+        r"SELECT id, email, password_digest, role, session_token, username, COALESCE(token_version, 1) as token_version, created_at, updated_at FROM users WHERE id = $1"
     )
     .bind(target_id)
     .fetch_optional(&state.db)
@@ -165,9 +169,9 @@ pub async fn create(
     let now = chrono::Utc::now().naive_utc();
 
     let row = sqlx::query_as::<_, UserRow>(
-        r"INSERT INTO users (email, password_digest, role, session_token, username, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)
-           RETURNING id, email, password_digest, role, session_token, username, created_at, updated_at"
+        r"INSERT INTO users (email, password_digest, role, session_token, username, token_version, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, 1, $6, $7)
+           RETURNING id, email, password_digest, role, session_token, username, token_version, created_at, updated_at"
     )
     .bind(&body.email)
     .bind(&password_digest)
@@ -227,7 +231,7 @@ pub async fn update(
     }
 
     let existing = sqlx::query_as::<_, UserRow>(
-        r"SELECT id, email, password_digest, role, session_token, username, created_at, updated_at FROM users WHERE id = $1"
+        r"SELECT id, email, password_digest, role, session_token, username, COALESCE(token_version, 1) as token_version, created_at, updated_at FROM users WHERE id = $1"
     )
     .bind(target_id)
     .fetch_optional(&state.db)
@@ -239,6 +243,7 @@ pub async fn update(
             let username = body.username.clone();
             let role = body.role.clone();
             let mut password_digest: Option<String> = None;
+            let mut increment_token_version = false;
 
             if let Some(ref password) = body.password {
                 password_digest =
@@ -248,6 +253,7 @@ pub async fn update(
                         username: None,
                         token: None,
                     })?);
+                increment_token_version = true;
             }
 
             let now = chrono::Utc::now().naive_utc();
@@ -258,9 +264,10 @@ pub async fn update(
                        username = COALESCE($2, username),
                        role = COALESCE($3, role),
                        password_digest = COALESCE($4, password_digest),
+                       token_version = CASE WHEN $7 THEN token_version + 1 ELSE token_version END,
                        updated_at = $5
                    WHERE id = $6
-                   RETURNING id, email, password_digest, role, session_token, username, created_at, updated_at"
+                   RETURNING id, email, password_digest, role, session_token, username, COALESCE(token_version, 1) as token_version, created_at, updated_at"
             )
             .bind(email)
             .bind(username)
@@ -268,6 +275,7 @@ pub async fn update(
             .bind(password_digest)
             .bind(now)
             .bind(target_id)
+            .bind(increment_token_version)
             .fetch_one(&state.db)
             .await?;
 
@@ -305,11 +313,11 @@ mod tests {
     }
 
     fn admin_token() -> String {
-        encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string())).unwrap()
+        encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap()
     }
 
     fn user_token(user_id: i64) -> String {
-        encode_token_with_role(user_id, TEST_SECRET, 3, Some("user".to_string())).unwrap()
+        encode_token_with_role(user_id, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap()
     }
 
     async fn seed_test_user(state: &AppState, email: &str, role: &str) -> i64 {
@@ -322,9 +330,9 @@ mod tests {
         .unwrap();
         let now = chrono::Utc::now().naive_utc();
         let row = sqlx::query_as::<_, UserRow>(
-            r"INSERT INTO users (email, password_digest, role, session_token, username, created_at, updated_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7)
-               RETURNING id, email, password_digest, role, session_token, username, created_at, updated_at"
+            r"INSERT INTO users (email, password_digest, role, session_token, username, token_version, created_at, updated_at)
+               VALUES ($1, $2, $3, $4, $5, 1, $6, $7)
+               RETURNING id, email, password_digest, role, session_token, username, token_version, created_at, updated_at"
         )
         .bind(email)
         .bind(&password_digest)
@@ -342,6 +350,13 @@ mod tests {
     async fn cleanup_user(state: &AppState, email: &str) {
         let _ = sqlx::query(r"DELETE FROM users WHERE email = $1")
             .bind(email)
+            .execute(&state.db)
+            .await;
+    }
+
+    async fn cleanup_user_by_username(state: &AppState, username: &str) {
+        let _ = sqlx::query(r"DELETE FROM users WHERE username = $1")
+            .bind(username)
             .execute(&state.db)
             .await;
     }
@@ -394,7 +409,7 @@ mod tests {
         let email = format!("showself{}@example.com", ts);
         let user_id = seed_test_user(&state, &email, "user").await;
         let token =
-            encode_token_with_role(user_id, TEST_SECRET, 3, Some("user".to_string())).unwrap();
+            encode_token_with_role(user_id, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
 
         let app = test::init_service(
             App::new()
@@ -479,6 +494,7 @@ mod tests {
             .unwrap()
             .as_millis();
         let email = format!("newuser{}@example.com", ts);
+        let username = format!("newuser{}", ts);
 
         let app =
             test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
@@ -488,7 +504,7 @@ mod tests {
             .set_json(serde_json::json!({
                 "email": email,
                 "password": "Password123",
-                "username": "newuser"
+                "username": username
             }))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -511,6 +527,7 @@ mod tests {
             .unwrap()
             .as_millis();
         let email = format!("tokenuser{}@example.com", ts);
+        let username = format!("tokenuser{}", ts);
 
         let token = format!("valid_token_{}", ts);
         let future = (chrono::Utc::now() + chrono::Duration::days(1))
@@ -537,7 +554,7 @@ mod tests {
             .set_json(serde_json::json!({
                 "email": email,
                 "password": "Password123",
-                "username": "tokenuser",
+                "username": username,
                 "token": token
             }))
             .to_request();
@@ -728,7 +745,7 @@ mod tests {
         let email = format!("updateself{}@example.com", ts);
         let user_id = seed_test_user(&state, &email, "user").await;
         let token =
-            encode_token_with_role(user_id, TEST_SECRET, 3, Some("user".to_string())).unwrap();
+            encode_token_with_role(user_id, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
 
         let app = test::init_service(
             App::new()
@@ -784,5 +801,54 @@ mod tests {
         assert_eq!(resp.status(), 403);
 
         cleanup_user(&state, &email).await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn password_change_revokes_old_tokens() {
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("JWT_SECRET", TEST_SECRET);
+        }
+        let state_data = web::Data::new(get_state().await);
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
+        let email = format!("pwdchange{}@example.com", ts);
+        let user_id = seed_test_user(&state_data, &email, "user").await;
+        // Create a token with token_version=1
+        let old_token = encode_token_with_role(user_id, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
+
+        let app = test::init_service(
+            App::new()
+                .app_data(state_data.clone())
+                .app_data(web::Data::new(
+                    state_data.cookie_builder.clone()
+                ))
+                .configure(crate::handlers::auth::config_routes)
+                .configure(config_routes),
+        )
+        .await;
+
+        // Change password
+        let req = test::TestRequest::put()
+            .uri(&format!("/v1/user/{}", user_id))
+            .insert_header(("Authorization", format!("Bearer {}", old_token)))
+            .set_json(serde_json::json!({
+                "password": "NewPassword123"
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 200);
+
+        // Old token should now be rejected (token_version incremented)
+        let req = test::TestRequest::get()
+            .uri("/v1/auth/session")
+            .insert_header(("Authorization", format!("Bearer {}", old_token)))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 401);
+
+        cleanup_user(&state_data, &email).await;
     }
 }

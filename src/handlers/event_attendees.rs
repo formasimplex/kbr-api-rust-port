@@ -14,7 +14,6 @@
 //! | `update` | POST | `/v1/kbr_event_update_txt` | artist+ | Return attendees for an event (used for text copy updates) |
 
 use actix_web::{web, HttpResponse};
-use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
 use crate::app::AppState;
@@ -260,7 +259,7 @@ async fn get_state() -> AppState {
     }
 
     fn admin_token() -> String {
-        encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string())).unwrap()
+        encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap()
     }
 
     fn suffix() -> u128 {

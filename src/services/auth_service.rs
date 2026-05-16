@@ -1,6 +1,6 @@
 use uuid::Uuid;
 
-use crate::auth::jwt::{decode_token, encode_token, Claims};
+use crate::auth::jwt::{decode_token, encode_token_with_role, Claims};
 use crate::error::AppError;
 use crate::models::user::User;
 
@@ -36,7 +36,13 @@ pub fn verify_password(password: &str, hash: &str) -> Result<bool, AppError> {
 }
 
 pub fn create_login_response(user: &User, secret: &str) -> Result<LoginResponse, AppError> {
-    let token = encode_token(user.id, secret, JWT_EXPIRY_DAYS)?;
+    let token = encode_token_with_role(
+        user.id,
+        secret,
+        JWT_EXPIRY_DAYS,
+        user.role.clone(),
+        user.token_version,
+    )?;
     Ok(LoginResponse {
         token,
         id: user.id,
@@ -45,7 +51,13 @@ pub fn create_login_response(user: &User, secret: &str) -> Result<LoginResponse,
 }
 
 pub fn create_session_response(user: &User, secret: &str) -> Result<SessionResponse, AppError> {
-    let token = encode_token(user.id, secret, JWT_EXPIRY_DAYS)?;
+    let token = encode_token_with_role(
+        user.id,
+        secret,
+        JWT_EXPIRY_DAYS,
+        user.role.clone(),
+        user.token_version,
+    )?;
     Ok(SessionResponse {
         token,
         id: user.id,
@@ -54,7 +66,13 @@ pub fn create_session_response(user: &User, secret: &str) -> Result<SessionRespo
 }
 
 pub fn create_claims(user: &User, secret: &str) -> Result<Claims, AppError> {
-    let token = encode_token(user.id, secret, JWT_EXPIRY_DAYS)?;
+    let token = encode_token_with_role(
+        user.id,
+        secret,
+        JWT_EXPIRY_DAYS,
+        user.role.clone(),
+        user.token_version,
+    )?;
     decode_token(&token, secret)
 }
 
@@ -113,7 +131,7 @@ mod tests {
     }
 
     #[test]
-    fn test_create_login_response() {
+ fn test_create_login_response() {
         let user = User {
             id: 42,
             email: "test@example.com".to_string(),
@@ -121,6 +139,9 @@ mod tests {
             role: Some("admin".to_string()),
             session_token: None,
             username: Some("admin".to_string()),
+            first_name: None,
+            last_name: None,
+            token_version: 1,
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
         };
@@ -139,6 +160,9 @@ mod tests {
             role: None,
             session_token: None,
             username: None,
+            first_name: None,
+            last_name: None,
+            token_version: 1,
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
         };
@@ -155,6 +179,9 @@ mod tests {
             role: Some("artist".to_string()),
             session_token: None,
             username: None,
+            first_name: None,
+            last_name: None,
+            token_version: 1,
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
         };
@@ -205,6 +232,9 @@ mod tests {
             role: Some("admin".to_string()),
             session_token: None,
             username: Some("admin".to_string()),
+            first_name: None,
+            last_name: None,
+            token_version: 1,
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
         };

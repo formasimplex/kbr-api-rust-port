@@ -12,7 +12,6 @@
 //! | `update` | POST | `/v1/reset_trigger/{token}` | public | Reset password using a valid token |
 
 use actix_web::{web, HttpResponse};
-use serde::Deserialize;
 use sqlx::FromRow;
 
 use crate::app::AppState;
@@ -35,7 +34,9 @@ impl From<ResetTriggerRow> for ResetTrigger {
     fn from(row: ResetTriggerRow) -> Self {
         ResetTrigger {
             id: row.id,
+            email: None,
             user_id: row.user_id,
+            full_name: None,
             token: row.token,
             expires_at: row.expires_at,
             created_at: row.created_at.and_utc(),
@@ -269,7 +270,7 @@ mod tests {
         let seed = sqlx::query_as::<_, ResetTriggerRow>(
             r"INSERT INTO reset_triggers (user_id, token, expires_at, created_at, updated_at)
                VALUES (NULL, $1, 'Dec 31, 2026 11:59 PM', NOW(), NOW())
-               RETURNING id, user_id, token, expires_at, created_at, updated_at"
+               RETURNING id, email, user_id, full_name, token, expires_at, created_at, updated_at"
         )
         .bind(&token)
         .fetch_one(&state.db)
@@ -352,7 +353,7 @@ mod tests {
         let req = test::TestRequest::post()
             .uri(&format!("/v1/reset_trigger/{}", token))
             .set_json(serde_json::json!({
-                "password": "newpassword123"
+                "password": "Newpassword123"
             }))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -465,7 +466,7 @@ mod tests {
         let req = test::TestRequest::post()
             .uri(&format!("/v1/reset_trigger/{}", token))
             .set_json(serde_json::json!({
-                "password": "newpassword123"
+                "password": "Newpassword123"
             }))
             .to_request();
         let resp = test::call_service(&app, req).await;

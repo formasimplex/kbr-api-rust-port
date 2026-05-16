@@ -11,7 +11,6 @@
 //! | `show` | GET | `/v1/sign_up_trigger/{token}` | public | Retrieve an existing sign-up trigger by token |
 
 use actix_web::{web, HttpResponse};
-use serde::Deserialize;
 use sqlx::FromRow;
 
 use crate::app::AppState;
@@ -35,6 +34,8 @@ impl From<SignUpTriggerRow> for SignUpTrigger {
         SignUpTrigger {
             id: row.id,
             email: row.email,
+            full_name: None,
+            confirmation_token: None,
             token: row.token,
             expires_at: row.expires_at,
             role: row.role,

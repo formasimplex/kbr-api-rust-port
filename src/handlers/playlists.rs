@@ -21,7 +21,6 @@
 //! | `dashboard_remove_news` | POST | `/v1/dashboard/news_playlists/{playlist_id}/remove_news/{news_id}` | auth | Remove a news item from a playlist (owner or admin only) |
 
 use actix_web::{web, HttpResponse};
-use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
 use crate::app::AppState;
@@ -618,11 +617,11 @@ mod tests {
     }
 
     fn admin_token() -> String {
-        encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string())).unwrap()
+        encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap()
     }
 
     fn user_token(user_id: i64) -> String {
-        encode_token_with_role(user_id, TEST_SECRET, 3, Some("user".to_string())).unwrap()
+        encode_token_with_role(user_id, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap()
     }
 
     async fn seed_playlist(state: &AppState, suffix: &str) -> (i64, String) {

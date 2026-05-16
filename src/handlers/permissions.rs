@@ -251,11 +251,11 @@ mod tests {
     }
 
     fn admin_token() -> String {
-        encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string())).unwrap()
+        encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap()
     }
 
     fn user_token() -> String {
-        encode_token_with_role(2, TEST_SECRET, 3, None).unwrap()
+        encode_token_with_role(2, TEST_SECRET, 3, None, 1).unwrap()
     }
 
     #[tokio::test(flavor = "current_thread")]

@@ -273,7 +273,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let token = encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string())).unwrap();
+        let token = encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap();
         let state = web::Data::new(get_state().await);
         let (album_id, artist_id) = seed_album_and_artist(&state.db).await;
 
@@ -315,7 +315,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let token = encode_token_with_role(2, TEST_SECRET, 3, Some("user".to_string())).unwrap();
+        let token = encode_token_with_role(2, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
         let state = web::Data::new(get_state().await);
 
         let app = test::init_service(

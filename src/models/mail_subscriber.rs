@@ -12,6 +12,8 @@ pub struct MailSubscriber {
     pub unsubscribed_at: Option<DateTime<Utc>>,
     pub unsubscribe_token: Option<String>,
     pub user_id: Option<i64>,
+    pub first_name: Option<String>,
+    pub last_name: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -61,6 +63,17 @@ impl MailSubscriber {
             .map(char::from)
             .collect()
     }
+
+    pub async fn find_by_id(pool: &sqlx::PgPool, id: i64) -> sqlx::Result<Option<Self>> {
+        sqlx::query_as::<_, Self>(
+            "SELECT id, full_name, email, active, artist_id, unsubscribed_at,
+                    unsubscribe_token, user_id, first_name, last_name, created_at, updated_at
+             FROM mail_subscribers WHERE id = $1",
+        )
+        .bind(id)
+        .fetch_optional(pool)
+        .await
+    }
 }
 
 #[cfg(test)]
@@ -68,7 +81,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn mail_subscriber_unsubscribed() {
+  fn mail_subscriber_unsubscribed() {
         let sub = MailSubscriber {
             id: 2,
             full_name: "Jane".to_string(),
@@ -78,6 +91,8 @@ mod tests {
             unsubscribed_at: Some(Utc::now()),
             unsubscribe_token: None,
             user_id: None,
+            first_name: None,
+            last_name: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };

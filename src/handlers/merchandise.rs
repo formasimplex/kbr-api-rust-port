@@ -351,7 +351,7 @@ async fn get_state() -> AppState {
     }
 
     fn admin_token() -> String {
-        encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string())).unwrap()
+        encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap()
     }
 
     async fn seed_artist_and_producer(pool: &sqlx::PgPool) -> (i64, i64, String, String) {

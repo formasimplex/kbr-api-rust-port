@@ -331,11 +331,11 @@ mod tests {
     const TEST_DB_URL: &str = "postgresql://ws@localhost:5432/kbr_test";
 
     fn artist_token() -> String {
-        encode_token_with_role(1, TEST_SECRET, 3, Some("artist".to_string())).unwrap()
+        encode_token_with_role(1, TEST_SECRET, 3, Some("artist".to_string()), 1).unwrap()
     }
 
     fn user_token() -> String {
-        encode_token_with_role(2, TEST_SECRET, 3, Some("user".to_string())).unwrap()
+        encode_token_with_role(2, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap()
     }
 
     #[tokio::test(flavor = "current_thread")]

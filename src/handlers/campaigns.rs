@@ -389,7 +389,7 @@ pub async fn activate_campaign(
     let sg = ShopifyGraphQl::new(shopify.clone());
 
     // Find the campaign
-    let campaign = sqlx::query_as::<_, CampaignRow>(
+    let _campaign = sqlx::query_as::<_, CampaignRow>(
         &format!("{} WHERE id = $1 AND deleted_at IS NULL", CAMPAIGN_SELECT),
     )
     .bind(campaign_id)
@@ -536,11 +536,11 @@ mod tests {
     }
 
     fn admin_token() -> String {
-        encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string())).unwrap()
+        encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap()
     }
 
     fn artist_token() -> String {
-        encode_token_with_role(2, TEST_SECRET, 2, Some("artist".to_string())).unwrap()
+        encode_token_with_role(2, TEST_SECRET, 2, Some("artist".to_string()), 1).unwrap()
     }
 
     async fn seed_user() -> i64 {
@@ -1168,7 +1168,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let token = encode_token_with_role(3, TEST_SECRET, 3, Some("user".to_string())).unwrap();
+        let token = encode_token_with_role(3, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
         let state = web::Data::new(get_state().await);
 
         let app = test::init_service(
