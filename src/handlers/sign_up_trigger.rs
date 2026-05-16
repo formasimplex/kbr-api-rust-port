@@ -46,12 +46,14 @@ impl From<SignUpTriggerRow> for SignUpTrigger {
 
 /// Create a new sign-up trigger for an email address.
 ///
-/// Generates a token and expiration time for the sign-up flow.
-/// Public endpoint.
+/// Checks for artist conflict, expires any existing trigger for the same
+/// email, generates a new token with 1-day expiry, and sends a role-specific
+/// confirmation email. Public endpoint.
 ///
 /// # Response
 ///
 /// `201 Created` — `SignUpTriggerResponse` with the new trigger
+/// `403 Forbidden` — email already linked to an artist account
 /// `422 Unprocessable` — invalid email
 pub async fn create(
     state: web::Data<AppState>,
@@ -61,9 +63,38 @@ pub async fn create(
         return Err(AppError::Validation("Invalid email".to_string()));
     }
 
+    let is_artist: bool = sqlx::query_scalar(
+        r"SELECT EXISTS(
+            SELECT 1 FROM users u
+            JOIN artists a ON a.user_id = u.id
+            WHERE u.email = $1 AND u.role = 'artist'
+        )"
+    )
+    .bind(&body.email)
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or(false);
+
+    if is_artist {
+        return Err(AppError::Forbidden(
+            "Email already linked to Artist account".to_string(),
+        ));
+    }
+
+    let now = chrono::Utc::now().naive_utc();
+    let now_str = now.format("%b %d, %Y %I:%M %p").to_string();
+
+    let _ = sqlx::query(
+        r"UPDATE sign_up_triggers SET expires_at = $1, updated_at = $2 WHERE email = $3"
+    )
+    .bind(&now_str)
+    .bind(now)
+    .bind(&body.email)
+    .execute(&state.db)
+    .await;
+
     let token = SignUpTrigger::generate_token();
     let expires_at = SignUpTrigger::generate_expires_at();
-    let now = chrono::Utc::now().naive_utc();
 
     let row = sqlx::query_as::<_, SignUpTriggerRow>(
         r"INSERT INTO sign_up_triggers (email, token, expires_at, role, created_at, updated_at)
@@ -187,6 +218,127 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 422);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn sign_up_trigger_create_artist_conflict_returns_403() {
+        unsafe { std::env::set_var("DATABASE_URL", TEST_DB_URL); }
+        let state = web::Data::new(get_state().await);
+
+        let ts = chrono::Utc::now().timestamp_micros();
+        let email = format!("artist_conflict_{}@example.com", ts);
+        let password_digest = "hashed_password_test".to_string();
+        let now = chrono::Utc::now().naive_utc();
+
+        let user_id: i64 = sqlx::query_scalar(
+            r"INSERT INTO users (email, password_digest, role, created_at, updated_at)
+               VALUES ($1, $2, 'artist', $3, $3) RETURNING id"
+        )
+        .bind(&email)
+        .bind(&password_digest)
+        .bind(&now)
+        .fetch_one(&state.db)
+        .await
+        .expect("Failed to seed artist user");
+
+        let _artist_id: i64 = sqlx::query_scalar(
+            r"INSERT INTO artists (name, user_id, created_at, updated_at)
+               VALUES ($1, $2, $3, $3) RETURNING id"
+        )
+        .bind(format!("Test Artist {}", ts))
+        .bind(user_id)
+        .bind(&now)
+        .fetch_one(&state.db)
+        .await
+        .expect("Failed to seed artist");
+
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(get_state().await))
+                .configure(config_routes),
+        )
+        .await;
+
+        let req = test::TestRequest::post()
+            .uri("/v1/sign_up_trigger")
+            .set_json(serde_json::json!({
+                "email": email,
+                "role": "user"
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 403);
+
+        let _ = sqlx::query(r"DELETE FROM artists WHERE user_id = $1")
+            .bind(user_id)
+            .execute(&state.db)
+            .await;
+        let _ = sqlx::query(r"DELETE FROM users WHERE id = $1")
+            .bind(user_id)
+            .execute(&state.db)
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn sign_up_trigger_create_expires_existing_trigger() {
+        unsafe { std::env::set_var("DATABASE_URL", TEST_DB_URL); }
+        let state = web::Data::new(get_state().await);
+        let ts = chrono::Utc::now().timestamp_micros();
+        let email = format!("existing_trigger_{}@example.com", ts);
+
+        let old_token = format!("old_token_{}", ts);
+        let future = (chrono::Utc::now() + chrono::Duration::days(1))
+            .format("%b %d, %Y %I:%M %p")
+            .to_string();
+        let now = chrono::Utc::now().naive_utc();
+        let old_id: i64 = sqlx::query_scalar(
+            r"INSERT INTO sign_up_triggers (email, token, expires_at, role, created_at, updated_at)
+               VALUES ($1, $2, $3, 'user', $4, $4) RETURNING id"
+        )
+        .bind(&email)
+        .bind(&old_token)
+        .bind(&future)
+        .bind(&now)
+        .fetch_one(&state.db)
+        .await
+        .expect("Failed to seed existing trigger");
+
+        let app = test::init_service(
+            App::new()
+                .app_data(state.clone())
+                .configure(config_routes),
+        )
+        .await;
+
+        let req = test::TestRequest::post()
+            .uri("/v1/sign_up_trigger")
+            .set_json(serde_json::json!({
+                "email": email,
+                "role": "user"
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 201);
+
+        let old_expires: Option<String> = sqlx::query_scalar(
+            r"SELECT expires_at FROM sign_up_triggers WHERE id = $1"
+        )
+        .bind(old_id)
+        .fetch_one(&state.db)
+        .await
+        .expect("Failed to check old trigger");
+
+        assert!(
+            SignUpTrigger::parse_expires_at_for_test(Some(old_expires.as_deref().unwrap()))
+                .unwrap()
+                < chrono::Utc::now(),
+            "Old trigger should be expired"
+        );
+
+        let _ = sqlx::query(r"DELETE FROM sign_up_triggers WHERE email = $1")
+            .bind(&email)
+            .execute(&state.db)
+            .await;
     }
 
     #[tokio::test(flavor = "current_thread")]

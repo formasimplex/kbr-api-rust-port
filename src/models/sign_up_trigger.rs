@@ -67,6 +67,13 @@ impl SignUpTrigger {
         let dt = chrono::NaiveDateTime::parse_from_str(s, "%b %d, %Y %I:%M %p").ok()?;
         Some(dt.and_utc())
     }
+
+    #[cfg(test)]
+    pub fn parse_expires_at_for_test(s: Option<&str>) -> Option<DateTime<Utc>> {
+        let s = s?;
+        let dt = chrono::NaiveDateTime::parse_from_str(s, "%b %d, %Y %I:%M %p").ok()?;
+        Some(dt.and_utc())
+    }
 }
 
 #[cfg(test)]
