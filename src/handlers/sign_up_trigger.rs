@@ -108,6 +108,9 @@ pub async fn show(
     {
         Some(row) => {
             let trigger: SignUpTrigger = row.into();
+            if trigger.is_expired() {
+                return Err(AppError::NotFound("Sign-up trigger has expired".to_string()));
+            }
             Ok(HttpResponse::Ok().json(trigger.to_response()))
         }
         None => Err(AppError::NotFound("Sign-up trigger not found".to_string())),
@@ -240,5 +243,42 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn sign_up_trigger_show_expired_returns_404() {
+        unsafe { std::env::set_var("DATABASE_URL", TEST_DB_URL); }
+        let state = web::Data::new(get_state().await);
+
+        let token = format!("expired_test_{}", chrono::Utc::now().timestamp_micros());
+        let past = (chrono::Utc::now() - chrono::Duration::hours(1))
+            .format("%b %d, %Y %I:%M %p")
+            .to_string();
+        let _ = sqlx::query_as::<_, SignUpTriggerRow>(
+            r"INSERT INTO sign_up_triggers (email, token, expires_at, role, created_at, updated_at)
+               VALUES ('expired@example.com', $1, $2, 'user', NOW(), NOW())
+               RETURNING id, email, token, expires_at, role, created_at, updated_at"
+        )
+        .bind(&token)
+        .bind(&past)
+        .fetch_one(&state.db)
+        .await;
+
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(get_state().await))
+                .configure(config_routes),
+        )
+        .await;
+
+        let req = test::TestRequest::get()
+            .uri(&format!("/v1/sign_up_trigger/{}", token))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 404);
+
+        let _ = sqlx::query(r"DELETE FROM sign_up_triggers WHERE email = 'expired@example.com'")
+            .execute(&state.db)
+            .await;
     }
 }
