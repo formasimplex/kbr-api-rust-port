@@ -343,27 +343,11 @@ mod tests {
     const TEST_SECRET: &str = "test-secret-key";
     const TEST_DB_URL: &str = "postgresql://ws@localhost:5432/kbr_test";
 
-    async fn get_state() -> AppState {
+async fn get_state() -> AppState {
         let pool = sqlx::PgPool::connect(TEST_DB_URL)
             .await
             .expect("Failed to connect to test database");
-
-        let config = crate::services::storage_service::S3Config::from_env()
-            .unwrap_or_else(|_| crate::services::storage_service::S3Config {
-                access_key: "test".to_string(),
-                secret_key: "test".to_string(),
-                endpoint: "https://test.test".to_string(),
-                bucket_name: "test".to_string(),
-                region: "us-east-1".to_string(),
-            });
-        let s3 = crate::services::storage_service::create_s3_bucket(&config).unwrap_or_else(|_| {
-            let creds = s3::creds::Credentials::new(Some("test"), Some("test"), None, None, None).unwrap();
-            s3::bucket::Bucket::new("test", s3::region::Region::Custom { region: "us-east-1".to_string(), endpoint: "https://test.test".to_string() }, creds)
-                .unwrap()
-                .with_path_style()
-        });
-
-        AppState { db: pool, s3, shopify: None, mailchimp: None, safe_browsing: None }
+        crate::test_utils::build_test_state(pool).await
     }
 
     fn admin_token() -> String {

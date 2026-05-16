@@ -7,3 +7,4 @@ pub mod shopify_client;
 pub mod shopify_graph_ql;
 pub mod mailchimp_client;
 pub mod safe_browsing;
+pub mod email_service;

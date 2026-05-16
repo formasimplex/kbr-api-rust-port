@@ -27,6 +27,8 @@ serde = { version = "1.0.228", features = ["derive"] }
 # Auth
 jsonwebtoken = "9"
 bcrypt = "0.17"
+actix-governor = "0.10.0"
+actix-jwt-cookies = "0.1"
 
 # S3 / Storage
 rust-s3 = { version = "0.37.2", default-features = false, features = ["tokio-native-tls"] }
@@ -44,6 +46,15 @@ futures-util = "0.3"
 sha256 = "1.6"
 sha2 = "0.10"
 hex = "0.4"
+
+# Email
+lettre = { version = "0.11", default-features = false, features = ["tokio1-rustls-tls", "builder", "smtp-transport"] }
+ammonia = "4.1.2"
+percent-encoding = "2.3"
+
+# QR Code
+qrcode = { version = "0.14", default-features = false, features = ["image"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 # Logging
 tracing = "0.1"

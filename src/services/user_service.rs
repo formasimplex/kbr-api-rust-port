@@ -14,30 +14,34 @@ impl UserService {
                 "Password must be at least 6 characters".to_string(),
             ));
         }
-        if let Some(ref role) = req.token
-            && role.is_empty() {
-                return Err(AppError::Validation(
-                    "Sign-up token is required".to_string(),
-                ));
-            }
+        if let Some(ref token) = req.token
+            && token.is_empty()
+        {
+            return Err(AppError::Validation(
+                "Sign-up token is required".to_string(),
+            ));
+        }
         Ok(())
     }
 
     pub fn validate_update_request(req: &UpdateUserRequest) -> Result<(), AppError> {
         if let Some(ref email) = req.email
-            && !User::validate_email(email) {
-                return Err(AppError::Validation("Invalid email address".to_string()));
-            }
+            && !User::validate_email(email)
+        {
+            return Err(AppError::Validation("Invalid email address".to_string()));
+        }
         if let Some(ref password) = req.password
-            && !User::validate_password(password) {
-                return Err(AppError::Validation(
-                    "Password must be at least 6 characters".to_string(),
-                ));
-            }
+            && !User::validate_password(password)
+        {
+            return Err(AppError::Validation(
+                "Password must be at least 6 characters".to_string(),
+            ));
+        }
         if let Some(ref role) = req.role
-            && !User::validate_role(role) {
-                return Err(AppError::Validation(format!("Invalid role: {}", role)));
-            }
+            && !User::validate_role(role)
+        {
+            return Err(AppError::Validation(format!("Invalid role: {}", role)));
+        }
         Ok(())
     }
 
@@ -45,7 +49,11 @@ impl UserService {
         hash_password(&req.password)
     }
 
-    pub fn verify_user_credentials(_email: &str, password: &str, password_digest: &str) -> Result<bool, AppError> {
+    pub fn verify_user_credentials(
+        _email: &str,
+        password: &str,
+        password_digest: &str,
+    ) -> Result<bool, AppError> {
         verify_password(password, password_digest)
     }
 
@@ -174,6 +182,4 @@ mod tests {
             "test@example.com"
         );
     }
-
-  
 }

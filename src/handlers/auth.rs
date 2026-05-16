@@ -32,12 +32,38 @@ struct UserRow {
     updated_at: chrono::NaiveDateTime,
 }
 
+#[derive(Debug, FromRow)]
+struct UserRowNoPassword {
+    id: i64,
+    email: String,
+    role: Option<String>,
+    session_token: Option<String>,
+    username: Option<String>,
+    created_at: chrono::NaiveDateTime,
+    updated_at: chrono::NaiveDateTime,
+}
+
 impl From<UserRow> for User {
     fn from(row: UserRow) -> Self {
         User {
             id: row.id,
             email: row.email,
             password_digest: row.password_digest,
+            role: row.role,
+            session_token: row.session_token,
+            username: row.username,
+            created_at: row.created_at.and_utc(),
+            updated_at: row.updated_at.and_utc(),
+        }
+    }
+}
+
+impl From<UserRowNoPassword> for User {
+    fn from(row: UserRowNoPassword) -> Self {
+        User {
+            id: row.id,
+            email: row.email,
+            password_digest: String::new(),
             role: row.role,
             session_token: row.session_token,
             username: row.username,
@@ -92,27 +118,52 @@ pub async fn login(
 
     match user_row {
         Some(row) => {
+            let matched_field = if row.email == normalized_email {
+                "email"
+            } else {
+                "username"
+            };
+
             let user: User = row.into();
             let valid = auth_service::verify_password(&login_req.password, &user.password_digest)?;
             if valid {
-                let resp = auth_service::create_login_response(&user)?;
+                let resp = auth_service::create_login_response(&user, &state.jwt_secret)?;
+                tracing::info!(
+                    user_id = user.id,
+                    event = "login_success",
+                    matched_field = matched_field,
+                );
                 Ok(HttpResponse::Ok().json(&resp))
             } else {
+                tracing::warn!(
+                    email = %normalized_email,
+                    event = "login_failed",
+                    reason = "invalid_password",
+                    matched_field = matched_field,
+                );
                 Ok(HttpResponse::Unauthorized().json(LoginErrorResponse {
                     error: "Invalid credentials".to_string(),
                 }))
             }
         }
-        None => Ok(HttpResponse::Unauthorized().json(LoginErrorResponse {
-            error: "Invalid credentials".to_string(),
-        })),
+        None => {
+            tracing::warn!(
+                email = %normalized_email,
+                event = "login_failed",
+                reason = "user_not_found",
+            );
+            Ok(HttpResponse::Unauthorized().json(LoginErrorResponse {
+                error: "Invalid credentials".to_string(),
+            }))
+        }
     }
 }
 
 /// Return current authenticated user session data.
 ///
-/// Validates the JWT from the Authorization header, looks up the user
-/// from the database, and returns fresh session data including a new token.
+/// Validates the JWT from the Authorization header or encrypted cookie,
+/// verifies the role against the database, checks token revocation,
+/// and returns fresh session data including a new token and encrypted cookie.
 ///
 /// # Response
 ///
@@ -122,20 +173,53 @@ pub async fn session(
     state: web::Data<AppState>,
     user: CurrentUser,
 ) -> Result<HttpResponse, AppError> {
-    match sqlx::query_as::<_, UserRow>(
-        r"SELECT id, email, password_digest, role, session_token, username, created_at, updated_at
+    if user.check_token_revoked(&state.db).await? {
+        tracing::warn!(
+            user_id = user.id,
+            event = "session_rejected",
+            reason = "token_revoked",
+        );
+        return Err(AppError::Unauthorized);
+    }
+
+    let db_role = user.verify_role_with_db(&state.db).await?;
+
+    let user_row = sqlx::query_as::<_, UserRowNoPassword>(
+        r"SELECT id, email, role, session_token, username, created_at, updated_at
            FROM users WHERE id = $1"
     )
     .bind(user.id)
     .fetch_optional(&state.db)
-    .await?
-    {
+    .await?;
+
+    match user_row {
         Some(row) => {
             let u: User = row.into();
-            let resp = auth_service::create_session_response(&u)?;
-            Ok(HttpResponse::Ok().json(&resp))
+            let resp = auth_service::create_session_response(&u, &state.jwt_secret)?;
+            let claims = auth_service::create_claims(&u, &state.jwt_secret)?;
+
+            let cookie_builder = &state.cookie_builder;
+            let cookie = cookie_builder.create(claims);
+            let cookie_finished = cookie.finish();
+
+            tracing::info!(
+                user_id = u.id,
+                event = "session_refresh",
+                db_role = %db_role,
+            );
+
+            Ok(HttpResponse::Ok()
+                .cookie(cookie_finished)
+                .json(&resp))
         }
-        None => Err(AppError::Unauthorized),
+        None => {
+            tracing::warn!(
+                user_id = user.id,
+                event = "session_rejected",
+                reason = "user_not_found",
+            );
+            Err(AppError::Unauthorized)
+        }
     }
 }
 
@@ -175,7 +259,24 @@ mod tests {
                 .with_path_style()
         });
 
-        AppState { db: pool, s3, shopify: None, mailchimp: None, safe_browsing: None }
+        let cookie_builder = std::sync::Arc::new(
+            actix_jc::ActixJwtCookie::new()
+                .cookie_name("jwt_cookie")
+                .jwt_key(TEST_SECRET)
+                .permanent()
+        );
+
+        AppState {
+            db: pool,
+            s3,
+            shopify: None,
+            mailchimp: None,
+            safe_browsing: None,
+            email: None,
+            job_handle: crate::jobs::JobHandle::inline(),
+            jwt_secret: TEST_SECRET.to_string(),
+            cookie_builder,
+        }
     }
 
     async fn seed_test_user(state: &AppState, email: &str, password: &str, role: &str) -> i64 {
@@ -223,6 +324,9 @@ mod tests {
         let app = test::init_service(
             App::new()
                 .app_data(web::Data::new(get_state().await))
+                .app_data(web::Data::new(
+                    get_state().await.cookie_builder.clone()
+                ))
                 .configure(config_routes),
         )
         .await;
@@ -324,6 +428,9 @@ mod tests {
         let app = test::init_service(
             App::new()
                 .app_data(web::Data::new(get_state().await))
+                .app_data(web::Data::new(
+                    get_state().await.cookie_builder.clone()
+                ))
                 .configure(config_routes),
         )
         .await;

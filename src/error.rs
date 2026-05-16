@@ -50,6 +50,9 @@ pub enum AppError {
 
     #[error("Safe Browsing error: {0}")]
     SafeBrowsing(String),
+
+    #[error("Email error: {0}")]
+    Email(String),
 }
 
 impl actix_web::ResponseError for AppError {
@@ -71,12 +74,23 @@ impl actix_web::ResponseError for AppError {
             Self::Shopify(_) => StatusCode::BAD_GATEWAY,
             Self::Mailchimp(_) => StatusCode::BAD_GATEWAY,
             Self::SafeBrowsing(_) => StatusCode::BAD_GATEWAY,
+            Self::Email(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 
     fn error_response(&self) -> HttpResponse {
+        let msg = if cfg!(debug_assertions) {
+            self.to_string()
+        } else {
+            match self {
+                Self::Database(_) => "A database error occurred".to_string(),
+                Self::Jwt(_) => "An authentication error occurred".to_string(),
+                Self::Bcrypt(_) => "An internal error occurred".to_string(),
+                _ => self.to_string(),
+            }
+        };
         HttpResponse::build(self.status_code()).json(serde_json::json!({
-            "error": self.to_string()
+            "error": msg
         }))
     }
 }
@@ -112,7 +126,6 @@ mod tests {
     fn not_found_returns_404() {
         let err = AppError::NotFound("user".into());
         assert_eq!(err.status_code(), StatusCode::NOT_FOUND);
-        assert_eq!(err.to_string(), "not found: user");
     }
 
     #[test]

@@ -8,3 +8,8 @@ pub mod handlers;
 pub mod services;
 pub mod responses;
 pub mod setup;
+pub mod templates;
+pub mod jobs;
+
+#[cfg(test)]
+pub mod test_utils;

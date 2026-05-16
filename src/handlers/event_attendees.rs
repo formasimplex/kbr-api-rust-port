@@ -21,6 +21,7 @@ use crate::app::AppState;
 use crate::auth::middleware::CurrentUser;
 use crate::auth::roles::is_artist_or_above;
 use crate::error::AppError;
+use crate::jobs::Job;
 use crate::models::kbr_event_attendee::{
     CreateEventAttendeeRequest, KbrEventAttendee, KbrEventAttendeeResponse,
     UpdateEventAttendeeRequest,
@@ -172,6 +173,17 @@ pub async fn create(
 
     tx.commit().await?;
 
+    // Enqueue QR code email for each attendee
+    for attendee in &attendees {
+        let _ = state
+            .job_handle
+            .send(Job::SendEventAttendeeEmail {
+                attendee_id: attendee.id,
+                event_id: attendee.kbr_event_id.map(|id| id as i64).unwrap_or(0),
+            })
+            .await;
+    }
+
     let responses: Vec<KbrEventAttendeeResponse> =
         attendees.iter().map(|a| a.to_response()).collect();
     Ok(HttpResponse::Created().json(responses))
@@ -204,6 +216,18 @@ pub async fn update(
     .await?;
 
     let attendees: Vec<KbrEventAttendee> = rows.into_iter().map(|r| r.into()).collect();
+
+    // Enqueue text update email for each attendee
+    for attendee in &attendees {
+        let _ = state
+            .job_handle
+            .send(Job::SendEventUpdateEmail {
+                attendee_id: attendee.id,
+                text_copy: body.text_copy.clone(),
+            })
+            .await;
+    }
+
     let responses: Vec<KbrEventAttendeeResponse> =
         attendees.iter().map(|a| a.to_response()).collect();
     Ok(HttpResponse::Ok().json(responses))
@@ -228,27 +252,11 @@ mod tests {
     const TEST_SECRET: &str = "test-secret-key";
     const TEST_DB_URL: &str = "postgresql://ws@localhost:5432/kbr_test";
 
-    async fn get_state() -> AppState {
+async fn get_state() -> AppState {
         let pool = sqlx::PgPool::connect(TEST_DB_URL)
             .await
             .expect("Failed to connect to test database");
-
-        let config = crate::services::storage_service::S3Config::from_env()
-            .unwrap_or_else(|_| crate::services::storage_service::S3Config {
-                access_key: "test".to_string(),
-                secret_key: "test".to_string(),
-                endpoint: "https://test.test".to_string(),
-                bucket_name: "test".to_string(),
-                region: "us-east-1".to_string(),
-            });
-        let s3 = crate::services::storage_service::create_s3_bucket(&config).unwrap_or_else(|_| {
-            let creds = s3::creds::Credentials::new(Some("test"), Some("test"), None, None, None).unwrap();
-            s3::bucket::Bucket::new("test", s3::region::Region::Custom { region: "us-east-1".to_string(), endpoint: "https://test.test".to_string() }, creds)
-                .unwrap()
-                .with_path_style()
-        });
-
-        AppState { db: pool, s3, shopify: None, mailchimp: None, safe_browsing: None }
+        crate::test_utils::build_test_state(pool).await
     }
 
     fn admin_token() -> String {

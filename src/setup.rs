@@ -1,8 +1,14 @@
+use std::sync::Arc;
+
+use actix_governor::{Governor, GovernorConfigBuilder};
 use actix_web::{HttpServer, web, dev::Server};
 
 use crate::app::AppState;
+use crate::auth::jwt::Claims;
 use crate::cors::get_cors;
 use crate::db::pool::connect;
+use crate::jobs::{JobHandle, spawn_worker};
+use crate::services::email_service::EmailClient;
 use crate::services::mailchimp_client::MailchimpClient;
 use crate::services::safe_browsing::SafeBrowsingClient;
 use crate::services::shopify_client::ShopifyClient;
@@ -48,6 +54,42 @@ pub async fn setup_web_server() -> std::io::Result<Server> {
         );
     }
 
+    let email = EmailClient::new_from_env();
+    if email.is_none() {
+        tracing::warn!(
+            "Email client not configured (SMTP_HOST not set). \
+             Emails will not be sent."
+        );
+    }
+
+    let (job_handle, job_rx) = JobHandle::new(256);
+
+    let jwt_secret = std::env::var("JWT_SECRET").map_err(|_| {
+        tracing::error!("JWT_SECRET not configured");
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "JWT_SECRET not configured",
+        )
+    })?;
+
+    let jwt_secret_static: &'static str = jwt_secret.leak();
+
+    let cookie_builder = Arc::new(
+        actix_jc::ActixJwtCookie::<Claims>::new()
+            .cookie_name("jwt_cookie")
+            .jwt_key(jwt_secret_static)
+            .permanent()
+    );
+
+    let governor_conf = GovernorConfigBuilder::default()
+        .requests_per_second(10)
+        .burst_size(30)
+        .finish()
+        .ok_or_else(|| {
+            tracing::error!("Failed to create governor config");
+            std::io::Error::new(std::io::ErrorKind::Other, "Failed to create governor config")
+        })?;
+
     let addr: std::net::SocketAddr = std::env::var("BIND_ADDR")
         .unwrap_or_else(|_| "127.0.0.1:8181".to_string())
         .parse()
@@ -55,15 +97,39 @@ pub async fn setup_web_server() -> std::io::Result<Server> {
 
     tracing::info!("Starting server on {}", addr);
 
+    let state = Arc::new(AppState {
+        db: pool.clone(),
+        s3: s3.clone(),
+        shopify: shopify.clone(),
+        mailchimp: mailchimp.clone(),
+        safe_browsing: safe_browsing.clone(),
+        email: email.clone(),
+        job_handle: job_handle.clone(),
+        jwt_secret: jwt_secret_static.to_string(),
+        cookie_builder: cookie_builder.clone(),
+    });
+
+    spawn_worker(job_rx, state.clone());
+
+    let governor_conf = governor_conf.clone();
+    let cookie_builder = cookie_builder.clone();
+    let jwt_secret_static = jwt_secret_static;
+
     let server = HttpServer::new(move || {
         actix_web::App::new()
             .wrap(get_cors())
+            .wrap(Governor::new(&governor_conf))
+            .app_data(web::Data::new(cookie_builder.clone()))
             .app_data(web::Data::new(AppState {
                 db: pool.clone(),
                 s3: s3.clone(),
                 shopify: shopify.clone(),
                 mailchimp: mailchimp.clone(),
                 safe_browsing: safe_browsing.clone(),
+                email: email.clone(),
+                job_handle: job_handle.clone(),
+                jwt_secret: jwt_secret_static.to_string(),
+                cookie_builder: cookie_builder.clone(),
             }))
             .configure(crate::handlers::data_api::config_routes)
             .configure(crate::handlers::health::config_routes)

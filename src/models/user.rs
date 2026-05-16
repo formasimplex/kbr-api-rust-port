@@ -64,7 +64,13 @@ impl User {
     }
 
     pub fn validate_password(password: &str) -> bool {
-        password.len() >= 6
+        if password.len() < 8 || password.len() > 128 {
+            return false;
+        }
+        let has_upper = password.chars().any(|c| c.is_uppercase());
+        let has_lower = password.chars().any(|c| c.is_lowercase());
+        let has_digit = password.chars().any(|c| c.is_ascii_digit());
+        has_upper && has_lower && has_digit
     }
 
     pub fn validate_role(role: &str) -> bool {

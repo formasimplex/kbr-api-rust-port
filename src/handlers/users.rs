@@ -12,7 +12,7 @@
 //! | `create` | POST | `/v1/users` | public | Create a new user account |
 //! | `update` | PUT | `/v1/user/{id}` | auth | Update a user (self or admin) |
 
-use actix_web::{web, HttpResponse};
+use actix_web::{HttpResponse, web};
 use sqlx::FromRow;
 
 use crate::app::AppState;
@@ -123,13 +123,6 @@ pub async fn create(
 ) -> Result<HttpResponse, AppError> {
     UserService::validate_create_request(&body)?;
 
-    if let Some(ref token) = body.token
-        && token.is_empty() {
-            return Err(AppError::Validation(
-                "Sign-up token is required".to_string(),
-            ));
-        }
-
     let password_digest = UserService::hash_password_for_create(&body)?;
     let role = UserService::force_role_user();
     let now = chrono::Utc::now().naive_utc();
@@ -177,11 +170,12 @@ pub async fn update(
     UserService::validate_update_request(&body)?;
 
     if let Some(ref _role) = body.role
-        && !user.is_admin() {
-            return Err(AppError::Forbidden(
-                "Only admins can change roles".to_string(),
-            ));
-        }
+        && !user.is_admin()
+    {
+        return Err(AppError::Forbidden(
+            "Only admins can change roles".to_string(),
+        ));
+    }
 
     let existing = sqlx::query_as::<_, UserRow>(
         r"SELECT id, email, password_digest, role, session_token, username, created_at, updated_at FROM users WHERE id = $1"
@@ -198,12 +192,13 @@ pub async fn update(
             let mut password_digest: Option<String> = None;
 
             if let Some(ref password) = body.password {
-                password_digest = Some(UserService::hash_password_for_create(&CreateUserRequest {
-                    email: row.email.clone(),
-                    password: password.clone(),
-                    username: None,
-                    token: None,
-                })?);
+                password_digest =
+                    Some(UserService::hash_password_for_create(&CreateUserRequest {
+                        email: row.email.clone(),
+                        password: password.clone(),
+                        username: None,
+                        token: None,
+                    })?);
             }
 
             let now = chrono::Utc::now().naive_utc();
@@ -248,7 +243,7 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 mod tests {
     use super::*;
     use crate::auth::jwt::encode_token_with_role;
-    use actix_web::{test, App};
+    use actix_web::{App, test};
 
     const TEST_SECRET: &str = "test-secret-key";
     const TEST_DB_URL: &str = "postgresql://ws@localhost:5432/kbr_test";
@@ -257,23 +252,7 @@ mod tests {
         let pool = sqlx::PgPool::connect(TEST_DB_URL)
             .await
             .expect("Failed to connect to test database");
-
-        let config = crate::services::storage_service::S3Config::from_env()
-            .unwrap_or_else(|_| crate::services::storage_service::S3Config {
-                access_key: "test".to_string(),
-                secret_key: "test".to_string(),
-                endpoint: "https://test.test".to_string(),
-                bucket_name: "test".to_string(),
-                region: "us-east-1".to_string(),
-            });
-        let s3 = crate::services::storage_service::create_s3_bucket(&config).unwrap_or_else(|_| {
-            let creds = s3::creds::Credentials::new(Some("test"), Some("test"), None, None, None).unwrap();
-            s3::bucket::Bucket::new("test", s3::region::Region::Custom { region: "us-east-1".to_string(), endpoint: "https://test.test".to_string() }, creds)
-                .unwrap()
-                .with_path_style()
-        });
-
-        AppState { db: pool, s3, shopify: None, mailchimp: None, safe_browsing: None }
+        crate::test_utils::build_test_state(pool).await
     }
 
     fn admin_token() -> String {
@@ -290,7 +269,8 @@ mod tests {
             password: "password123".to_string(),
             username: None,
             token: None,
-        }).unwrap();
+        })
+        .unwrap();
         let now = chrono::Utc::now().naive_utc();
         let row = sqlx::query_as::<_, UserRow>(
             r"INSERT INTO users (email, password_digest, role, session_token, username, created_at, updated_at)
@@ -324,12 +304,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
         let state = web::Data::new(get_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::get()
             .uri("/v1/users")
@@ -346,12 +321,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
         let state = web::Data::new(get_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::get()
             .uri("/v1/users")
@@ -374,7 +344,8 @@ mod tests {
             .as_millis();
         let email = format!("showself{}@example.com", ts);
         let user_id = seed_test_user(&state, &email, "user").await;
-        let token = encode_token_with_role(user_id, TEST_SECRET, 3, Some("user".to_string())).unwrap();
+        let token =
+            encode_token_with_role(user_id, TEST_SECRET, 3, Some("user".to_string())).unwrap();
 
         let app = test::init_service(
             App::new()
@@ -431,19 +402,13 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
         let state = web::Data::new(get_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
+        let app =
+            test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
 
-        let max_id: i64 = sqlx::query_scalar(
-            r"SELECT COALESCE(MAX(id), 0) FROM users"
-        )
-        .fetch_one(&state.db)
-        .await
-        .expect("Failed to get max id");
+        let max_id: i64 = sqlx::query_scalar(r"SELECT COALESCE(MAX(id), 0) FROM users")
+            .fetch_one(&state.db)
+            .await
+            .expect("Failed to get max id");
 
         let req = test::TestRequest::get()
             .uri(&format!("/v1/user/{}", max_id + 9999))
@@ -466,12 +431,8 @@ mod tests {
             .as_millis();
         let email = format!("newuser{}@example.com", ts);
 
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
+        let app =
+            test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
 
         let req = test::TestRequest::post()
             .uri("/v1/users")
@@ -497,12 +458,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
         let state = web::Data::new(get_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::post()
             .uri("/v1/users")
@@ -522,12 +478,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
         let state = web::Data::new(get_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::post()
             .uri("/v1/users")
@@ -553,7 +504,8 @@ mod tests {
             .as_millis();
         let email = format!("updateself{}@example.com", ts);
         let user_id = seed_test_user(&state, &email, "user").await;
-        let token = encode_token_with_role(user_id, TEST_SECRET, 3, Some("user".to_string())).unwrap();
+        let token =
+            encode_token_with_role(user_id, TEST_SECRET, 3, Some("user".to_string())).unwrap();
 
         let app = test::init_service(
             App::new()
