@@ -56,7 +56,9 @@ pub fn encode_token_with_role(
 }
 
 pub fn decode_token(token: &str, secret: &str) -> Result<Claims, AppError> {
-    let validation = Validation::default();
+    let mut validation = Validation::default();
+    validation.algorithms = vec![jsonwebtoken::Algorithm::HS256];
+    validation.validate_exp = true;
 
     decode::<Claims>(
         token,

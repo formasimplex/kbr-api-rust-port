@@ -10,6 +10,7 @@
 //! | `session` | GET | `/v1/auth/session` | auth | Return current user session data |
 
 use actix_web::{web, HttpResponse};
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
@@ -94,6 +95,15 @@ pub struct LoginErrorResponse {
     pub error: String,
 }
 
+async fn login_jitter() {
+    let ms = rand::thread_rng().gen_range(200..=800);
+    tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+}
+
+fn is_production() -> bool {
+    !std::env::var("CORS_ORIGINS").unwrap_or_default().trim().is_empty()
+}
+
 /// Authenticate a user and return a JWT token.
 ///
 /// Accepts email/username and password. Looks up the user by normalized email
@@ -143,6 +153,7 @@ pub async fn login(
                 );
                 Ok(HttpResponse::Ok().json(&resp))
             } else {
+                login_jitter().await;
                 tracing::warn!(
                     email = %normalized_email,
                     event = "login_failed",
@@ -155,6 +166,7 @@ pub async fn login(
             }
         }
         None => {
+            login_jitter().await;
             tracing::warn!(
                 email = %normalized_email,
                 event = "login_failed",
@@ -199,7 +211,15 @@ pub async fn login(
 
             let cookie_builder = &state.cookie_builder;
             let cookie = cookie_builder.create(claims);
-            let cookie_finished = cookie.finish();
+            let cookie_finished = if is_production() {
+                cookie
+                    .http_only(true)
+                    .secure(true)
+                    .same_site(actix_web::cookie::SameSite::Lax)
+                    .finish()
+            } else {
+                cookie.http_only(true).finish()
+            };
 
             tracing::info!(
                 user_id = u.id,
@@ -243,15 +263,31 @@ pub async fn logout(
         event = "logout_success",
     );
 
-    Ok(HttpResponse::Ok().json(serde_json::json!({
-        "message": "logged out successfully"
-    })))
+    let cookie_name = state.cookie_builder.name.as_ref();
+    let clear_cookie = actix_web::cookie::Cookie::build(cookie_name, "")
+        .path("/")
+        .max_age(actix_web::cookie::time::Duration::seconds(0))
+        .finish();
+
+    Ok(HttpResponse::Ok()
+        .cookie(clear_cookie)
+        .json(serde_json::json!({
+            "message": "logged out successfully"
+        })))
 }
 
-pub fn config_routes(cfg: &mut web::ServiceConfig) {
+  pub fn config_routes(cfg: &mut web::ServiceConfig) {
+    let login_governor = actix_governor::GovernorConfigBuilder::default()
+        .seconds_per_request(2)
+        .burst_size(5)
+        .finish()
+        .expect("valid governor config");
+
     cfg.service(
         web::scope("/v1/auth")
-            .route("/login", web::post().to(login))
+            .route("/login", web::post()
+                .wrap(actix_governor::Governor::new(&login_governor))
+                .to(login))
             .route("/session", web::get().to(session))
             .route("/logout", web::post().to(logout)),
     );
