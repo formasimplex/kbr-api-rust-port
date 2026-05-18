@@ -24,7 +24,6 @@ pub struct News {
 pub struct CreateNewsRequest {
     pub url: String,
     pub title: Option<String>,
-    pub image_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

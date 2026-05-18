@@ -23,6 +23,7 @@ use crate::app::AppState;
 use crate::auth::middleware::CurrentUser;
 use crate::error::AppError;
 use crate::models::news::{CreateNewsRequest, News, NewsResponse, UpdateNewsRequest};
+use crate::services::og_tags::OgTagsService;
 
 #[derive(Debug, FromRow)]
 struct NewsRow {
@@ -113,11 +114,14 @@ pub async fn show(
 /// Create a new news article.
 ///
 /// Requires authentication. Validates URL format and checks against Google
-/// Safe Browsing if configured. The creating user is recorded as the article owner.
+/// Safe Browsing if configured. Fetches Open Graph tags to populate image_url
+/// and title (fallback). Checks for duplicate URLs before inserting.
+/// The creating user is recorded as the article owner.
 ///
 /// # Response
 ///
 /// `201 Created` — `NewsResponse`
+/// `409 Conflict` — URL already exists
 /// `422 Unprocessable` — URL is invalid or malicious
 pub async fn create(
     state: web::Data<AppState>,
@@ -134,6 +138,33 @@ pub async fn create(
         return Err(AppError::UnprocessableEntity("The URL provided is malicious".to_string()));
     }
 
+    let og = OgTagsService::new();
+    let og_tags = og.fetch(&body.url).await;
+
+    let image_url = og_tags.as_ref().and_then(|t| t.get("image").cloned());
+    let title = body.title.clone().or_else(|| og_tags.and_then(|t| t.get("title").cloned()));
+
+    let existing: Option<(i64,)> = sqlx::query_as(
+        "SELECT id FROM news WHERE url = $1",
+    )
+    .bind(&body.url)
+    .fetch_optional(&state.db)
+    .await?;
+
+    if let Some((existing_id,)) = existing {
+        let row = sqlx::query_as::<_, NewsRow>(
+            &format!(r"SELECT {} FROM news WHERE id = $1", NEWS_COLUMNS),
+        )
+        .bind(existing_id)
+        .fetch_one(&state.db)
+        .await?;
+        let news: News = row.into();
+        return Ok(HttpResponse::Conflict().json(serde_json::json!({
+            "error": "news url already exists",
+            "data": news.to_response()
+        })));
+    }
+
     let now = chrono::Utc::now().naive_utc();
 
     let row = sqlx::query_as::<_, NewsRow>(
@@ -145,9 +176,9 @@ pub async fn create(
         ),
     )
     .bind(&body.url)
-    .bind(&body.title)
+    .bind(title)
     .bind(user.id)
-    .bind(&body.image_url)
+    .bind(image_url)
     .bind(true)
     .bind(true)
     .bind(now)
@@ -311,11 +342,15 @@ pub async fn toggle_comments(
 /// Add a news article to a playlist.
 ///
 /// Requires authentication. Request body must contain `news_id` and `playlist_id`.
-/// Automatically calculates the next position in the playlist.
+/// Verifies both the news article and playlist exist, and that the playlist
+/// belongs to the authenticated user. Idempotent: returns existing entry if
+/// the news is already in the playlist.
 ///
 /// # Response
 ///
 /// `200 OK` — JSON object with confirmation message and user ID
+/// `403 Forbidden` — playlist does not belong to the user
+/// `404 Not Found` — news or playlist does not exist
 /// `422 Unprocessable` — missing news_id or playlist_id
 pub async fn add_to_playlist(
     state: web::Data<AppState>,
@@ -328,6 +363,47 @@ pub async fn add_to_playlist(
     let playlist_id = body.get("playlist_id").and_then(|v| v.as_i64()).ok_or_else(|| {
         AppError::Validation("playlist_id is required".to_string())
     })?;
+
+    let news_exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM news WHERE id = $1)",
+    )
+    .bind(news_id)
+    .fetch_one(&state.db)
+    .await?;
+    if !news_exists {
+        return Err(AppError::NotFound(format!("News #{}", news_id)));
+    }
+
+    let playlist: Option<(i64, i64)> = sqlx::query_as(
+        "SELECT id, user_id FROM news_playlists WHERE id = $1",
+    )
+    .bind(playlist_id)
+    .fetch_optional(&state.db)
+    .await?;
+
+    let (_playlist_id, playlist_user_id) = match playlist {
+        Some(row) => row,
+        None => return Err(AppError::NotFound(format!("Playlist #{}", playlist_id))),
+    };
+
+    if playlist_user_id != user.id {
+        return Err(AppError::Forbidden("Not Authorized".to_string()));
+    }
+
+    let existing: Option<(i64,)> = sqlx::query_as(
+        "SELECT id FROM users_news WHERE playlist_id = $1 AND news_id = $2",
+    )
+    .bind(playlist_id)
+    .bind(news_id)
+    .fetch_optional(&state.db)
+    .await?;
+
+    if existing.is_some() {
+        return Ok(HttpResponse::Ok().json(serde_json::json!({
+            "message": format!("News #{} already in playlist #{}", news_id, playlist_id),
+            "user_id": user.id
+        })));
+    }
 
     let now = chrono::Utc::now().naive_utc();
 
@@ -711,6 +787,168 @@ mod tests {
 
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert!(body["message"].as_str().unwrap().contains(&news_id.to_string()));
+
+        cleanup_news(&state, &news_title).await;
+        cleanup_playlist(&state, &playlist_name).await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn news_create_duplicate_url_returns_409() {
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("JWT_SECRET", TEST_SECRET);
+        }
+
+        let state = web::Data::new(get_state().await);
+        let suffix = format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos());
+        let url = format!("https://example.com/dup-{}", suffix);
+        let title = format!("Dup News {}", suffix);
+
+        let app = test::init_service(
+            App::new()
+                .app_data(state.clone())
+                .configure(config_routes),
+        )
+        .await;
+
+        let req = test::TestRequest::post()
+            .uri("/v1/news")
+            .insert_header(("Authorization", format!("Bearer {}", admin_token())))
+            .set_json(serde_json::json!({
+                "url": url.clone(),
+                "title": title.clone()
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 201);
+
+        let req = test::TestRequest::post()
+            .uri("/v1/news")
+            .insert_header(("Authorization", format!("Bearer {}", admin_token())))
+            .set_json(serde_json::json!({
+                "url": url.clone(),
+                "title": "Different Title"
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 409);
+
+        let body: serde_json::Value = test::read_body_json(resp).await;
+        assert_eq!(body["error"], "news url already exists");
+        assert_eq!(body["data"]["title"], title);
+
+        cleanup_news(&state, &title).await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn news_add_to_playlist_forbidden_wrong_owner() {
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("JWT_SECRET", TEST_SECRET);
+        }
+
+        let state = web::Data::new(get_state().await);
+        let suffix = format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos());
+        let news_id = seed_news(&state, &suffix).await;
+        let news_title = format!("Test News {}", suffix);
+        let playlist_id = seed_playlist(&state, &suffix).await;
+        let playlist_name = format!("Test Playlist {}", suffix);
+
+        let app = test::init_service(
+            App::new()
+                .app_data(state.clone())
+                .configure(config_routes),
+        )
+        .await;
+
+        let req = test::TestRequest::post()
+            .uri("/v1/news/add_to_playlist")
+            .insert_header(("Authorization", format!("Bearer {}", user_token(9999))))
+            .set_json(serde_json::json!({
+                "news_id": news_id,
+                "playlist_id": playlist_id
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 403);
+
+        cleanup_news(&state, &news_title).await;
+        cleanup_playlist(&state, &playlist_name).await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn news_add_to_playlist_news_not_found() {
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("JWT_SECRET", TEST_SECRET);
+        }
+
+        let state = web::Data::new(get_state().await);
+
+        let app = test::init_service(
+            App::new()
+                .app_data(state)
+                .configure(config_routes),
+        )
+        .await;
+
+        let req = test::TestRequest::post()
+            .uri("/v1/news/add_to_playlist")
+            .insert_header(("Authorization", format!("Bearer {}", admin_token())))
+            .set_json(serde_json::json!({
+                "news_id": 99999999,
+                "playlist_id": 1
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 404);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn news_add_to_playlist_idempotent() {
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("JWT_SECRET", TEST_SECRET);
+        }
+
+        let state = web::Data::new(get_state().await);
+        let suffix = format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos());
+        let news_id = seed_news(&state, &suffix).await;
+        let news_title = format!("Test News {}", suffix);
+        let playlist_id = seed_playlist(&state, &suffix).await;
+        let playlist_name = format!("Test Playlist {}", suffix);
+
+        let app = test::init_service(
+            App::new()
+                .app_data(state.clone())
+                .configure(config_routes),
+        )
+        .await;
+
+        let req = test::TestRequest::post()
+            .uri("/v1/news/add_to_playlist")
+            .insert_header(("Authorization", format!("Bearer {}", admin_token())))
+            .set_json(serde_json::json!({
+                "news_id": news_id,
+                "playlist_id": playlist_id
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 200);
+
+        let req = test::TestRequest::post()
+            .uri("/v1/news/add_to_playlist")
+            .insert_header(("Authorization", format!("Bearer {}", admin_token())))
+            .set_json(serde_json::json!({
+                "news_id": news_id,
+                "playlist_id": playlist_id
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 200);
+
+        let body: serde_json::Value = test::read_body_json(resp).await;
+        assert!(body["message"].as_str().unwrap().contains("already in playlist"));
 
         cleanup_news(&state, &news_title).await;
         cleanup_playlist(&state, &playlist_name).await;

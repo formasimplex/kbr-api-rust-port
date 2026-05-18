@@ -1908,6 +1908,7 @@ dependencies = [
  "sha2",
  "sha256",
  "sqlx",
+ "tagparser",
  "thiserror",
  "tokio",
  "tracing",
@@ -3594,6 +3595,15 @@ checksum = "8e1d1b10ced5ca923a1fcb8d03e96b8d3268065d724548c0211415ff6ac6bac4"
 dependencies = [
  "core-foundation-sys",
  "libc",
+]
+
+[[package]]
+name = "tagparser"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32f8b9a704b31a84ad2fc349f35ad2a597cb04d617a65ac9980439912bb33255"
+dependencies = [
+ "regex",
 ]
 
 [[package]]
