@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
+use uuid::Uuid;
 
 #[derive(Debug, Clone, FromRow, PartialEq, Eq)]
 pub struct MailSubscriber {
@@ -11,6 +12,7 @@ pub struct MailSubscriber {
     pub artist_id: Option<i64>,
     pub unsubscribed_at: Option<DateTime<Utc>>,
     pub unsubscribe_token: Option<String>,
+    pub unsubscribe_token_expires_at: Option<DateTime<Utc>>,
     pub user_id: Option<i64>,
     pub first_name: Option<String>,
     pub last_name: Option<String>,
@@ -56,18 +58,13 @@ impl MailSubscriber {
     }
 
     pub fn generate_unsubscribe_token() -> String {
-        use rand::Rng;
-        let mut rng = rand::thread_rng();
-        (0..64)
-            .map(|_| rng.gen_range(b'a'..=b'z'))
-            .map(char::from)
-            .collect()
+        Uuid::new_v4().simple().to_string()
     }
 
     pub async fn find_by_id(pool: &sqlx::PgPool, id: i64) -> sqlx::Result<Option<Self>> {
         sqlx::query_as::<_, Self>(
             "SELECT id, full_name, email, active, artist_id, unsubscribed_at,
-                    unsubscribe_token, user_id, first_name, last_name, created_at, updated_at
+                    unsubscribe_token, unsubscribe_token_expires_at, user_id, first_name, last_name, created_at, updated_at
              FROM mail_subscribers WHERE id = $1",
         )
         .bind(id)
@@ -90,6 +87,7 @@ mod tests {
             artist_id: None,
             unsubscribed_at: Some(Utc::now()),
             unsubscribe_token: None,
+            unsubscribe_token_expires_at: None,
             user_id: None,
             first_name: None,
             last_name: None,
@@ -109,7 +107,7 @@ mod tests {
     #[test]
     fn generate_unsubscribe_token() {
         let token = MailSubscriber::generate_unsubscribe_token();
-        assert_eq!(token.len(), 64);
-        assert!(token.chars().all(|c| c.is_ascii_lowercase()));
+        assert_eq!(token.len(), 32);
+        assert!(token.chars().all(|c| c.is_ascii_hexdigit()));
     }
 }

@@ -30,7 +30,7 @@ pub async fn build_test_state(pool: PgPool) -> AppState {
         actix_jc::ActixJwtCookie::<Claims>::new()
             .cookie_name("jwt_cookie")
             .jwt_key(TEST_SECRET)
-            .permanent()
+            .expiration(3 * 24 * 60 * 60)
     );
 
     AppState {

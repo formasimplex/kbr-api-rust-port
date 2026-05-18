@@ -17,6 +17,7 @@ use crate::app::AppState;
 use crate::error::AppError;
 use crate::models::sign_up_trigger::SignUpTrigger;
 use crate::models::user::User;
+use crate::services::user_service::UserService;
 
 #[derive(Debug, FromRow)]
 struct SignUpTriggerRow {
@@ -60,7 +61,9 @@ pub async fn create(
     state: web::Data<AppState>,
     body: web::Json<crate::models::sign_up_trigger::CreateSignUpTriggerRequest>,
 ) -> Result<HttpResponse, AppError> {
-    if !User::validate_email(&body.email) {
+    let normalized_email = UserService::normalize_email(&body.email);
+
+    if !User::validate_email(&normalized_email) {
         return Err(AppError::Validation("Invalid email".to_string()));
     }
 
@@ -71,7 +74,7 @@ pub async fn create(
             WHERE u.email = $1 AND u.role = 'artist'
         )"
     )
-    .bind(&body.email)
+    .bind(&normalized_email)
     .fetch_one(&state.db)
     .await
     .unwrap_or(false);
@@ -83,14 +86,14 @@ pub async fn create(
     }
 
     let now = chrono::Utc::now().naive_utc();
-    let now_str = now.format("%b %d, %Y %I:%M %p").to_string();
+    let now_str = chrono::Utc::now().to_rfc3339();
 
     let _ = sqlx::query(
         r"UPDATE sign_up_triggers SET expires_at = $1, updated_at = $2 WHERE email = $3"
     )
     .bind(&now_str)
     .bind(now)
-    .bind(&body.email)
+    .bind(&normalized_email)
     .execute(&state.db)
     .await;
 
@@ -102,7 +105,7 @@ pub async fn create(
            VALUES ($1, $2, $3, $4, $5, $6)
            RETURNING id, email, token, expires_at, role, created_at, updated_at"
     )
-    .bind(&body.email)
+    .bind(&normalized_email)
     .bind(&token)
     .bind(&expires_at)
     .bind(&body.role)
@@ -200,7 +203,6 @@ mod tests {
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 201);
         let body: serde_json::Value = test::read_body_json(resp).await;
-        assert!(body["token"].is_string());
         assert_eq!(body["email"], "invited@example.com");
 
         let _ = sqlx::query(r"DELETE FROM sign_up_triggers WHERE email = 'invited@example.com'")
@@ -296,9 +298,7 @@ mod tests {
         let email = format!("existing_trigger_{}@example.com", ts);
 
         let old_token = format!("old_token_{}", ts);
-        let future = (chrono::Utc::now() + chrono::Duration::days(1))
-            .format("%b %d, %Y %I:%M %p")
-            .to_string();
+        let future = (chrono::Utc::now() + chrono::Duration::days(1)).to_rfc3339();
         let now = chrono::Utc::now().naive_utc();
         let old_id: i64 = sqlx::query_scalar(
             r"INSERT INTO sign_up_triggers (email, token, expires_at, role, created_at, updated_at)
@@ -356,9 +356,9 @@ mod tests {
         let state = web::Data::new(get_state().await);
 
         let token = format!("rust_test_{}", chrono::Utc::now().timestamp_micros());
-        let seed = sqlx::query_as::<_, SignUpTriggerRow>(
+    let seed = sqlx::query_as::<_, SignUpTriggerRow>(
             r"INSERT INTO sign_up_triggers (email, token, expires_at, role, created_at, updated_at)
-               VALUES ('showtest@example.com', $1, 'Dec 31, 2026 11:59 PM', 'user', NOW(), NOW())
+               VALUES ('showtest@example.com', $1, '2027-12-31T23:59:00+00:00', 'user', NOW(), NOW())
                RETURNING id, email, token, expires_at, role, created_at, updated_at"
         )
         .bind(&token)
@@ -412,9 +412,7 @@ mod tests {
         let state = web::Data::new(get_state().await);
 
         let token = format!("expired_test_{}", chrono::Utc::now().timestamp_micros());
-        let past = (chrono::Utc::now() - chrono::Duration::hours(1))
-            .format("%b %d, %Y %I:%M %p")
-            .to_string();
+        let past = (chrono::Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
         let _ = sqlx::query_as::<_, SignUpTriggerRow>(
             r"INSERT INTO sign_up_triggers (email, token, expires_at, role, created_at, updated_at)
                VALUES ('expired@example.com', $1, $2, 'user', NOW(), NOW())

@@ -267,10 +267,13 @@ CREATE TABLE IF NOT EXISTS mail_subscribers (
     artist_id BIGINT REFERENCES artists(id),
     unsubscribed_at TIMESTAMPTZ,
     unsubscribe_token VARCHAR,
+    unsubscribe_token_expires_at TIMESTAMPTZ,
     user_id BIGINT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE mail_subscribers ADD COLUMN IF NOT EXISTS unsubscribe_token_expires_at TIMESTAMPTZ;
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_mail_subscribers_on_email_artist ON mail_subscribers(email, artist_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_mail_subscribers_on_unsubscribe_token ON mail_subscribers(unsubscribe_token);

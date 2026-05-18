@@ -115,27 +115,49 @@ pub async fn show(
 /// Create a new user account.
 ///
 /// Validates email format, password strength, and optionally a sign-up token.
-/// When a token is provided, it must correspond to a valid, non-expired
-/// sign-up trigger whose email matches the request. The trigger is consumed
-/// (expired) upon successful user creation. The role is always forced to
-/// "user" regardless of input. No authentication required for public sign-up.
+/// Email is normalized (trimmed, lowercased) before validation and storage.
+/// When a token is provided, a database transaction with `SELECT ... FOR UPDATE`
+/// locks the sign-up trigger row to prevent concurrent token reuse (TOCTOU).
+/// Checks for existing user with the same normalized email before insertion.
+/// The trigger is consumed (expired) upon successful user creation within the
+/// same transaction. The role is always forced to "user" regardless of input.
+/// No authentication required for public sign-up.
 ///
 /// # Response
 ///
-/// `201 Created` — `UserResponse` for the new user
+/// `201 Created` — `UserResponse` for the new user (email in normalized form)
+/// `409 Conflict` — a user with this email already exists
 /// `422 Unprocessable Entity` — validation error or invalid token
 pub async fn create(
     state: web::Data<AppState>,
     body: web::Json<CreateUserRequest>,
 ) -> Result<HttpResponse, AppError> {
-    UserService::validate_create_request(&body)?;
+    let normalized_email = UserService::normalize_email(&body.email);
+
+    if !User::validate_email(&normalized_email) {
+        return Err(AppError::Validation("Invalid email address".to_string()));
+    }
+    if !User::validate_password(&body.password) {
+        return Err(AppError::Validation(
+            "Password must be at least 8 characters with uppercase, lowercase, and a digit".to_string(),
+        ));
+    }
+    if let Some(ref token) = body.token {
+        if token.is_empty() {
+            return Err(AppError::Validation(
+                "Sign-up token is required".to_string(),
+            ));
+        }
+    }
+
+    let mut tx = state.db.begin().await?;
 
     if let Some(ref token) = body.token {
         let trigger = sqlx::query_as::<_, (Option<String>, Option<String>)>(
-            r"SELECT email, expires_at FROM sign_up_triggers WHERE token = $1"
+            r"SELECT email, expires_at FROM sign_up_triggers WHERE token = $1 FOR UPDATE"
         )
         .bind(token)
-        .fetch_optional(&state.db)
+        .fetch_optional(&mut *tx)
         .await?;
 
         match trigger {
@@ -150,7 +172,13 @@ pub async fn create(
                     }
                 }
 
-                if trigger_email.as_deref() != Some(&body.email) {
+                let emails_match = trigger_email
+                    .as_ref()
+                    .map(|e| UserService::normalize_email(e))
+                    .as_deref()
+                    == Some(&normalized_email);
+
+                if !emails_match {
                     return Err(AppError::Validation(
                         "Email does not match sign-up token".to_string(),
                     ));
@@ -164,7 +192,25 @@ pub async fn create(
         }
     }
 
-    let password_digest = UserService::hash_password_for_create(&body)?;
+    let email_exists: bool = sqlx::query_scalar(
+        r"SELECT EXISTS(SELECT 1 FROM users WHERE email = $1)"
+    )
+    .bind(&normalized_email)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    if email_exists {
+        return Err(AppError::Conflict(
+            "A user with this email already exists".to_string(),
+        ));
+    }
+
+    let password_digest = UserService::hash_password_for_create(&CreateUserRequest {
+        email: normalized_email.clone(),
+        password: body.password.clone(),
+        username: body.username.clone(),
+        token: body.token.clone(),
+    })?;
     let role = UserService::force_role_user();
     let now = chrono::Utc::now().naive_utc();
 
@@ -173,27 +219,29 @@ pub async fn create(
            VALUES ($1, $2, $3, $4, $5, 1, $6, $7)
            RETURNING id, email, password_digest, role, session_token, username, token_version, created_at, updated_at"
     )
-    .bind(&body.email)
+    .bind(&normalized_email)
     .bind(&password_digest)
     .bind(&role)
     .bind::<Option<String>>(None)
     .bind(&body.username)
     .bind(now)
     .bind(now)
-    .fetch_one(&state.db)
+    .fetch_one(&mut *tx)
     .await?;
 
     if body.token.is_some() {
-        let now_str = now.format("%b %d, %Y %I:%M %p").to_string();
+        let now_str = chrono::Utc::now().to_rfc3339();
         let _ = sqlx::query(
             r"UPDATE sign_up_triggers SET expires_at = $1, updated_at = $2 WHERE email = $3"
         )
         .bind(&now_str)
         .bind(now)
-        .bind(&body.email)
-        .execute(&state.db)
+        .bind(&normalized_email)
+        .execute(&mut *tx)
         .await;
     }
+
+    tx.commit().await?;
 
     let new_user: User = row.into();
     Ok(HttpResponse::Created().json(new_user.to_response()))
@@ -264,7 +312,7 @@ pub async fn update(
                        username = COALESCE($2, username),
                        role = COALESCE($3, role),
                        password_digest = COALESCE($4, password_digest),
-                       token_version = CASE WHEN $7 THEN token_version + 1 ELSE token_version END,
+                       token_version = CASE WHEN $7 THEN COALESCE(token_version, 1) + 1 ELSE token_version END,
                        updated_at = $5
                    WHERE id = $6
                    RETURNING id, email, password_digest, role, session_token, username, COALESCE(token_version, 1) as token_version, created_at, updated_at"
@@ -530,9 +578,7 @@ mod tests {
         let username = format!("tokenuser{}", ts);
 
         let token = format!("valid_token_{}", ts);
-        let future = (chrono::Utc::now() + chrono::Duration::days(1))
-            .format("%b %d, %Y %I:%M %p")
-            .to_string();
+        let future = (chrono::Utc::now() + chrono::Duration::days(1)).to_rfc3339();
         let now = chrono::Utc::now().naive_utc();
         let trigger_id: i64 = sqlx::query_scalar(
             r"INSERT INTO sign_up_triggers (email, token, expires_at, role, created_at, updated_at)
@@ -599,9 +645,7 @@ mod tests {
         let email = format!("expiredtoken{}@example.com", ts);
 
         let token = format!("expired_token_{}", ts);
-        let past = (chrono::Utc::now() - chrono::Duration::days(1))
-            .format("%b %d, %Y %I:%M %p")
-            .to_string();
+        let past = (chrono::Utc::now() - chrono::Duration::days(1)).to_rfc3339();
         let now = chrono::Utc::now().naive_utc();
         let _trigger_id: i64 = sqlx::query_scalar(
             r"INSERT INTO sign_up_triggers (email, token, expires_at, role, created_at, updated_at)
@@ -652,9 +696,7 @@ mod tests {
         let request_email = format!("request_email_{}@example.com", ts);
 
         let token = format!("mismatch_token_{}", ts);
-        let future = (chrono::Utc::now() + chrono::Duration::days(1))
-            .format("%b %d, %Y %I:%M %p")
-            .to_string();
+        let future = (chrono::Utc::now() + chrono::Duration::days(1)).to_rfc3339();
         let now = chrono::Utc::now().naive_utc();
         let _trigger_id: i64 = sqlx::query_scalar(
             r"INSERT INTO sign_up_triggers (email, token, expires_at, role, created_at, updated_at)
@@ -850,5 +892,99 @@ mod tests {
         assert_eq!(resp.status(), 401);
 
         cleanup_user(&state_data, &email).await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn user_create_duplicate_email_returns_409() {
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("JWT_SECRET", TEST_SECRET);
+        }
+        let state = web::Data::new(get_state().await);
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
+        let email = format!("dupemail{}@example.com", ts);
+        let username1 = format!("dupuser{}a", ts);
+        let username2 = format!("dupuser{}b", ts);
+
+        let app =
+            test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
+
+        // First creation succeeds
+        let req = test::TestRequest::post()
+            .uri("/v1/users")
+            .set_json(serde_json::json!({
+                "email": email.clone(),
+                "password": "Password123",
+                "username": username1
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 201);
+
+        // Second creation with same email returns 409
+        let req = test::TestRequest::post()
+            .uri("/v1/users")
+            .set_json(serde_json::json!({
+                "email": email.clone(),
+                "password": "Password456",
+                "username": username2
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 409);
+
+        cleanup_user(&state, &email).await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn user_create_email_normalized_on_create() {
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("JWT_SECRET", TEST_SECRET);
+        }
+        let state = web::Data::new(get_state().await);
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
+        let email_upper = format!("Normalised{}@Example.COM", ts);
+        let email_lower = format!("normalised{}@example.com", ts);
+        let username1 = format!("normuser{}a", ts);
+        let username2 = format!("normuser{}b", ts);
+
+        let app =
+            test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
+
+        // First creation with mixed-case email succeeds
+        let req = test::TestRequest::post()
+            .uri("/v1/users")
+            .set_json(serde_json::json!({
+                "email": email_upper,
+                "password": "Password123",
+                "username": username1
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 201);
+        let body: serde_json::Value = test::read_body_json(resp).await;
+        // Email should be stored in normalized (lowercase) form
+        assert_eq!(body["email"], email_lower);
+
+        // Second creation with lowercase version returns 409
+        let req = test::TestRequest::post()
+            .uri("/v1/users")
+            .set_json(serde_json::json!({
+                "email": email_lower.clone(),
+                "password": "Password456",
+                "username": username2
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 409);
+
+        cleanup_user(&state, &email_lower).await;
     }
 }

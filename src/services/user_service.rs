@@ -11,7 +11,7 @@ impl UserService {
         }
         if !User::validate_password(&req.password) {
             return Err(AppError::Validation(
-                "Password must be at least 6 characters".to_string(),
+                "Password must be at least 8 characters with uppercase, lowercase, and a digit".to_string(),
             ));
         }
         if let Some(ref token) = req.token
@@ -34,7 +34,7 @@ impl UserService {
             && !User::validate_password(password)
         {
             return Err(AppError::Validation(
-                "Password must be at least 6 characters".to_string(),
+                "Password must be at least 8 characters with uppercase, lowercase, and a digit".to_string(),
             ));
         }
         if let Some(ref role) = req.role

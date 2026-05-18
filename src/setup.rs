@@ -83,7 +83,7 @@ pub async fn setup_web_server() -> std::io::Result<Server> {
         actix_jc::ActixJwtCookie::<Claims>::new()
             .cookie_name("jwt_cookie")
             .jwt_key(jwt_secret_static)
-            .permanent()
+            .expiration(3 * 24 * 60 * 60)
     );
 
     let governor_conf = GovernorConfigBuilder::default()

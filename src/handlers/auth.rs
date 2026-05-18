@@ -123,6 +123,9 @@ pub async fn login(
         password: body.password.clone(),
     };
 
+    // Apply timing jitter on ALL code paths to prevent user enumeration via timing
+    login_jitter().await;
+
     let normalized_email = UserService::normalize_email(&login_req.email);
 
     let user_row = sqlx::query_as::<_, UserRow>(
@@ -153,7 +156,6 @@ pub async fn login(
                 );
                 Ok(HttpResponse::Ok().json(&resp))
             } else {
-                login_jitter().await;
                 tracing::warn!(
                     email = %normalized_email,
                     event = "login_failed",
@@ -166,7 +168,6 @@ pub async fn login(
             }
         }
         None => {
-            login_jitter().await;
             tracing::warn!(
                 email = %normalized_email,
                 event = "login_failed",
@@ -257,6 +258,7 @@ pub async fn logout(
     user: CurrentUser,
 ) -> Result<HttpResponse, AppError> {
     user.revoke_token(&state.db).await?;
+    user.invalidate_all_sessions(&state.db).await?;
 
     tracing::info!(
         user_id = user.id,
@@ -266,6 +268,9 @@ pub async fn logout(
     let cookie_name = state.cookie_builder.name.as_ref();
     let clear_cookie = actix_web::cookie::Cookie::build(cookie_name, "")
         .path("/")
+        .http_only(true)
+        .secure(true)
+        .same_site(actix_web::cookie::SameSite::Lax)
         .max_age(actix_web::cookie::time::Duration::seconds(0))
         .finish();
 
@@ -325,7 +330,7 @@ mod tests {
             actix_jc::ActixJwtCookie::new()
                 .cookie_name("jwt_cookie")
                 .jwt_key(TEST_SECRET)
-                .permanent()
+                .expiration(3 * 24 * 60 * 60)
         );
 
         AppState {
@@ -689,6 +694,51 @@ mod tests {
         let req = test::TestRequest::post()
             .uri("/v1/auth/logout")
             .insert_header(("Authorization", format!("Bearer {}", token)))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 401);
+
+        cleanup_user(&state, &email).await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn logout_invalidates_all_sessions_for_user() {
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("JWT_SECRET", TEST_SECRET);
+        }
+        let state = get_state().await;
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
+        let email = format!("logoutmulti{}@example.com", ts);
+        let user_id = seed_test_user(&state, &email, "password123", "user").await;
+        let token1 = crate::auth::jwt::encode_token_with_role(user_id, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
+        let token2 = crate::auth::jwt::encode_token_with_role(user_id, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
+
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(get_state().await))
+                .app_data(web::Data::new(
+                    get_state().await.cookie_builder.clone()
+                ))
+                .configure(config_routes),
+        )
+        .await;
+
+        // Logout with token1
+        let req = test::TestRequest::post()
+            .uri("/v1/auth/logout")
+            .insert_header(("Authorization", format!("Bearer {}", token1)))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 200);
+
+        // token2 should also be rejected due to token_version increment
+        let req = test::TestRequest::get()
+            .uri("/v1/auth/session")
+            .insert_header(("Authorization", format!("Bearer {}", token2)))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 401);

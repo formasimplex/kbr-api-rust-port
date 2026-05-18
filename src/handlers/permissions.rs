@@ -255,7 +255,7 @@ mod tests {
     }
 
     fn user_token() -> String {
-        encode_token_with_role(2, TEST_SECRET, 3, None, 1).unwrap()
+        encode_token_with_role(2, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap()
     }
 
     #[tokio::test(flavor = "current_thread")]

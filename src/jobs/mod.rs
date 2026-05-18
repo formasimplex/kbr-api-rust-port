@@ -30,7 +30,9 @@ impl JobHandle {
     /// by being collected and returned, not actually dispatched.
     #[cfg(test)]
     pub fn inline() -> Self {
-        let (sender, _rx) = mpsc::channel(1);
+        let (sender, rx) = mpsc::channel(256);
+        // Drop receiver silently — jobs are fire-and-forget in tests
+        std::mem::drop(rx);
         Self { sender }
     }
 
@@ -53,6 +55,15 @@ pub enum Job {
     },
     SendSignUpTriggerEmail {
         sign_up_trigger_id: i64,
+    },
+    SendResetTriggerEmail {
+        reset_trigger_id: i64,
+    },
+    SendProspectWelcomeEmail {
+        user_id: i64,
+    },
+    SendUnsubscribeEmail {
+        email: String,
     },
 }
 
@@ -101,6 +112,39 @@ pub fn spawn_worker(handle: mpsc::Receiver<Job>, state: Arc<AppState>) {
                         tracing::error!(
                             sign_up_trigger_id,
                             "Failed to send sign-up trigger email: {}",
+                            e
+                        );
+                    }
+                }
+                Job::SendResetTriggerEmail {
+                    reset_trigger_id,
+                } => {
+                    if let Err(e) =
+                        email::send_reset_trigger_email(&state, reset_trigger_id).await
+                    {
+                        tracing::error!(
+                            reset_trigger_id,
+                            "Failed to send reset trigger email: {}",
+                            e
+                        );
+                    }
+                }
+                Job::SendProspectWelcomeEmail { user_id } => {
+                    if let Err(e) =
+                        email::send_prospect_welcome_email(&state, user_id).await
+                    {
+                        tracing::error!(
+                            user_id,
+                            "Failed to send prospect welcome email: {}",
+                            e
+                        );
+                    }
+                }
+                Job::SendUnsubscribeEmail { email } => {
+                    if let Err(e) = email::send_unsubscribe_email(&state, &email).await {
+                        tracing::error!(
+                            email,
+                            "Failed to send unsubscribe email: {}",
                             e
                         );
                     }

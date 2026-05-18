@@ -41,7 +41,7 @@ impl AppState {
                 ActixJwtCookie::<Claims>::new()
                     .cookie_name("jwt_cookie")
                     .jwt_key(secret_static)
-                    .permanent()
+                    .expiration(3 * 24 * 60 * 60)
             ),
         }
     }

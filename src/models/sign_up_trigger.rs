@@ -25,7 +25,6 @@ pub struct CreateSignUpTriggerRequest {
 pub struct SignUpTriggerResponse {
     pub id: i64,
     pub email: Option<String>,
-    pub token: Option<String>,
     pub expires_at: Option<String>,
     pub role: Option<String>,
 }
@@ -35,7 +34,6 @@ impl SignUpTrigger {
         SignUpTriggerResponse {
             id: self.id,
             email: self.email.clone(),
-            token: self.token.clone(),
             expires_at: self.expires_at.clone(),
             role: self.role.clone(),
         }
@@ -62,19 +60,17 @@ impl SignUpTrigger {
 
     pub fn generate_expires_at() -> String {
         let expires = Utc::now() + chrono::Duration::days(1);
-        expires.format("%b %d, %Y %I:%M %p").to_string()
+        expires.to_rfc3339()
     }
 
     pub(crate) fn parse_expires_at(s: &str) -> Option<DateTime<Utc>> {
-        let dt = chrono::NaiveDateTime::parse_from_str(s, "%b %d, %Y %I:%M %p").ok()?;
-        Some(dt.and_utc())
+        chrono::DateTime::parse_from_rfc3339(s).ok().map(|dt| dt.with_timezone(&Utc))
     }
 
     #[cfg(test)]
     pub fn parse_expires_at_for_test(s: Option<&str>) -> Option<DateTime<Utc>> {
         let s = s?;
-        let dt = chrono::NaiveDateTime::parse_from_str(s, "%b %d, %Y %I:%M %p").ok()?;
-        Some(dt.and_utc())
+        chrono::DateTime::parse_from_rfc3339(s).ok().map(|dt| dt.with_timezone(&Utc))
     }
 
     pub async fn find_by_id(pool: &sqlx::PgPool, id: i64) -> sqlx::Result<Option<Self>> {
@@ -110,9 +106,7 @@ mod tests {
 
     #[test]
     fn sign_up_trigger_not_expired_when_future() {
-        let future = (Utc::now() + chrono::Duration::days(1))
-            .format("%b %d, %Y %I:%M %p")
-            .to_string();
+        let future = (Utc::now() + chrono::Duration::days(1)).to_rfc3339();
         let trigger = SignUpTrigger {
             id: 1,
             email: Some("test@example.com".to_string()),
@@ -129,9 +123,7 @@ mod tests {
 
     #[test]
     fn sign_up_trigger_is_expired_when_past() {
-        let past = (Utc::now() - chrono::Duration::hours(1))
-            .format("%b %d, %Y %I:%M %p")
-            .to_string();
+        let past = (Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
         let trigger = SignUpTrigger {
             id: 1,
             email: Some("test@example.com".to_string()),
@@ -169,22 +161,19 @@ mod tests {
         assert!(token.chars().all(|c| c.is_ascii_lowercase()));
     }
 
-    #[test]
+   #[test]
     fn generate_expires_at_returns_formatted_string() {
         let expires = SignUpTrigger::generate_expires_at();
         assert!(!expires.is_empty());
-        assert!(expires.contains(", "));
+        assert!(expires.contains('T'));
     }
 
     #[test]
     fn generate_expires_at_is_one_day_out() {
         let expires_str = SignUpTrigger::generate_expires_at();
-        let parsed: DateTime<Utc> = chrono::NaiveDateTime::parse_from_str(
-            &expires_str,
-            "%b %d, %Y %I:%M %p",
-        )
-        .unwrap()
-        .and_utc();
+        let parsed: DateTime<Utc> = chrono::DateTime::parse_from_rfc3339(&expires_str)
+            .unwrap()
+            .with_timezone(&Utc);
         let diff = (parsed - Utc::now()).num_hours();
         assert!(diff >= 23, "Expected ~24 hours, got {}", diff);
         assert!(diff < 25, "Expected ~24 hours, got {}", diff);

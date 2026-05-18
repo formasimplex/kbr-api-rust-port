@@ -77,7 +77,7 @@ impl User {
     }
 
     pub fn validate_role(role: &str) -> bool {
-        matches!(role, "admin" | "user" | "customer" | "artist" | "staff")
+        matches!(role, "admin" | "super_admin" | "user" | "customer" | "artist" | "staff")
     }
 
     pub async fn find_by_id(pool: &sqlx::PgPool, id: i64) -> sqlx::Result<Option<Self>> {
@@ -170,6 +170,7 @@ mod tests {
     #[test]
     fn validate_role_valid() {
         assert!(User::validate_role("admin"));
+        assert!(User::validate_role("super_admin"));
         assert!(User::validate_role("user"));
         assert!(User::validate_role("customer"));
         assert!(User::validate_role("artist"));

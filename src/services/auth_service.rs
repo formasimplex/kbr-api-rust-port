@@ -79,18 +79,9 @@ pub fn create_claims(user: &User, secret: &str) -> Result<Claims, AppError> {
 pub fn parse_auth_header(header: &str) -> Result<String, AppError> {
     let token = header
         .strip_prefix("Bearer ")
-        .or_else(|| {
-            if header.is_empty() || !header.contains('.') {
-                None
-            } else {
-                Some(header)
-            }
-        })
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty())
         .ok_or(AppError::Unauthorized)?;
-    let token = token.trim().to_string();
-    if token.is_empty() {
-        return Err(AppError::Unauthorized);
-    }
     Ok(token)
 }
 
@@ -197,9 +188,9 @@ mod tests {
     }
 
     #[test]
-    fn parse_auth_header_raw_token() {
-        let token = parse_auth_header("abc123.def456.ghi789").unwrap();
-        assert_eq!(token, "abc123.def456.ghi789");
+    fn parse_auth_header_raw_token_rejected() {
+        let result = parse_auth_header("abc123.def456.ghi789");
+        assert!(result.is_err());
     }
 
     #[test]

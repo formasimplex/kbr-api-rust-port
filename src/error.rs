@@ -18,6 +18,9 @@ pub enum AppError {
     #[error("not found: {0}")]
     NotFound(String),
 
+    #[error("conflict: {0}")]
+    Conflict(String),
+
     #[error("validation error: {0}")]
     Validation(String),
 
@@ -63,6 +66,7 @@ impl actix_web::ResponseError for AppError {
             Self::Unauthorized => StatusCode::UNAUTHORIZED,
             Self::Forbidden(_) => StatusCode::FORBIDDEN,
             Self::NotFound(_) => StatusCode::NOT_FOUND,
+            Self::Conflict(_) => StatusCode::CONFLICT,
             Self::Validation(_) => StatusCode::UNPROCESSABLE_ENTITY,
             Self::BadRequest(_) => StatusCode::BAD_REQUEST,
             Self::UnprocessableEntity(_) => StatusCode::UNPROCESSABLE_ENTITY,
@@ -126,6 +130,12 @@ mod tests {
     fn not_found_returns_404() {
         let err = AppError::NotFound("user".into());
         assert_eq!(err.status_code(), StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn conflict_returns_409() {
+        let err = AppError::Conflict("email already in use".into());
+        assert_eq!(err.status_code(), StatusCode::CONFLICT);
     }
 
     #[test]

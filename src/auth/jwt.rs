@@ -5,6 +5,8 @@ use uuid::Uuid;
 
 use crate::error::AppError;
 
+pub const JWT_AUDIENCE: &str = "kbr-api";
+
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct Claims {
     pub user_id: i64,
@@ -15,10 +17,16 @@ pub struct Claims {
     pub jti: String,
     #[serde(default = "default_token_version")]
     pub token_version: i64,
+    #[serde(default = "default_audience")]
+    pub aud: String,
 }
 
 fn default_token_version() -> i64 {
     1
+}
+
+fn default_audience() -> String {
+    JWT_AUDIENCE.to_string()
 }
 
 pub fn encode_token(user_id: i64, secret: &str, expiry_days: u64) -> Result<String, AppError> {
@@ -45,6 +53,7 @@ pub fn encode_token_with_role(
         role,
         jti: Uuid::new_v4().to_string(),
         token_version,
+        aud: JWT_AUDIENCE.to_string(),
     };
 
     encode(
@@ -59,6 +68,7 @@ pub fn decode_token(token: &str, secret: &str) -> Result<Claims, AppError> {
     let mut validation = Validation::default();
     validation.algorithms = vec![jsonwebtoken::Algorithm::HS256];
     validation.validate_exp = true;
+    validation.set_audience(&[JWT_AUDIENCE]);
 
     decode::<Claims>(
         token,
@@ -77,6 +87,7 @@ pub fn create_expired_token(user_id: i64, secret: &str) -> String {
         role: None,
         jti: Uuid::new_v4().to_string(),
         token_version: 1,
+        aud: JWT_AUDIENCE.to_string(),
     };
 
     encode(
@@ -166,12 +177,14 @@ mod tests {
             role: None,
             jti: Uuid::new_v4().to_string(),
             token_version: 1,
+            aud: JWT_AUDIENCE.to_string(),
         };
         let json = serde_json::to_string(&claims).expect("should serialize");
         assert!(json.contains("\"user_id\":42"));
         assert!(json.contains("\"exp\":9999999999"));
         assert!(json.contains("\"iat\":9999999900"));
         assert!(json.contains("\"jti\""));
+        assert!(json.contains("\"aud\":\"kbr-api\""));
     }
 
     #[test]
@@ -200,5 +213,33 @@ mod tests {
         let claims1 = decode_token(&token1, SECRET).expect("should decode");
         let claims2 = decode_token(&token2, SECRET).expect("should decode");
         assert_ne!(claims1.jti, claims2.jti);
+    }
+
+    #[test]
+    fn claims_include_audience() {
+        let token = encode_token(42, SECRET, 3).expect("should encode");
+        let claims = decode_token(&token, SECRET).expect("should decode");
+        assert_eq!(claims.aud, JWT_AUDIENCE);
+    }
+
+    #[test]
+    fn decode_token_with_wrong_audience_fails() {
+        let claims = Claims {
+            user_id: 42,
+            exp: Utc::now().timestamp() as u64 + 3600,
+            iat: Utc::now().timestamp() as u64,
+            role: None,
+            jti: Uuid::new_v4().to_string(),
+            token_version: 1,
+            aud: "other-service".to_string(),
+        };
+        let token = encode(
+            &Header::default(),
+            &claims,
+            &EncodingKey::from_secret(SECRET.as_bytes()),
+        )
+        .expect("should encode");
+        let result = decode_token(&token, SECRET);
+        assert!(result.is_err());
     }
 }

@@ -24,6 +24,7 @@ use crate::app::AppState;
 use crate::auth::middleware::CurrentUser;
 use crate::auth::roles::is_admin;
 use crate::error::AppError;
+use crate::jobs::Job;
 use crate::models::mail_subscriber::{
     CreateMailSubscriberRequest, MailSubscriber, MailSubscriberResponse,
 };
@@ -37,6 +38,7 @@ struct MailSubscriberRow {
     artist_id: Option<i64>,
     unsubscribed_at: Option<chrono::NaiveDateTime>,
     unsubscribe_token: Option<String>,
+    unsubscribe_token_expires_at: Option<chrono::NaiveDateTime>,
     user_id: Option<i64>,
     created_at: chrono::NaiveDateTime,
     updated_at: chrono::NaiveDateTime,
@@ -52,6 +54,7 @@ impl From<MailSubscriberRow> for MailSubscriber {
             artist_id: row.artist_id,
             unsubscribed_at: row.unsubscribed_at.map(|dt| dt.and_utc()),
             unsubscribe_token: row.unsubscribe_token,
+            unsubscribe_token_expires_at: row.unsubscribe_token_expires_at.map(|dt| dt.and_utc()),
             user_id: row.user_id,
             first_name: None,
             last_name: None,
@@ -63,7 +66,7 @@ impl From<MailSubscriberRow> for MailSubscriber {
 
 const SUBSCRIBER_SELECT: &str =
     r#"SELECT id, full_name, email, active, artist_id, unsubscribed_at,
-       unsubscribe_token, user_id, created_at, updated_at FROM mail_subscribers"#;
+       unsubscribe_token, unsubscribe_token_expires_at, user_id, created_at, updated_at FROM mail_subscribers"#;
 
 /// List all mail subscribers.
 ///
@@ -180,7 +183,7 @@ pub async fn artist_mail_subscriber(
         r#"INSERT INTO mail_subscribers (full_name, email, active, artist_id, unsubscribe_token, user_id, created_at, updated_at)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                RETURNING id, full_name, email, active, artist_id, unsubscribed_at,
-               unsubscribe_token, user_id, created_at, updated_at"#,
+               unsubscribe_token, unsubscribe_token_expires_at, user_id, created_at, updated_at"#,
     )
     .bind(&body.full_name)
     .bind(&body.email)
@@ -247,7 +250,7 @@ pub async fn add_mail_subscriber_with_user(
         r#"INSERT INTO mail_subscribers (full_name, email, active, artist_id, unsubscribe_token, user_id, created_at, updated_at)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                RETURNING id, full_name, email, active, artist_id, unsubscribed_at,
-               unsubscribe_token, user_id, created_at, updated_at"#,
+               unsubscribe_token, unsubscribe_token_expires_at, user_id, created_at, updated_at"#,
     )
     .bind(&body.full_name)
     .bind(&body.email)
@@ -302,7 +305,7 @@ pub async fn add_mail_subscriber(
         r#"INSERT INTO mail_subscribers (full_name, email, active, artist_id, unsubscribe_token, created_at, updated_at)
                VALUES ($1, $2, $3, $4, $5, $6, $7)
                RETURNING id, full_name, email, active, artist_id, unsubscribed_at,
-               unsubscribe_token, user_id, created_at, updated_at"#,
+               unsubscribe_token, unsubscribe_token_expires_at, user_id, created_at, updated_at"#,
     )
     .bind(&body.full_name)
     .bind(&body.email)
@@ -394,6 +397,10 @@ pub async fn request_unsubscribe(
         _ => return Err(AppError::UnprocessableEntity("Email is required".to_string())),
     };
 
+    if !MailSubscriber::validate_email(&email) {
+        return Err(AppError::Validation("Invalid email".to_string()));
+    }
+
     let existing = sqlx::query_as::<_, MailSubscriberRow>(
         &format!("{} WHERE email = $1", SUBSCRIBER_SELECT),
     )
@@ -401,15 +408,13 @@ pub async fn request_unsubscribe(
     .fetch_optional(&state.db)
     .await?;
 
-    if existing.is_none() {
-        return Err(AppError::NotFound("Email not found in our system".to_string()));
+    if existing.is_some() {
+        let _ = state.job_handle.send(Job::SendUnsubscribeEmail { email }).await;
     }
 
-    let token = MailSubscriber::generate_unsubscribe_token();
     Ok(HttpResponse::Ok().json(serde_json::json!({
-        "message": "Unsubscribe link generated",
-        "token": token,
-        "unsubscribe_url": format!("/v1/unsubscribe/{}", token)
+        "message": "If your email is registered, an unsubscribe link has been sent",
+        "status": "success"
     })))
 }
 
@@ -436,8 +441,9 @@ pub async fn process_unsubscribe(
     let now = chrono::Utc::now().naive_utc();
 
     let row = sqlx::query_as::<_, (String,)>(
-        r#"UPDATE mail_subscribers SET unsubscribed_at = $1, updated_at = $2
+        r#"UPDATE mail_subscribers SET unsubscribed_at = $1, updated_at = $2, unsubscribe_token = NULL
            WHERE unsubscribe_token = $3 AND unsubscribed_at IS NULL
+             AND (unsubscribe_token_expires_at IS NULL OR unsubscribe_token_expires_at > $1)
            RETURNING email"#,
     )
     .bind(now)
@@ -957,8 +963,8 @@ async fn get_state() -> AppState {
         assert_eq!(resp.status(), 200);
 
         let body: serde_json::Value = test::read_body_json(resp).await;
-        assert!(body["token"].is_string());
-        assert!(body["unsubscribe_url"].is_string());
+        assert_eq!(body["status"], "success");
+        assert!(body["message"].is_string());
 
         let _ = sqlx::query(r"DELETE FROM mail_subscribers WHERE email = $1")
             .bind(&email)
@@ -967,7 +973,7 @@ async fn get_state() -> AppState {
     }
 
     #[tokio::test(flavor = "current_thread")]
-    async fn request_unsubscribe_not_found() {
+    async fn request_unsubscribe_not_found_returns_same_response() {
         unsafe { std::env::set_var("DATABASE_URL", TEST_DB_URL); }
         let state = web::Data::new(get_state().await);
         let app = test::init_service(
@@ -984,7 +990,10 @@ async fn get_state() -> AppState {
             }))
             .to_request();
         let resp = test::call_service(&app, req).await;
-        assert_eq!(resp.status(), 404);
+        assert_eq!(resp.status(), 200);
+
+        let body: serde_json::Value = test::read_body_json(resp).await;
+        assert_eq!(body["status"], "success");
     }
 
     #[tokio::test(flavor = "current_thread")]

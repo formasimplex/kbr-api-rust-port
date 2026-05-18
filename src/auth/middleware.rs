@@ -73,9 +73,47 @@ impl CurrentUser {
         )
         .bind(&jti_uuid)
         .execute(pool)
-        .await;
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, jti = %self.jti, "Failed to revoke token");
+            AppError::Internal("Failed to revoke token".to_string())
+        })?;
         Ok(())
     }
+
+    pub async fn invalidate_all_sessions(&self, pool: &PgPool) -> Result<(), AppError> {
+        let _ = sqlx::query(
+            "UPDATE users SET token_version = COALESCE(token_version, 1) + 1, updated_at = NOW() WHERE id = $1"
+        )
+        .bind(self.id)
+        .execute(pool)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, user_id = self.id, "Failed to invalidate sessions");
+            AppError::Internal("Failed to invalidate sessions".to_string())
+        })?;
+        Ok(())
+    }
+}
+
+/// Purge revoked tokens older than the given retention period.
+/// Call periodically (e.g., from a background job) to prevent database bloat.
+/// Default retention of 7 days covers the 3-day JWT expiry plus a safety buffer.
+pub async fn purge_expired_revoked_tokens(
+    pool: &PgPool,
+    retention_days: i64,
+) -> Result<u64, AppError> {
+    let result = sqlx::query(
+        "DELETE FROM revoked_tokens WHERE revoked_at < NOW() - INTERVAL '$1 days'"
+    )
+    .bind(retention_days.to_string())
+    .execute(pool)
+    .await
+    .map_err(|e| {
+        tracing::error!(error = %e, "Failed to purge expired revoked tokens");
+        AppError::Internal("Failed to purge expired revoked tokens".to_string())
+    })?;
+    Ok(result.rows_affected())
 }
 
 impl FromRequest for CurrentUser {
@@ -161,12 +199,23 @@ impl FromRequest for CurrentUser {
                 return Err(actix_web::error::ErrorUnauthorized("token missing issued-at claim"));
             }
 
+            let role = match claims.role.as_ref().and_then(|r| r.parse::<Role>().ok()) {
+                Some(r) => r,
+                None => {
+                    tracing::warn!(
+                        user_id = claims.user_id,
+                        raw_role = ?claims.role,
+                        "Invalid or missing role in JWT, rejecting token"
+                    );
+                    return Err(actix_web::error::ErrorUnauthorized(
+                        "invalid role in token",
+                    ));
+                }
+            };
+
             let user = CurrentUser {
                 id: claims.user_id,
-                role: claims
-                    .role
-                    .and_then(|r| r.parse::<Role>().ok())
-                    .unwrap_or(Role::User),
+                role,
                 jti: claims.jti,
                 token_version: claims.token_version,
             };
@@ -190,4 +239,66 @@ pub async fn protected_handler(user: CurrentUser) -> HttpResponse {
         "user_id": user.id,
         "role": user.role.to_string()
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sqlx::PgPool;
+
+    const TEST_DB_URL: &str = "postgresql://ws@localhost:5432/kbr_test";
+
+    async fn get_pool() -> PgPool {
+        PgPool::connect(TEST_DB_URL)
+            .await
+            .expect("Failed to connect to test database")
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn purge_expired_revoked_tokens_removes_old_entries() {
+        let pool = get_pool().await;
+
+        // Clean up any leftover tokens from prior test runs
+        let _ = sqlx::query("DELETE FROM revoked_tokens").execute(&pool).await;
+
+        let old_jti = uuid::Uuid::new_v4();
+        let new_jti = uuid::Uuid::new_v4();
+
+        sqlx::query(
+            "INSERT INTO revoked_tokens (jti, revoked_at) VALUES ($1, NOW() - INTERVAL '10 days')"
+        )
+        .bind(&old_jti)
+        .execute(&pool)
+        .await
+        .expect("Failed to insert old revoked token");
+
+        sqlx::query(
+            "INSERT INTO revoked_tokens (jti, revoked_at) VALUES ($1, NOW())"
+        )
+        .bind(&new_jti)
+        .execute(&pool)
+        .await
+        .expect("Failed to insert new revoked token");
+
+        let purged = purge_expired_revoked_tokens(&pool, 7).await.expect("purge should succeed");
+        assert_eq!(purged, 1, "Should have purged 1 old token");
+
+        let remaining: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM revoked_tokens WHERE jti = $1"
+        )
+        .bind(&new_jti)
+        .fetch_one(&pool)
+        .await
+        .expect("Failed to count remaining tokens");
+        assert_eq!(remaining, 1, "New token should still exist");
+
+        let gone: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM revoked_tokens WHERE jti = $1"
+        )
+        .bind(&old_jti)
+        .fetch_one(&pool)
+        .await
+        .expect("Failed to count purged tokens");
+        assert_eq!(gone, 0, "Old token should be purged");
+    }
 }
