@@ -13,6 +13,7 @@
 use actix_web::{web, HttpResponse};
 use actix_governor::{Governor, GovernorConfigBuilder};
 use sqlx::FromRow;
+use uuid::Uuid;
 
 use crate::app::AppState;
 use crate::error::AppError;
@@ -102,12 +103,17 @@ pub async fn create(
     let trigger: ResetTrigger = row.into();
 
     if user_id.is_some() {
-        let _ = state
+        let job_id = Uuid::new_v4();
+        if let Err(e) = state
             .job_handle
             .send(crate::jobs::Job::SendResetTriggerEmail {
+                job_id,
                 reset_trigger_id: trigger.id,
             })
-            .await;
+            .await
+        {
+            tracing::warn!(job_id = %job_id, reset_trigger_id = trigger.id, error = %e, "Failed to enqueue reset trigger email job");
+        }
     }
 
     Ok(HttpResponse::Ok().json(trigger.to_response()))

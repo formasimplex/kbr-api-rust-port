@@ -14,7 +14,9 @@
 //! | `update` | POST | `/v1/kbr_event_update_txt` | artist+ | Return attendees for an event (used for text copy updates) |
 
 use actix_web::{web, HttpResponse};
+use std::time::Duration;
 use sqlx::FromRow;
+use uuid::Uuid;
 
 use crate::app::AppState;
 use crate::auth::middleware::CurrentUser;
@@ -172,15 +174,31 @@ pub async fn create(
 
     tx.commit().await?;
 
-    // Enqueue QR code email for each attendee
-    for attendee in &attendees {
-        let _ = state
-            .job_handle
-            .send(Job::SendEventAttendeeEmail {
-                attendee_id: attendee.id,
-                event_id: attendee.kbr_event_id.map(|id| id as i64).unwrap_or(0),
-            })
-            .await;
+    // Enqueue QR code email for each attendee (batched to avoid channel saturation)
+    const JOB_BATCH_SIZE: usize = 250;
+    for chunk in attendees.chunks(JOB_BATCH_SIZE) {
+        for attendee in chunk {
+            let job_id = Uuid::new_v4();
+            if let Err(e) = state
+                .job_handle
+                .send(Job::SendEventAttendeeEmail {
+                    job_id,
+                    attendee_id: attendee.id,
+                    event_id: attendee.kbr_event_id.map(|id| id as i64).unwrap_or(0),
+                })
+                .await
+            {
+                tracing::warn!(
+                    job_id = %job_id,
+                    attendee_id = attendee.id,
+                    error = %e,
+                    "Failed to enqueue event attendee email job"
+                );
+            }
+        }
+        if chunk.len() == JOB_BATCH_SIZE {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
     }
 
     let responses: Vec<KbrEventAttendeeResponse> =
@@ -216,15 +234,31 @@ pub async fn update(
 
     let attendees: Vec<KbrEventAttendee> = rows.into_iter().map(|r| r.into()).collect();
 
-    // Enqueue text update email for each attendee
-    for attendee in &attendees {
-        let _ = state
-            .job_handle
-            .send(Job::SendEventUpdateEmail {
-                attendee_id: attendee.id,
-                text_copy: body.text_copy.clone(),
-            })
-            .await;
+    // Enqueue text update email for each attendee (batched to avoid channel saturation)
+    const JOB_BATCH_SIZE: usize = 250;
+    for chunk in attendees.chunks(JOB_BATCH_SIZE) {
+        for attendee in chunk {
+            let job_id = Uuid::new_v4();
+            if let Err(e) = state
+                .job_handle
+                .send(Job::SendEventUpdateEmail {
+                    job_id,
+                    attendee_id: attendee.id,
+                    text_copy: body.text_copy.clone(),
+                })
+                .await
+            {
+                tracing::warn!(
+                    job_id = %job_id,
+                    attendee_id = attendee.id,
+                    error = %e,
+                    "Failed to enqueue event update email job"
+                );
+            }
+        }
+        if chunk.len() == JOB_BATCH_SIZE {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
     }
 
     let responses: Vec<KbrEventAttendeeResponse> =

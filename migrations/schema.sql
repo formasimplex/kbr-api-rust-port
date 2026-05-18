@@ -381,3 +381,20 @@ CREATE TABLE IF NOT EXISTS delayed_jobs (
 );
 
 CREATE INDEX IF NOT EXISTS delayed_jobs_priority ON delayed_jobs(priority, run_at);
+
+-- Job queue for retry and dead-letter tracking
+CREATE TABLE IF NOT EXISTS job_queue (
+    id UUID PRIMARY KEY,
+    job_type VARCHAR NOT NULL,
+    payload JSONB NOT NULL,
+    attempts INTEGER DEFAULT 0 NOT NULL,
+    max_attempts INTEGER DEFAULT 3 NOT NULL,
+    last_error TEXT,
+    status VARCHAR DEFAULT 'pending' NOT NULL,
+    next_retry_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_job_queue_retry ON job_queue(status, next_retry_at) WHERE status = 'retrying';
+CREATE INDEX IF NOT EXISTS idx_job_queue_status ON job_queue(status);

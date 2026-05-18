@@ -18,6 +18,7 @@
 
 use actix_web::{web, HttpResponse};
 use sqlx::FromRow;
+use uuid::Uuid;
 
 use crate::app::AppState;
 use crate::auth::middleware::CurrentUser;
@@ -32,7 +33,7 @@ use crate::services::user_service::UserService;
 
 /// Request body for artist sign-up via token.
 #[derive(serde::Deserialize)]
-struct ArtistSignUpRequest {
+pub(crate) struct ArtistSignUpRequest {
     token: String,
     name: String,
 }
@@ -202,7 +203,7 @@ pub async fn create(
 /// `201 Created` — `ArtistResponse` for the new artist
 /// `409 Conflict` — email already has an artist account
 /// `422 Unprocessable Entity` — invalid or expired token
-pub async fn sign_up(
+pub(crate) async fn sign_up(
     state: web::Data<AppState>,
     body: web::Json<ArtistSignUpRequest>,
 ) -> Result<HttpResponse, AppError> {
@@ -288,10 +289,14 @@ pub async fn sign_up(
 
             tx.commit().await?;
 
-            let _ = state
+            let job_id = Uuid::new_v4();
+            if let Err(e) = state
                 .job_handle
-                .send(crate::jobs::Job::SendProspectWelcomeEmail { user_id })
-                .await;
+                .send(crate::jobs::Job::SendProspectWelcomeEmail { job_id, user_id })
+                .await
+            {
+                tracing::warn!(job_id = %job_id, user_id, error = %e, "Failed to enqueue prospect welcome email job");
+            }
 
             let artist: Artist = artist_row.into();
             Ok(HttpResponse::Created().json(artist.to_response(Vec::new(), Vec::new())))

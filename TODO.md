@@ -45,14 +45,14 @@ Every handler now queries PostgreSQL via `web::Data<AppState>`. Zero mock data r
 |---|---|---|
 | `CreateCampaignJob` | Creates Album + Campaign + enqueues CampaignSetupJob | ⬜ Not started |
 | `CampaignSetupJob` | Creates CampaignPage, Songs, ArtistLinks | ⬜ Not started |
-| `SendEventAttendeeEmailJob` | Sends QR code email | ⬜ Not started |
-| `SendEventUpdateEmailJob` | Sends text update email | ⬜ Not started |
-| `ProspectMailer` | Welcome email | ⬜ Not started |
-| `ResetTriggerMailer` | Password reset email | ⬜ Not started |
-| `UserSignUpTriggerMailer` | Sign-up confirmation email | ⬜ Not started |
-| `UnsubscribeMailer` | Unsubscribe confirmation email | ⬜ Not started |
-| `KbrEventAttendeeMailer` | Event QR code email | ⬜ Not started |
-| `KbrEventUpdateAttendeeMailer` | Event update email | ⬜ Not started |
+| `SendEventAttendeeEmailJob` | Sends QR code email | ✅ Done |
+| `SendEventUpdateEmailJob` | Sends text update email | ✅ Done |
+| `ProspectMailer` | Welcome email | ✅ Done |
+| `ResetTriggerMailer` | Password reset email | ✅ Done |
+| `UserSignUpTriggerMailer` | Sign-up confirmation email | ✅ Done |
+| `UnsubscribeMailer` | Unsubscribe confirmation email | ✅ Done |
+| `KbrEventAttendeeMailer` | Event QR code email | ✅ Done |
+| `KbrEventUpdateAttendeeMailer` | Event update email | ✅ Done |
 
 ### Execution Plan
 
@@ -62,7 +62,7 @@ Every handler now queries PostgreSQL via `web::Data<AppState>`. Zero mock data r
 | **Phase 2** | 6 missing endpoints | 6h | ✅ Done |
 | **Phase 3** | Mailchimp + Safe Browsing | 4h | ✅ Done |
 | **Phase 4** | Shopify GraphQL (merch sync + campaign activation) | 6h | ✅ Done |
-| **Phase 5** | In-process queue + Jobs + Email | 15-20h | ⬜ Not started |
+| **Phase 5** | In-process queue + Jobs + Email | 15-20h | 🟡 ~90% done |
 
 ### Completed
 
@@ -81,3 +81,13 @@ Every handler now queries PostgreSQL via `web::Data<AppState>`. Zero mock data r
 - ✅ Campaign activation rewrite (full Shopify flow: product, variant, publish)
 - ✅ Mailchimp REST integration (MailchimpClient, subscribe/unsubscribe, non-fatal sync)
 - ✅ Google Safe Browsing (SafeBrowsingClient, URL threat check on news creation, fail-open)
+- ✅ In-process job queue (tokio mpsc channel, 256 capacity, single worker task)
+- ✅ SMTP email service (lettre-based, attachments, optional env config)
+- ✅ Email job handlers (event QR, event update, sign-up trigger, reset trigger)
+- ✅ Email templates (6: qr_code, sign_up_trigger, text_copy, reset_trigger, prospect_welcome, unsubscribe)
+- ✅ QR code generation (qrcode + image crate, PNG output)
+- ✅ Sign-up trigger handler (`POST /v1/sign_up_trigger`, `GET /v1/sign_up_trigger/:token`)
+- ✅ Reset trigger handler (`POST /v1/reset_trigger`, `POST /v1/reset_trigger/:token`, rate limiting, timing jitter)
+- ✅ AppState integration (email: Option<EmailClient>, job_handle: JobHandle)
+- ✅ AppError::Email variant
+- ✅ Job worker spawned at server startup (setup.rs)

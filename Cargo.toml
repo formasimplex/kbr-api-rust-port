@@ -51,6 +51,7 @@ hex = "0.4"
 lettre = { version = "0.11", default-features = false, features = ["tokio1-rustls-tls", "builder", "smtp-transport"] }
 ammonia = "4.1.2"
 percent-encoding = "2.3"
+email_address = "0.2.4"
 
 # QR Code
 qrcode = { version = "0.14", default-features = false, features = ["image"] }

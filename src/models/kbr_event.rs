@@ -2,6 +2,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
+use crate::utils::url::validate_url;
+
 #[derive(Debug, Clone, FromRow, PartialEq, Eq)]
 pub struct KbrEvent {
     pub id: i64,
@@ -75,9 +77,12 @@ impl KbrEvent {
     fn clean_description(desc: &Option<String>) -> Option<String> {
         desc.as_ref().map(|d| d.replace(['\r', '\n'], ""))
     }
+    pub fn validate_url(url: &str) -> bool {
+        validate_url(url)
+    }
 
-    pub fn validate_required(name: &str, description: &str, has_dates: bool, has_user: bool) -> bool {
-        !name.is_empty() && !description.is_empty() && has_dates && has_user
+    pub fn validate_required(name: &str, description: &str) -> bool {
+        !name.is_empty() && !description.is_empty()
     }
 }
 
@@ -87,14 +92,12 @@ mod tests {
 
     #[test]
     fn validate_required_all_present() {
-        assert!(KbrEvent::validate_required("Name", "Desc", true, true));
+        assert!(KbrEvent::validate_required("Name", "Desc"));
     }
 
     #[test]
     fn validate_required_missing_fields() {
-        assert!(!KbrEvent::validate_required("", "Desc", true, true));
-        assert!(!KbrEvent::validate_required("Name", "", true, true));
-        assert!(!KbrEvent::validate_required("Name", "Desc", false, true));
-        assert!(!KbrEvent::validate_required("Name", "Desc", true, false));
+        assert!(!KbrEvent::validate_required("", "Desc"));
+        assert!(!KbrEvent::validate_required("Name", ""));
     }
 }

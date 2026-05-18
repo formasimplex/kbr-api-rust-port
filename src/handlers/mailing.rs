@@ -19,6 +19,7 @@
 
 use actix_web::{web, HttpResponse};
 use sqlx::FromRow;
+use uuid::Uuid;
 
 use crate::app::AppState;
 use crate::auth::middleware::CurrentUser;
@@ -409,7 +410,11 @@ pub async fn request_unsubscribe(
     .await?;
 
     if existing.is_some() {
-        let _ = state.job_handle.send(Job::SendUnsubscribeEmail { email }).await;
+        let job_id = Uuid::new_v4();
+        let email_clone = email.clone();
+        if let Err(e) = state.job_handle.send(Job::SendUnsubscribeEmail { job_id, email }).await {
+            tracing::warn!(job_id = %job_id, email = %email_clone, error = %e, "Failed to enqueue unsubscribe email job");
+        }
     }
 
     Ok(HttpResponse::Ok().json(serde_json::json!({

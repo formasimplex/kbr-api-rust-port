@@ -17,7 +17,7 @@ struct AttendeeEmailRow {
     event_qr_encode_string: Option<String>,
     event_ticket_url: Option<String>,
     event_external_url: Option<String>,
-    event_id: i64,
+    _event_id: i64,
 }
 
 /// Send a QR code email to an event attendee.

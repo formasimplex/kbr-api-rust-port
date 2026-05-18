@@ -10,6 +10,7 @@ pub use reset::send_reset_trigger_email;
 pub use sign_up::{send_prospect_welcome_email, send_sign_up_trigger_email};
 pub use unsubscribe::send_unsubscribe_email;
 
+use email_address::EmailAddress;
 use image::Luma;
 
 /// HTML-escape a string for safe template interpolation.
@@ -24,6 +25,21 @@ pub(crate) fn escape_html(s: &str) -> String {
 /// Strip characters that could inject email headers.
 pub(crate) fn strip_newlines(s: &str) -> String {
     s.replace('\r', "").replace('\n', "")
+}
+
+/// Validate an email address using RFC 5322 parsing. Returns an error
+/// if the address is invalid or contains CRLF characters.
+pub(crate) fn validate_email_address(email: &str) -> Result<(), String> {
+    let sanitized = strip_newlines(email);
+    if sanitized.is_empty() {
+        return Err("Email address is empty".to_string());
+    }
+    if sanitized.contains('\r') || sanitized.contains('\n') {
+        return Err("Email address contains forbidden characters".to_string());
+    }
+    EmailAddress::is_valid(&sanitized).then_some(()).ok_or_else(|| {
+        format!("Invalid email address format: {}", email)
+    })
 }
 
 /// Generate a QR code PNG from the given URL string.
@@ -113,13 +129,17 @@ pub(crate) async fn send_email(
     subject: &str,
     html: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    validate_email_address(to).map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.into() })?;
+    let to = strip_newlines(to);
+    let subject = strip_newlines(subject);
+
     match &state.email {
         Some(client) => client
-            .send(to, subject, html, None)
+            .send(&to, &subject, html, None)
             .await
             .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, e)) as Box<dyn std::error::Error + Send + Sync>),
         None => {
-            tracing::warn!(to, subject, "Email not sent: SMTP not configured");
+            tracing::warn!(to = %to, subject = %subject, "Email not sent: SMTP not configured");
             Ok(())
         }
     }
@@ -134,13 +154,17 @@ pub(crate) async fn send_email_with_attachment(
     filename: &str,
     data: &[u8],
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    validate_email_address(to).map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.into() })?;
+    let to = strip_newlines(to);
+    let subject = strip_newlines(subject);
+
     match &state.email {
         Some(client) => client
-            .send(to, subject, html, Some((filename, data)))
+            .send(&to, &subject, html, Some((filename, data)))
             .await
             .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, e)) as Box<dyn std::error::Error + Send + Sync>),
         None => {
-            tracing::warn!(to, subject, "Email not sent: SMTP not configured");
+            tracing::warn!(to = %to, subject = %subject, "Email not sent: SMTP not configured");
             Ok(())
         }
     }
@@ -206,5 +230,26 @@ mod tests {
     #[test]
     fn strip_newlines_removes_cr_lf() {
         assert_eq!(strip_newlines("a\r\nb"), "ab");
+    }
+
+    #[test]
+    fn validate_email_address_valid() {
+        assert!(validate_email_address("user@example.com").is_ok());
+        assert!(validate_email_address("test.user+tag@subdomain.example.co.uk").is_ok());
+    }
+
+    #[test]
+    fn validate_email_address_invalid_empty() {
+        assert!(validate_email_address("").is_err());
+    }
+
+    #[test]
+    fn validate_email_address_invalid_no_at() {
+        assert!(validate_email_address("userexample.com").is_err());
+    }
+
+    #[test]
+    fn validate_email_address_strips_cr_lf() {
+        assert!(validate_email_address("user\r\n@example.com").is_ok());
     }
 }

@@ -7,7 +7,7 @@ use crate::app::AppState;
 use crate::auth::jwt::Claims;
 use crate::cors::get_cors;
 use crate::db::pool::connect;
-use crate::jobs::{JobHandle, spawn_worker};
+use crate::jobs::{JobHandle, spawn_worker, spawn_retry_worker};
 use crate::services::email_service::EmailClient;
 use crate::services::mailchimp_client::MailchimpClient;
 use crate::services::safe_browsing::SafeBrowsingClient;
@@ -115,6 +115,7 @@ pub async fn setup_web_server() -> std::io::Result<Server> {
     });
 
     spawn_worker(job_rx, state.clone());
+    spawn_retry_worker(pool.clone());
 
     let governor_conf = governor_conf.clone();
     let cookie_builder = cookie_builder.clone();

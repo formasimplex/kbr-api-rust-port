@@ -10,6 +10,7 @@ pub mod responses;
 pub mod setup;
 pub mod templates;
 pub mod jobs;
+pub mod utils;
 
 #[cfg(test)]
 pub mod test_utils;

@@ -2,6 +2,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
+use crate::utils::url::validate_url;
+
 #[derive(Debug, Clone, FromRow, PartialEq, Eq)]
 pub struct News {
     pub id: i64,
@@ -62,13 +64,7 @@ impl News {
     }
 
     pub fn validate_url(url: &str) -> bool {
-        !url.is_empty() && (url.starts_with("http://") || url.starts_with("https://"))
-            && !Self::is_malicious_url(url)
-    }
-
-    pub fn is_malicious_url(url: &str) -> bool {
-        let dangerous = ["localhost", "127.0.0.1", "0.0.0.0", "169.254.169.254"];
-        dangerous.iter().any(|d| url.contains(d))
+        validate_url(url)
     }
 }
 
@@ -86,13 +82,8 @@ mod tests {
     fn validate_url_invalid() {
         assert!(!News::validate_url(""));
         assert!(!News::validate_url("not-a-url"));
-    }
-
-    #[test]
-    fn is_malicious_url() {
-        assert!(News::is_malicious_url("http://localhost/admin"));
-        assert!(News::is_malicious_url("http://127.0.0.1/secret"));
-        assert!(News::is_malicious_url("http://169.254.169.254/metadata"));
-        assert!(!News::is_malicious_url("https://example.com/safe"));
+        assert!(!News::validate_url("http://localhost/admin"));
+        assert!(!News::validate_url("http://127.0.0.1/secret"));
+        assert!(!News::validate_url("http://169.254.169.254/metadata"));
     }
 }

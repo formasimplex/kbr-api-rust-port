@@ -56,7 +56,7 @@ pub async fn send_prospect_welcome_email(
 
 #[derive(Debug, FromRow)]
 struct SignUpTriggerEmailRow {
-    id: i64,
+    _id: i64,
     email: String,
     token: String,
     role: String,

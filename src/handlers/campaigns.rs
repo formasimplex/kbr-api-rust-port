@@ -72,14 +72,14 @@ const CAMPAIGN_SELECT: &str =
 #[derive(Debug, sqlx::FromRow)]
 struct CampaignPageRow {
     id: i64,
-    campaign_id: i64,
+    _campaign_id: i64,
     title: Option<String>,
     description: Option<String>,
-    page_type: Option<i32>,
-    inventory_item_id: Option<String>,
-    inventory_url: Option<String>,
-    created_at: chrono::NaiveDateTime,
-    updated_at: chrono::NaiveDateTime,
+    _page_type: Option<i32>,
+    _inventory_item_id: Option<String>,
+    _inventory_url: Option<String>,
+    _created_at: chrono::NaiveDateTime,
+    _updated_at: chrono::NaiveDateTime,
 }
 
 /// List all non-deleted campaigns.

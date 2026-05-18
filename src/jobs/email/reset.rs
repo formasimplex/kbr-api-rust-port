@@ -9,7 +9,7 @@ use super::{escape_html, send_email};
 
 #[derive(Debug, FromRow)]
 struct ResetTriggerEmailRow {
-    id: i64,
+    _id: i64,
     user_id: Option<i32>,
     email: Option<String>,
     token: String,

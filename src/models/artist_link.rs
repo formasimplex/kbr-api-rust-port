@@ -2,6 +2,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
+use crate::utils::url::validate_url;
+
 #[derive(Debug, Clone, FromRow, PartialEq, Eq)]
 pub struct ArtistLink {
     pub id: i64,
@@ -52,7 +54,7 @@ impl ArtistLink {
     }
 
     pub fn validate_url(url: &str) -> bool {
-        !url.is_empty() && url.len() <= 255 && (url.starts_with("http://") || url.starts_with("https://"))
+        validate_url(url)
     }
 
     pub fn link_type_name(link_type: i32) -> Option<&'static str> {
@@ -75,15 +77,15 @@ mod tests {
 
     #[test]
     fn validate_url_valid() {
-        assert!(ArtistLink::validate_url("https://example.com"));
-        assert!(ArtistLink::validate_url("http://example.com"));
+        assert!(validate_url("https://example.com"));
+        assert!(validate_url("http://example.com"));
     }
 
     #[test]
     fn validate_url_invalid() {
-        assert!(!ArtistLink::validate_url(""));
-        assert!(!ArtistLink::validate_url("not-a-url"));
-        assert!(!ArtistLink::validate_url(&"a".repeat(256)));
+        assert!(!validate_url(""));
+        assert!(!validate_url("not-a-url"));
+        assert!(!validate_url(&"a".repeat(256)));
     }
 
     #[test]
