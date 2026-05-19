@@ -16,7 +16,7 @@
 //! | `delete_artist_links` | POST | `/v1/artist/delete_artist_links` | artist+ | Remove an artist link |
 //! | `available_link_types` | GET | `/v1/available_link_types` | public | List valid link type options |
 
-use actix_web::{web, HttpResponse};
+use actix_web::{HttpResponse, web};
 use sqlx::FromRow;
 use uuid::Uuid;
 
@@ -86,7 +86,7 @@ pub async fn index(state: web::Data<AppState>) -> Result<HttpResponse, AppError>
     let rows = sqlx::query_as::<_, ArtistRow>(
         r#"SELECT id, name, genre, bio, user_id, prospect,
            "spotifyId" AS spotify_id, "subHeading" AS sub_heading, intro,
-           created_at, updated_at FROM artists ORDER BY id"#
+           created_at, updated_at FROM artists ORDER BY id"#,
     )
     .fetch_all(&state.db)
     .await?;
@@ -94,12 +94,10 @@ pub async fn index(state: web::Data<AppState>) -> Result<HttpResponse, AppError>
     let artists: Vec<Artist> = rows.into_iter().map(|r| r.into()).collect();
     let mut responses: Vec<ArtistResponse> = Vec::new();
     for artist in &artists {
-        let (image_urls, thumbnail_urls) = storage_service::get_image_urls(
-            &state.s3,
-            &state.db,
-            "Artist",
-            artist.id,
-        ).await.unwrap_or_else(|_| (Vec::new(), Vec::new()));
+        let (image_urls, thumbnail_urls) =
+            storage_service::get_image_urls(&state.s3, &state.db, "Artist", artist.id)
+                .await
+                .unwrap_or_else(|_| (Vec::new(), Vec::new()));
         responses.push(artist.to_response(image_urls, thumbnail_urls));
     }
     Ok(HttpResponse::Ok().json(responses))
@@ -123,7 +121,7 @@ pub async fn show(
     match sqlx::query_as::<_, ArtistRow>(
         r#"SELECT id, name, genre, bio, user_id, prospect,
            "spotifyId" AS spotify_id, "subHeading" AS sub_heading, intro,
-           created_at, updated_at FROM artists WHERE id = $1"#
+           created_at, updated_at FROM artists WHERE id = $1"#,
     )
     .bind(id)
     .fetch_optional(&state.db)
@@ -131,12 +129,10 @@ pub async fn show(
     {
         Some(row) => {
             let artist: Artist = row.into();
-            let (image_urls, thumbnail_urls) = storage_service::get_image_urls(
-                &state.s3,
-                &state.db,
-                "Artist",
-                artist.id,
-            ).await.unwrap_or_else(|_| (Vec::new(), Vec::new()));
+            let (image_urls, thumbnail_urls) =
+                storage_service::get_image_urls(&state.s3, &state.db, "Artist", artist.id)
+                    .await
+                    .unwrap_or_else(|_| (Vec::new(), Vec::new()));
             Ok(HttpResponse::Ok().json(artist.to_response(image_urls, thumbnail_urls)))
         }
         None => Err(AppError::NotFound(format!("Artist #{}", id))),
@@ -161,13 +157,19 @@ pub async fn create(
         return Err(AppError::Forbidden("Not Authorized".to_string()));
     }
     if let Some(ref intro) = body.intro
-        && !Artist::validate_intro(intro) {
-            return Err(AppError::Validation("Intro must be 300 characters or less".to_string()));
-        }
+        && !Artist::validate_intro(intro)
+    {
+        return Err(AppError::Validation(
+            "Intro has to be 300 characters or less".to_string(),
+        ));
+    }
     if let Some(ref bio) = body.bio
-        && !Artist::validate_bio(bio) {
-            return Err(AppError::Validation("Bio must be 3000 characters or less".to_string()));
-        }
+        && !Artist::validate_bio(bio)
+    {
+        return Err(AppError::Validation(
+            "Bio has to be 3000 characters or less".to_string(),
+        ));
+    }
 
     let now = chrono::Utc::now().naive_utc();
 
@@ -214,7 +216,7 @@ pub(crate) async fn sign_up(
     let mut tx = state.db.begin().await?;
 
     let trigger = sqlx::query_as::<_, (Option<String>, Option<String>)>(
-        r"SELECT email, expires_at FROM sign_up_triggers WHERE token = $1 FOR UPDATE"
+        r"SELECT email, expires_at FROM sign_up_triggers WHERE token = $1 FOR UPDATE",
     )
     .bind(&body.token)
     .fetch_optional(&mut *tx)
@@ -233,9 +235,7 @@ pub(crate) async fn sign_up(
             }
 
             if !User::validate_email(&trigger_email) {
-                return Err(AppError::Validation(
-                    "Invalid sign-up token".to_string(),
-                ));
+                return Err(AppError::Validation("Invalid sign-up token".to_string()));
             }
 
             if body.password != body.password_confirmation {
@@ -246,12 +246,13 @@ pub(crate) async fn sign_up(
 
             if !User::validate_password(&body.password) {
                 return Err(AppError::Validation(
-                    "Password must be at least 8 characters with uppercase, lowercase, and a digit".to_string(),
+                    "Password must be at least 8 characters with uppercase, lowercase, and a digit"
+                        .to_string(),
                 ));
             }
 
             let existing: bool = sqlx::query_scalar(
-                r"SELECT EXISTS(SELECT 1 FROM users WHERE email = $1 AND role = 'artist')"
+                r"SELECT EXISTS(SELECT 1 FROM users WHERE email = $1 AND role = 'artist')",
             )
             .bind(&trigger_email)
             .fetch_one(&mut *tx)
@@ -264,16 +265,17 @@ pub(crate) async fn sign_up(
             }
 
             let now = chrono::Utc::now().naive_utc();
-            let password_digest = UserService::hash_password_for_create(&crate::models::user::CreateUserRequest {
-                email: trigger_email.clone(),
-                password: body.password.clone(),
-                username: body.username.clone(),
-                token: None,
-            })?;
+            let password_digest =
+                UserService::hash_password_for_create(&crate::models::user::CreateUserRequest {
+                    email: trigger_email.clone(),
+                    password: body.password.clone(),
+                    username: body.username.clone(),
+                    token: None,
+                })?;
 
             let user_id: i64 = sqlx::query_scalar(
                 r"INSERT INTO users (email, password_digest, role, username, created_at, updated_at)
-                   VALUES ($1, $2, 'artist', $3, $4, $4) RETURNING id"
+                   VALUES ($1, $2, 'artist', $3, $4, $4) RETURNING id",
             )
             .bind(&trigger_email)
             .bind(&password_digest)
@@ -295,7 +297,7 @@ pub(crate) async fn sign_up(
 
             let now_str = chrono::Utc::now().to_rfc3339();
             sqlx::query(
-                r"UPDATE sign_up_triggers SET expires_at = $1, updated_at = $2 WHERE email = $3"
+                r"UPDATE sign_up_triggers SET expires_at = $1, updated_at = $2 WHERE email = $3",
             )
             .bind(&now_str)
             .bind(now)
@@ -317,11 +319,7 @@ pub(crate) async fn sign_up(
             let artist: Artist = artist_row.into();
             Ok(HttpResponse::Created().json(artist.to_response(Vec::new(), Vec::new())))
         }
-        _ => {
-            Err(AppError::Validation(
-                "Invalid sign-up token".to_string(),
-            ))
-        }
+        _ => Err(AppError::Validation("Invalid sign-up token".to_string())),
     }
 }
 
@@ -348,13 +346,19 @@ pub async fn update(
     let id = path.into_inner();
 
     if let Some(ref bio) = body.bio
-        && !Artist::validate_bio(bio) {
-            return Err(AppError::Validation("Bio must be 3000 characters or less".to_string()));
-        }
+        && !Artist::validate_bio(bio)
+    {
+        return Err(AppError::Validation(
+            "Bio must be 3000 characters or less".to_string(),
+        ));
+    }
     if let Some(ref intro) = body.intro
-        && !Artist::validate_intro(intro) {
-            return Err(AppError::Validation("Intro must be 300 characters or less".to_string()));
-        }
+        && !Artist::validate_intro(intro)
+    {
+        return Err(AppError::Validation(
+            "Intro must be 300 characters or less".to_string(),
+        ));
+    }
 
     let now = chrono::Utc::now().naive_utc();
 
@@ -443,16 +447,15 @@ pub async fn delete_artist_links(
     if !is_artist_or_above(&user.role) {
         return Err(AppError::Forbidden("Not Authorized".to_string()));
     }
-    let link_id = body.get("id").and_then(|v| v.as_i64()).ok_or_else(|| {
-        AppError::Validation("Link id is required".to_string())
-    })?;
+    let link_id = body
+        .get("id")
+        .and_then(|v| v.as_i64())
+        .ok_or_else(|| AppError::Validation("Link id is required".to_string()))?;
 
-    let result = sqlx::query(
-        r"DELETE FROM artist_links WHERE id = $1"
-    )
-    .bind(link_id)
-    .execute(&state.db)
-    .await?;
+    let result = sqlx::query(r"DELETE FROM artist_links WHERE id = $1")
+        .bind(link_id)
+        .execute(&state.db)
+        .await?;
 
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound(format!("Artist link #{}", link_id)));
@@ -485,7 +488,10 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
             .route("/artist/sign_up", web::post().to(sign_up))
             .route("/artist/{id}", web::put().to(update))
             .route("/artist/add_artist_links", web::post().to(add_artist_links))
-            .route("/artist/delete_artist_links", web::post().to(delete_artist_links))
+            .route(
+                "/artist/delete_artist_links",
+                web::post().to(delete_artist_links),
+            )
             .route("/available_link_types", web::get().to(available_link_types)),
     );
 }
@@ -494,7 +500,7 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 mod tests {
     use super::*;
     use crate::auth::jwt::encode_token_with_role;
-    use actix_web::{test, App};
+    use actix_web::{App, test};
 
     const TEST_SECRET: &str = "test-secret-key";
     const TEST_DB_URL: &str = "postgresql://ws@localhost:5432/kbr_test";
@@ -519,7 +525,7 @@ mod tests {
         sqlx::query_scalar::<_, i64>(
             r"INSERT INTO users (email, password_digest, role, created_at, updated_at)
                VALUES ($1, $2, $3, NOW(), NOW())
-               RETURNING id"
+               RETURNING id",
         )
         .bind(format!("artist_test_{}@test.com", ts))
         .bind("hashed_password_test".to_string())
@@ -534,7 +540,7 @@ mod tests {
         sqlx::query_scalar::<_, i64>(
             r"INSERT INTO artists (name, genre, bio, user_id, prospect, created_at, updated_at)
                VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
-               RETURNING id"
+               RETURNING id",
         )
         .bind(format!("Test Artist {}", ts))
         .bind(Some("Electronic".to_string()))
@@ -570,14 +576,11 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn artists_index_public() {
-        unsafe { std::env::set_var("DATABASE_URL", TEST_DB_URL); }
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+        }
         let state = web::Data::new(get_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::get().uri("/v1/artists").to_request();
         let resp = test::call_service(&app, req).await;
@@ -586,18 +589,15 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn artist_show_found() {
-        unsafe { std::env::set_var("DATABASE_URL", TEST_DB_URL); }
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+        }
         let state = web::Data::new(get_state().await);
 
         let user_id = seed_user().await;
         let artist_id = seed_artist(user_id).await;
 
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::get()
             .uri(&format!("/v1/artist/{}", artist_id))
@@ -614,22 +614,17 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn artist_show_not_found() {
-        unsafe { std::env::set_var("DATABASE_URL", TEST_DB_URL); }
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+        }
         let state = web::Data::new(get_state().await);
 
-        let max_id: i64 = sqlx::query_scalar(
-            r"SELECT COALESCE(MAX(id), 0) FROM artists"
-        )
-        .fetch_one(&state.db)
-        .await
-        .expect("Failed to get max id");
+        let max_id: i64 = sqlx::query_scalar(r"SELECT COALESCE(MAX(id), 0) FROM artists")
+            .fetch_one(&state.db)
+            .await
+            .expect("Failed to get max id");
 
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::get()
             .uri(&format!("/v1/artist/{}", max_id + 9999))
@@ -646,12 +641,8 @@ mod tests {
         }
 
         let state = web::Data::new(get_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
+        let app =
+            test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
 
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
         let name = format!("New Artist {}", ts);
@@ -686,12 +677,7 @@ mod tests {
         let token = encode_token_with_role(2, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
         let state = web::Data::new(get_state().await);
 
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::post()
             .uri("/v1/artist")
@@ -716,12 +702,8 @@ mod tests {
         let user_id = seed_user().await;
         let artist_id = seed_artist(user_id).await;
 
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
+        let app =
+            test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
 
         let req = test::TestRequest::put()
             .uri(&format!("/v1/artist/{}", artist_id))
@@ -749,19 +731,12 @@ mod tests {
 
         let state = web::Data::new(get_state().await);
 
-        let max_id: i64 = sqlx::query_scalar(
-            r"SELECT COALESCE(MAX(id), 0) FROM artists"
-        )
-        .fetch_one(&state.db)
-        .await
-        .expect("Failed to get max id");
+        let max_id: i64 = sqlx::query_scalar(r"SELECT COALESCE(MAX(id), 0) FROM artists")
+            .fetch_one(&state.db)
+            .await
+            .expect("Failed to get max id");
 
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::put()
             .uri(&format!("/v1/artist/{}", max_id + 9999))
@@ -786,12 +761,8 @@ mod tests {
         let user_id = seed_user().await;
         let artist_id = seed_artist(user_id).await;
 
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
+        let app =
+            test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
 
         let req = test::TestRequest::post()
             .uri("/v1/artist/add_artist_links")
@@ -822,12 +793,7 @@ mod tests {
 
         let state = web::Data::new(get_state().await);
 
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::post()
             .uri("/v1/artist/add_artist_links")
@@ -858,7 +824,7 @@ mod tests {
         let link_id: i64 = sqlx::query_scalar(
             r"INSERT INTO artist_links (artist_id, link_type, url, created_at, updated_at)
                VALUES ($1, $2, $3, $4, $5)
-               RETURNING id"
+               RETURNING id",
         )
         .bind(artist_id)
         .bind(1)
@@ -869,12 +835,8 @@ mod tests {
         .await
         .expect("Failed to seed artist link");
 
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
+        let app =
+            test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
 
         let req = test::TestRequest::post()
             .uri("/v1/artist/delete_artist_links")
@@ -886,13 +848,11 @@ mod tests {
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
 
-        let remaining: i64 = sqlx::query_scalar(
-            r"SELECT COUNT(*) FROM artist_links WHERE id = $1"
-        )
-        .bind(link_id)
-        .fetch_one(&state.db)
-        .await
-        .expect("Failed to check link");
+        let remaining: i64 = sqlx::query_scalar(r"SELECT COUNT(*) FROM artist_links WHERE id = $1")
+            .bind(link_id)
+            .fetch_one(&state.db)
+            .await
+            .expect("Failed to check link");
         assert_eq!(remaining, 0);
 
         cleanup_artist(artist_id).await;
@@ -908,12 +868,7 @@ mod tests {
 
         let state = web::Data::new(get_state().await);
 
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::post()
             .uri("/v1/artist/delete_artist_links")
@@ -928,16 +883,15 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn available_link_types_public() {
-        unsafe { std::env::set_var("DATABASE_URL", TEST_DB_URL); }
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+        }
         let state = web::Data::new(get_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
-        let req = test::TestRequest::get().uri("/v1/available_link_types").to_request();
+        let req = test::TestRequest::get()
+            .uri("/v1/available_link_types")
+            .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
 
@@ -959,7 +913,7 @@ mod tests {
         let now = chrono::Utc::now().naive_utc();
         let _trigger_id: i64 = sqlx::query_scalar(
             r"INSERT INTO sign_up_triggers (email, token, expires_at, role, created_at, updated_at)
-               VALUES ($1, $2, $3, 'artist', $4, $4) RETURNING id"
+               VALUES ($1, $2, $3, 'artist', $4, $4) RETURNING id",
         )
         .bind(&email)
         .bind(&token)
@@ -969,12 +923,8 @@ mod tests {
         .await
         .expect("Failed to seed trigger");
 
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
+        let app =
+            test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
 
         let req = test::TestRequest::post()
             .uri("/v1/artist/sign_up")
@@ -992,28 +942,28 @@ mod tests {
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert_eq!(body["name"], "New Artist Band");
 
-        let user_role: Option<String> = sqlx::query_scalar(
-            r"SELECT role FROM users WHERE email = $1"
-        )
-        .bind(&email)
-        .fetch_one(&state.db)
-        .await
-        .expect("Failed to check user role");
+        let user_role: Option<String> =
+            sqlx::query_scalar(r"SELECT role FROM users WHERE email = $1")
+                .bind(&email)
+                .fetch_one(&state.db)
+                .await
+                .expect("Failed to check user role");
         assert_eq!(user_role, Some("artist".to_string()));
 
-        let user_username: Option<String> = sqlx::query_scalar(
-            r"SELECT username FROM users WHERE email = $1"
-        )
-        .bind(&email)
-        .fetch_one(&state.db)
-        .await
-        .expect("Failed to check username");
+        let user_username: Option<String> =
+            sqlx::query_scalar(r"SELECT username FROM users WHERE email = $1")
+                .bind(&email)
+                .fetch_one(&state.db)
+                .await
+                .expect("Failed to check username");
         assert_eq!(user_username, Some("newartist".to_string()));
 
-        let _ = sqlx::query(r"DELETE FROM artists WHERE user_id IN (SELECT id FROM users WHERE email = $1)")
-            .bind(&email)
-            .execute(&state.db)
-            .await;
+        let _ = sqlx::query(
+            r"DELETE FROM artists WHERE user_id IN (SELECT id FROM users WHERE email = $1)",
+        )
+        .bind(&email)
+        .execute(&state.db)
+        .await;
         let _ = sqlx::query(r"DELETE FROM users WHERE email = $1")
             .bind(&email)
             .execute(&state.db)
@@ -1031,12 +981,7 @@ mod tests {
         }
         let state = web::Data::new(get_state().await);
 
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::post()
             .uri("/v1/artist/sign_up")
@@ -1064,7 +1009,7 @@ mod tests {
         let now = chrono::Utc::now().naive_utc();
         let existing_user_id: i64 = sqlx::query_scalar(
             r"INSERT INTO users (email, password_digest, role, created_at, updated_at)
-               VALUES ($1, $2, 'artist', $3, $3) RETURNING id"
+               VALUES ($1, $2, 'artist', $3, $3) RETURNING id",
         )
         .bind(&email)
         .bind("hashed_password_test")
@@ -1077,7 +1022,7 @@ mod tests {
         let future = (chrono::Utc::now() + chrono::Duration::days(1)).to_rfc3339();
         let _trigger_id: i64 = sqlx::query_scalar(
             r"INSERT INTO sign_up_triggers (email, token, expires_at, role, created_at, updated_at)
-               VALUES ($1, $2, $3, 'artist', $4, $4) RETURNING id"
+               VALUES ($1, $2, $3, 'artist', $4, $4) RETURNING id",
         )
         .bind(&email)
         .bind(&token)
@@ -1087,12 +1032,8 @@ mod tests {
         .await
         .expect("Failed to seed trigger");
 
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
+        let app =
+            test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
 
         let req = test::TestRequest::post()
             .uri("/v1/artist/sign_up")
@@ -1130,7 +1071,7 @@ mod tests {
         let now = chrono::Utc::now().naive_utc();
         let _trigger_id: i64 = sqlx::query_scalar(
             r"INSERT INTO sign_up_triggers (email, token, expires_at, role, created_at, updated_at)
-               VALUES ($1, $2, $3, 'artist', $4, $4) RETURNING id"
+               VALUES ($1, $2, $3, 'artist', $4, $4) RETURNING id",
         )
         .bind(&email)
         .bind(&token)
@@ -1140,12 +1081,8 @@ mod tests {
         .await
         .expect("Failed to seed trigger");
 
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
+        let app =
+            test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
 
         let req = test::TestRequest::post()
             .uri("/v1/artist/sign_up")
@@ -1168,10 +1105,12 @@ mod tests {
         .expect("Failed to check prospect flag");
         assert!(prospect, "Artist should have prospect = true");
 
-        let _ = sqlx::query(r"DELETE FROM artists WHERE user_id IN (SELECT id FROM users WHERE email = $1)")
-            .bind(&email)
-            .execute(&state.db)
-            .await;
+        let _ = sqlx::query(
+            r"DELETE FROM artists WHERE user_id IN (SELECT id FROM users WHERE email = $1)",
+        )
+        .bind(&email)
+        .execute(&state.db)
+        .await;
         let _ = sqlx::query(r"DELETE FROM users WHERE email = $1")
             .bind(&email)
             .execute(&state.db)
@@ -1196,7 +1135,7 @@ mod tests {
         let now = chrono::Utc::now().naive_utc();
         let _trigger_id: i64 = sqlx::query_scalar(
             r"INSERT INTO sign_up_triggers (email, token, expires_at, role, created_at, updated_at)
-               VALUES ($1, $2, $3, 'artist', $4, $4) RETURNING id"
+               VALUES ($1, $2, $3, 'artist', $4, $4) RETURNING id",
         )
         .bind(&email)
         .bind(&token)
@@ -1206,12 +1145,8 @@ mod tests {
         .await
         .expect("Failed to seed trigger");
 
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
+        let app =
+            test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
 
         let req = test::TestRequest::post()
             .uri("/v1/artist/sign_up")
@@ -1238,12 +1173,7 @@ mod tests {
         }
         let state = web::Data::new(get_state().await);
 
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::post()
             .uri("/v1/artist/sign_up")
@@ -1272,7 +1202,7 @@ mod tests {
         let now = chrono::Utc::now().naive_utc();
         let _trigger_id: i64 = sqlx::query_scalar(
             r"INSERT INTO sign_up_triggers (email, token, expires_at, role, created_at, updated_at)
-               VALUES ($1, $2, $3, 'artist', $4, $4) RETURNING id"
+               VALUES ($1, $2, $3, 'artist', $4, $4) RETURNING id",
         )
         .bind(&email)
         .bind(&token)
@@ -1282,12 +1212,8 @@ mod tests {
         .await
         .expect("Failed to seed trigger");
 
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
+        let app =
+            test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
 
         let req = test::TestRequest::post()
             .uri("/v1/artist/sign_up")
