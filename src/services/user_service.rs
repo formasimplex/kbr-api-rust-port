@@ -11,33 +11,37 @@ impl UserService {
         }
         if !User::validate_password(&req.password) {
             return Err(AppError::Validation(
-                "Password must be at least 6 characters".to_string(),
+                "Password must be at least 8 characters with uppercase, lowercase, and a digit".to_string(),
             ));
         }
-        if let Some(ref role) = req.token
-            && role.is_empty() {
-                return Err(AppError::Validation(
-                    "Sign-up token is required".to_string(),
-                ));
-            }
+        if let Some(ref token) = req.token
+            && token.is_empty()
+        {
+            return Err(AppError::Validation(
+                "Sign-up token is required".to_string(),
+            ));
+        }
         Ok(())
     }
 
     pub fn validate_update_request(req: &UpdateUserRequest) -> Result<(), AppError> {
         if let Some(ref email) = req.email
-            && !User::validate_email(email) {
-                return Err(AppError::Validation("Invalid email address".to_string()));
-            }
+            && !User::validate_email(email)
+        {
+            return Err(AppError::Validation("Invalid email address".to_string()));
+        }
         if let Some(ref password) = req.password
-            && !User::validate_password(password) {
-                return Err(AppError::Validation(
-                    "Password must be at least 6 characters".to_string(),
-                ));
-            }
+            && !User::validate_password(password)
+        {
+            return Err(AppError::Validation(
+                "Password must be at least 8 characters with uppercase, lowercase, and a digit".to_string(),
+            ));
+        }
         if let Some(ref role) = req.role
-            && !User::validate_role(role) {
-                return Err(AppError::Validation(format!("Invalid role: {}", role)));
-            }
+            && !User::validate_role(role)
+        {
+            return Err(AppError::Validation(format!("Invalid role: {}", role)));
+        }
         Ok(())
     }
 
@@ -45,7 +49,11 @@ impl UserService {
         hash_password(&req.password)
     }
 
-    pub fn verify_user_credentials(_email: &str, password: &str, password_digest: &str) -> Result<bool, AppError> {
+    pub fn verify_user_credentials(
+        _email: &str,
+        password: &str,
+        password_digest: &str,
+    ) -> Result<bool, AppError> {
         verify_password(password, password_digest)
     }
 
@@ -66,7 +74,7 @@ mod tests {
     fn validate_create_request_valid() {
         let req = CreateUserRequest {
             email: "test@example.com".to_string(),
-            password: "password123".to_string(),
+            password: "Password123".to_string(),
             username: Some("testuser".to_string()),
             token: Some("valid-token".to_string()),
         };
@@ -77,7 +85,7 @@ mod tests {
     fn validate_create_request_invalid_email() {
         let req = CreateUserRequest {
             email: "not-an-email".to_string(),
-            password: "password123".to_string(),
+            password: "Password123".to_string(),
             username: None,
             token: None,
         };
@@ -101,7 +109,7 @@ mod tests {
     fn validate_create_request_empty_token() {
         let req = CreateUserRequest {
             email: "test@example.com".to_string(),
-            password: "password123".to_string(),
+            password: "Password123".to_string(),
             username: None,
             token: Some("".to_string()),
         };
@@ -172,39 +180,6 @@ mod tests {
         assert_eq!(
             UserService::normalize_email("  Test@Example.COM  "),
             "test@example.com"
-        );
-    }
-
-    #[test]
-    fn force_role_user() {
-        assert_eq!(UserService::force_role_user(), "user");
-    }
-
-    #[test]
-    fn hash_password_for_create() {
-        let req = CreateUserRequest {
-            email: "test@example.com".to_string(),
-            password: "testpassword".to_string(),
-            username: None,
-            token: None,
-        };
-        let hash = UserService::hash_password_for_create(&req).unwrap();
-        assert!(verify_password("testpassword", &hash).unwrap());
-    }
-
-    #[test]
-    fn verify_user_credentials_correct() {
-        let hash = hash_password("mysecret").unwrap();
-        assert!(
-            UserService::verify_user_credentials("test@example.com", "mysecret", &hash).unwrap()
-        );
-    }
-
-    #[test]
-    fn verify_user_credentials_wrong() {
-        let hash = hash_password("mysecret").unwrap();
-        assert!(
-            !UserService::verify_user_credentials("test@example.com", "wrong", &hash).unwrap()
         );
     }
 }

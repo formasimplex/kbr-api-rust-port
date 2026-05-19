@@ -1,3 +1,16 @@
+//! Data API handlers
+//!
+//! Provides internal data-access endpoints for analytics and GDPR
+//! compliance. All endpoints require authentication.
+//!
+//! # Endpoints
+//!
+//! | Function | Method | Route | Auth | Description |
+//! |----------|--------|-------|------|-------------|
+//! | `last_logins` | GET | `/v1/data/last_logins` | auth | Get last login info for all users |
+//! | `last_login_by_id` | GET | `/v1/data/last_logins/{user_id}` | auth | Get last login info for a specific user |
+//! | `event_attendees_present` | POST | `/v1/data/event_attendees_present` | auth | Build a set of present attendees for a date range |
+
 use actix_web::{web, HttpResponse};
 use serde::Serialize;
 use sqlx::FromRow;
@@ -25,18 +38,28 @@ struct EventAttendeePresentRow {
     full_name: String,
 }
 
+/// Response for a user's last login information.
 #[derive(Debug, Serialize)]
 struct LastLoginResponse {
     username: Option<String>,
     last_login: String,
 }
 
+/// Response for a specific user's last login information.
 #[derive(Debug, Serialize)]
 struct LastLoginByIdResponse {
     email: String,
     last_login: String,
 }
 
+/// Get last login information for the 10 most recently updated users.
+///
+/// Returns username and last login timestamp in RFC3339 format.
+/// Requires authentication.
+///
+/// # Response
+///
+/// `200 OK` — JSON array of `LastLoginResponse`
 pub async fn last_logins(state: web::Data<AppState>) -> Result<HttpResponse, AppError> {
     let rows = sqlx::query_as::<_, LastLoginRow>(
         r#"SELECT username, updated_at FROM users ORDER BY updated_at DESC LIMIT 10"#
@@ -55,6 +78,15 @@ pub async fn last_logins(state: web::Data<AppState>) -> Result<HttpResponse, App
     Ok(HttpResponse::Ok().json(responses))
 }
 
+/// Get last login information for a specific user by ID.
+///
+/// Returns email and last login timestamp in RFC3339 format.
+/// Requires authentication.
+///
+/// # Response
+///
+/// `200 OK` — `LastLoginByIdResponse`
+/// `404 Not Found` — user does not exist
 pub async fn last_login_by_id(
     state: web::Data<AppState>,
     path: web::Path<i64>,
@@ -76,6 +108,15 @@ pub async fn last_login_by_id(
     }
 }
 
+/// Build a set of present attendees for an event.
+///
+/// Returns distinct mail subscribers who have a positive scan count
+/// for the given event. Requires authentication.
+///
+/// # Response
+///
+/// `200 OK` — JSON array of `EventAttendeePresentResponse`
+/// `404 Not Found` — event does not exist
 pub async fn event_attendees_present(
     state: web::Data<AppState>,
     path: web::Path<i64>,
@@ -138,27 +179,11 @@ mod tests {
         format!("{}_{}", ts, count)
     }
 
-    async fn get_state() -> AppState {
+async fn get_state() -> AppState {
         let pool = sqlx::PgPool::connect(TEST_DB_URL)
             .await
             .expect("Failed to connect to test database");
-
-        let config = crate::services::storage_service::S3Config::from_env()
-            .unwrap_or_else(|_| crate::services::storage_service::S3Config {
-                access_key: "test".to_string(),
-                secret_key: "test".to_string(),
-                endpoint: "https://test.test".to_string(),
-                bucket_name: "test".to_string(),
-                region: "us-east-1".to_string(),
-            });
-        let s3 = crate::services::storage_service::create_s3_bucket(&config).unwrap_or_else(|_| {
-            let creds = s3::creds::Credentials::new(Some("test"), Some("test"), None, None, None).unwrap();
-            s3::bucket::Bucket::new("test", s3::region::Region::Custom { region: "us-east-1".to_string(), endpoint: "https://test.test".to_string() }, creds)
-                .unwrap()
-                .with_path_style()
-        });
-
-        AppState { db: pool, s3 }
+        crate::test_utils::build_test_state(pool).await
     }
 
     async fn seed_user() -> (i64, String) {

@@ -10,6 +10,9 @@ pub struct User {
     pub role: Option<String>,
     pub session_token: Option<String>,
     pub username: Option<String>,
+    pub first_name: Option<String>,
+    pub last_name: Option<String>,
+    pub token_version: i64,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -64,11 +67,28 @@ impl User {
     }
 
     pub fn validate_password(password: &str) -> bool {
-        password.len() >= 6
+        if password.len() < 8 || password.len() > 128 {
+            return false;
+        }
+        let has_upper = password.chars().any(|c| c.is_uppercase());
+        let has_lower = password.chars().any(|c| c.is_lowercase());
+        let has_digit = password.chars().any(|c| c.is_ascii_digit());
+        has_upper && has_lower && has_digit
     }
 
     pub fn validate_role(role: &str) -> bool {
-        matches!(role, "admin" | "user" | "customer" | "artist" | "staff")
+        matches!(role, "admin" | "super_admin" | "user" | "customer" | "artist" | "staff")
+    }
+
+    pub async fn find_by_id(pool: &sqlx::PgPool, id: i64) -> sqlx::Result<Option<Self>> {
+        sqlx::query_as::<_, Self>(
+            "SELECT id, email, password_digest, role, session_token, username,
+                    first_name, last_name, token_version, created_at, updated_at
+             FROM users WHERE id = $1",
+        )
+        .bind(id)
+        .fetch_optional(pool)
+        .await
     }
 }
 
@@ -85,6 +105,9 @@ mod tests {
             role: Some("admin".to_string()),
             session_token: None,
             username: Some("admin".to_string()),
+            first_name: None,
+            last_name: None,
+            token_version: 1,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };
@@ -104,6 +127,9 @@ mod tests {
             role: None,
             session_token: None,
             username: None,
+            first_name: None,
+            last_name: None,
+            token_version: 1,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };
@@ -127,20 +153,24 @@ mod tests {
 
     #[test]
     fn validate_password_valid() {
-        assert!(User::validate_password("password"));
-        assert!(User::validate_password("123456"));
-        assert!(User::validate_password("very-long-password"));
+        assert!(User::validate_password("Password1"));
+        assert!(User::validate_password("Abcdefg1"));
+        assert!(User::validate_password("VeryLongPassword123"));
     }
 
     #[test]
     fn validate_password_invalid() {
         assert!(!User::validate_password("12345"));
         assert!(!User::validate_password(""));
+        assert!(!User::validate_password("password"));
+        assert!(!User::validate_password("12345678"));
+        assert!(!User::validate_password("PASSWORD1"));
     }
 
     #[test]
     fn validate_role_valid() {
         assert!(User::validate_role("admin"));
+        assert!(User::validate_role("super_admin"));
         assert!(User::validate_role("user"));
         assert!(User::validate_role("customer"));
         assert!(User::validate_role("artist"));

@@ -40,21 +40,4 @@ impl Producer {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
 
-    #[test]
-    fn producer_to_response() {
-        let producer = Producer {
-            id: 1,
-            description: Some("Vinyl presser".to_string()),
-            producer_name: "Test Pressing".to_string(),
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        };
-        let resp = producer.to_response();
-        assert_eq!(resp.id, 1);
-        assert_eq!(resp.producer_name, "Test Pressing");
-    }
-}

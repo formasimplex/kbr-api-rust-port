@@ -1,3 +1,16 @@
+//! Song handlers
+//!
+//! Provides CRUD endpoints for song/track management. Songs are public to read;
+//! creation requires admin role.
+//!
+//! # Endpoints
+//!
+//! | Function | Method | Route | Auth | Description |
+//! |----------|--------|-------|------|-------------|
+//! | `index` | GET | `/v1/songs` | public | List all songs |
+//! | `show` | GET | `/v1/song/{id}` | public | Retrieve a single song by ID |
+//! | `create` | POST | `/v1/songs` | admin | Create a new song |
+
 use actix_web::{web, HttpResponse};
 use sqlx::FromRow;
 
@@ -31,6 +44,13 @@ impl From<SongRow> for Song {
     }
 }
 
+/// List all songs.
+///
+/// Returns all songs ordered by ID. No authentication required.
+///
+/// # Response
+///
+/// `200 OK` — JSON array of `SongResponse`
 pub async fn index(state: web::Data<AppState>) -> Result<HttpResponse, AppError> {
     let rows = sqlx::query_as::<_, SongRow>(
         r"SELECT id, name, duration, album_id, artist_id, created_at, updated_at FROM songs ORDER BY id"
@@ -43,6 +63,14 @@ pub async fn index(state: web::Data<AppState>) -> Result<HttpResponse, AppError>
     Ok(HttpResponse::Ok().json(responses))
 }
 
+/// Retrieve a single song by ID.
+///
+/// No authentication required.
+///
+/// # Response
+///
+/// `200 OK` — `SongResponse`
+/// `404 Not Found` — song does not exist
 pub async fn show(
     state: web::Data<AppState>,
     path: web::Path<i64>,
@@ -64,6 +92,14 @@ pub async fn show(
     }
 }
 
+/// Create a new song.
+///
+/// Requires admin role. Associates the song with an album and artist via IDs.
+///
+/// # Response
+///
+/// `201 Created` — `SongResponse` for the new song
+/// `403 Forbidden` — non-admin user
 pub async fn create(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -115,23 +151,7 @@ mod tests {
         let pool = sqlx::PgPool::connect(TEST_DB_URL)
             .await
             .expect("Failed to connect to test database");
-
-        let config = crate::services::storage_service::S3Config::from_env()
-            .unwrap_or_else(|_| crate::services::storage_service::S3Config {
-                access_key: "test".to_string(),
-                secret_key: "test".to_string(),
-                endpoint: "https://test.test".to_string(),
-                bucket_name: "test".to_string(),
-                region: "us-east-1".to_string(),
-            });
-        let s3 = crate::services::storage_service::create_s3_bucket(&config).unwrap_or_else(|_| {
-            let creds = s3::creds::Credentials::new(Some("test"), Some("test"), None, None, None).unwrap();
-            s3::bucket::Bucket::new("test", s3::region::Region::Custom { region: "us-east-1".to_string(), endpoint: "https://test.test".to_string() }, creds)
-                .unwrap()
-                .with_path_style()
-        });
-
-        AppState { db: pool, s3 }
+        crate::test_utils::build_test_state(pool).await
     }
 
     async fn seed_album_and_artist(pool: &sqlx::PgPool) -> (i64, i64) {
@@ -253,7 +273,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let token = encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string())).unwrap();
+        let token = encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap();
         let state = web::Data::new(get_state().await);
         let (album_id, artist_id) = seed_album_and_artist(&state.db).await;
 
@@ -295,7 +315,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let token = encode_token_with_role(2, TEST_SECRET, 3, Some("user".to_string())).unwrap();
+        let token = encode_token_with_role(2, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
         let state = web::Data::new(get_state().await);
 
         let app = test::init_service(

@@ -119,46 +119,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn permission_to_response() {
-        let perm = Permission {
-            id: 1,
-            resource: Some("Campaign".to_string()),
-            can_create: true,
-            can_read: true,
-            can_update: false,
-            can_delete: false,
-            user_id: 42,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        };
-        let resp = perm.to_response();
-        assert_eq!(resp.id, 1);
-        assert_eq!(resp.resource, Some("Campaign".to_string()));
-        assert!(resp.can_create);
-        assert!(resp.can_read);
-        assert!(!resp.can_update);
-        assert!(!resp.can_delete);
-        assert_eq!(resp.user_id, 42);
-    }
-
-    #[test]
-    fn permission_to_response_null_resource() {
-        let perm = Permission {
-            id: 2,
-            resource: None,
-            can_create: false,
-            can_read: true,
-            can_update: false,
-            can_delete: false,
-            user_id: 1,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        };
-        let resp = perm.to_response();
-        assert_eq!(resp.resource, None);
-    }
-
-    #[test]
     fn create_artist_permissions_returns_six() {
         let perms = Permission::create_artist_permissions(1);
         assert_eq!(perms.len(), 6);

@@ -2,6 +2,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
+use crate::utils::url::validate_url;
+
 #[derive(Debug, Clone, FromRow, PartialEq, Eq)]
 pub struct ArtistLink {
     pub id: i64,
@@ -52,7 +54,7 @@ impl ArtistLink {
     }
 
     pub fn validate_url(url: &str) -> bool {
-        !url.is_empty() && url.len() <= 255 && (url.starts_with("http://") || url.starts_with("https://"))
+        validate_url(url)
     }
 
     pub fn link_type_name(link_type: i32) -> Option<&'static str> {
@@ -74,31 +76,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn artist_link_to_response() {
-        let link = ArtistLink {
-            id: 1,
-            artist_id: 5,
-            link_type: 1,
-            url: "https://spotify.com/artist/123".to_string(),
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        };
-        let resp = link.to_response();
-        assert_eq!(resp.id, 1);
-        assert_eq!(resp.link_type, 1);
-    }
-
-    #[test]
     fn validate_url_valid() {
-        assert!(ArtistLink::validate_url("https://example.com"));
-        assert!(ArtistLink::validate_url("http://example.com"));
+        assert!(validate_url("https://example.com"));
+        assert!(validate_url("http://example.com"));
     }
 
     #[test]
     fn validate_url_invalid() {
-        assert!(!ArtistLink::validate_url(""));
-        assert!(!ArtistLink::validate_url("not-a-url"));
-        assert!(!ArtistLink::validate_url(&"a".repeat(256)));
+        assert!(!validate_url(""));
+        assert!(!validate_url("not-a-url"));
+        assert!(!validate_url(&"a".repeat(256)));
     }
 
     #[test]

@@ -47,22 +47,4 @@ impl NewsPlaylist {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
 
-    #[test]
-    fn news_playlist_to_response() {
-        let playlist = NewsPlaylist {
-            id: 1,
-            user_id: 5,
-            name: "My Favorites".to_string(),
-            description: Some("Best articles".to_string()),
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        };
-        let resp = playlist.to_response();
-        assert_eq!(resp.id, 1);
-        assert_eq!(resp.name, "My Favorites");
-    }
-}

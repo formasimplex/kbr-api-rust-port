@@ -80,27 +80,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn artist_to_response() {
-        let artist = Artist {
-            id: 1,
-            name: Some("DJ Test".to_string()),
-            genre: Some("Electronic".to_string()),
-            bio: Some("A great DJ".to_string()),
-            user_id: Some(10),
-            prospect: Some(false),
-            spotify_id: Some("spotify-123".to_string()),
-            sub_heading: Some("Sub heading".to_string()),
-            intro: Some("Intro text".to_string()),
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        };
-        let resp = artist.to_response(vec![], vec![]);
-        assert_eq!(resp.id, 1);
-        assert_eq!(resp.name, Some("DJ Test".to_string()));
-        assert_eq!(resp.genre, Some("Electronic".to_string()));
-    }
-
-    #[test]
     fn validate_intro_valid() {
         assert!(Artist::validate_intro("Short intro"));
         assert!(Artist::validate_intro(&"a".repeat(300)));

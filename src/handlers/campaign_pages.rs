@@ -1,3 +1,15 @@
+//! Campaign pages handlers
+//!
+//! Provides read-only endpoints for campaign page management. Index requires
+//! admin role; show requires any authenticated user.
+//!
+//! # Endpoints
+//!
+//! | Function | Method | Route | Auth | Description |
+//! |----------|--------|-------|------|-------------|
+//! | `index` | GET | `/v1/campaign_pages` | admin | List all campaign pages |
+//! | `show` | GET | `/v1/campaign_pages/{id}` | auth | Retrieve a single campaign page by ID |
+
 use actix_web::{web, HttpResponse};
 use sqlx::FromRow;
 
@@ -39,6 +51,14 @@ const CAMPAIGN_PAGE_SELECT: &str =
     r#"SELECT id, campaign_id, title, description, page_type,
        inventory_item_id, inventory_url, created_at, updated_at FROM campaign_pages"#;
 
+/// List all campaign pages.
+///
+/// Returns all campaign pages ordered by ID. Requires admin role.
+///
+/// # Response
+///
+/// `200 OK` — JSON array of `CampaignPageResponse`
+/// `403 Forbidden` — user is not an admin
 pub async fn index(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -57,6 +77,14 @@ pub async fn index(
     Ok(HttpResponse::Ok().json(responses))
 }
 
+/// Retrieve a single campaign page by ID.
+///
+/// Requires authenticated user.
+///
+/// # Response
+///
+/// `200 OK` — `CampaignPageResponse`
+/// `404 Not Found` — campaign page does not exist
 pub async fn show(
     state: web::Data<AppState>,
     _user: CurrentUser,
@@ -99,31 +127,15 @@ mod tests {
         let pool = sqlx::PgPool::connect(TEST_DB_URL)
             .await
             .expect("Failed to connect to test database");
-
-        let config = crate::services::storage_service::S3Config::from_env()
-            .unwrap_or_else(|_| crate::services::storage_service::S3Config {
-                access_key: "test".to_string(),
-                secret_key: "test".to_string(),
-                endpoint: "https://test.test".to_string(),
-                bucket_name: "test".to_string(),
-                region: "us-east-1".to_string(),
-            });
-        let s3 = crate::services::storage_service::create_s3_bucket(&config).unwrap_or_else(|_| {
-            let creds = s3::creds::Credentials::new(Some("test"), Some("test"), None, None, None).unwrap();
-            s3::bucket::Bucket::new("test", s3::region::Region::Custom { region: "us-east-1".to_string(), endpoint: "https://test.test".to_string() }, creds)
-                .unwrap()
-                .with_path_style()
-        });
-
-        AppState { db: pool, s3 }
+        crate::test_utils::build_test_state(pool).await
     }
 
     fn admin_token() -> String {
-        encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string())).unwrap()
+        encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap()
     }
 
     fn user_token() -> String {
-        encode_token_with_role(99, TEST_SECRET, 3, Some("user".to_string())).unwrap()
+        encode_token_with_role(99, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap()
     }
 
     async fn seed_user() -> i64 {

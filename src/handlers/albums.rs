@@ -1,3 +1,16 @@
+//! Album handlers
+//!
+//! Provides CRUD endpoints for album management. Albums are public to read;
+//! creation requires admin role.
+//!
+//! # Endpoints
+//!
+//! | Function | Method | Route | Auth | Description |
+//! |----------|--------|-------|------|-------------|
+//! | `index` | GET | `/v1/albums` | public | List all albums |
+//! | `show` | GET | `/v1/album/{id}` | public | Retrieve a single album by ID |
+//! | `create` | POST | `/v1/albums` | admin | Create a new album |
+
 use actix_web::{web, HttpResponse};
 use chrono::NaiveDate;
 use sqlx::FromRow;
@@ -28,6 +41,13 @@ impl From<AlbumRow> for Album {
     }
 }
 
+/// List all albums.
+///
+/// Returns all albums ordered by ID. No authentication required.
+///
+/// # Response
+///
+/// `200 OK` — JSON array of `AlbumResponse`
 pub async fn index(state: web::Data<AppState>) -> Result<HttpResponse, AppError> {
     let rows = sqlx::query_as::<_, AlbumRow>(
         r"SELECT id, name, release_date, created_at, updated_at FROM albums ORDER BY id"
@@ -40,6 +60,14 @@ pub async fn index(state: web::Data<AppState>) -> Result<HttpResponse, AppError>
     Ok(HttpResponse::Ok().json(responses))
 }
 
+/// Retrieve a single album by ID.
+///
+/// No authentication required.
+///
+/// # Response
+///
+/// `200 OK` — `AlbumResponse`
+/// `404 Not Found` — album does not exist
 pub async fn show(
     state: web::Data<AppState>,
     path: web::Path<i64>,
@@ -61,6 +89,15 @@ pub async fn show(
     }
 }
 
+/// Create a new album.
+///
+/// Validates release_date format (YYYY-MM-DD). Requires admin role.
+///
+/// # Response
+///
+/// `201 Created` — `AlbumResponse` for the new album
+/// `400 Bad Request` — invalid release_date format
+/// `403 Forbidden` — non-admin user
 pub async fn create(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -116,23 +153,7 @@ async fn get_state() -> AppState {
         let pool = sqlx::PgPool::connect(TEST_DB_URL)
             .await
             .expect("Failed to connect to test database");
-
-        let config = crate::services::storage_service::S3Config::from_env()
-            .unwrap_or_else(|_| crate::services::storage_service::S3Config {
-                access_key: "test".to_string(),
-                secret_key: "test".to_string(),
-                endpoint: "https://test.test".to_string(),
-                bucket_name: "test".to_string(),
-                region: "us-east-1".to_string(),
-            });
-        let s3 = crate::services::storage_service::create_s3_bucket(&config).unwrap_or_else(|_| {
-            let creds = s3::creds::Credentials::new(Some("test"), Some("test"), None, None, None).unwrap();
-            s3::bucket::Bucket::new("test", s3::region::Region::Custom { region: "us-east-1".to_string(), endpoint: "https://test.test".to_string() }, creds)
-                .unwrap()
-                .with_path_style()
-        });
-
-        AppState { db: pool, s3 }
+        crate::test_utils::build_test_state(pool).await
     }
 
     async fn connect_with_url(url: &str) -> sqlx::PgPool {
@@ -224,7 +245,7 @@ async fn get_state() -> AppState {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let token = encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string())).unwrap();
+        let token = encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap();
         let state = web::Data::new(get_state().await);
 
         let app = test::init_service(
@@ -263,7 +284,7 @@ async fn get_state() -> AppState {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let token = encode_token_with_role(2, TEST_SECRET, 3, Some("user".to_string())).unwrap();
+        let token = encode_token_with_role(2, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
         let state = web::Data::new(get_state().await);
 
         let app = test::init_service(

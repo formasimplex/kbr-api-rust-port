@@ -1,10 +1,28 @@
+//! Event attendee handlers
+//!
+//! Provides endpoints for managing event attendees, including QR code
+//! scanning, listing attendees, and creating/updating attendee records.
+//! All endpoints require artist role or above.
+//!
+//! # Endpoints
+//!
+//! | Function | Method | Route | Auth | Description |
+//! |----------|--------|-------|------|-------------|
+//! | `qr_scan` | GET | `/v1/qr_scan/{id}` | public | Scan a QR code to increment attendee scan count |
+//! | `attendees_for_event` | GET | `/v1/kbr_event_attendees` | artist+ | List all attendees for a specific event by kbr_event_id query param |
+//! | `create` | POST | `/v1/kbr_event_attendees` | artist+ | Create new event attendee records from mail subscriber IDs |
+//! | `update` | POST | `/v1/kbr_event_update_txt` | artist+ | Return attendees for an event (used for text copy updates) |
+
 use actix_web::{web, HttpResponse};
+use std::time::Duration;
 use sqlx::FromRow;
+use uuid::Uuid;
 
 use crate::app::AppState;
 use crate::auth::middleware::CurrentUser;
 use crate::auth::roles::is_artist_or_above;
 use crate::error::AppError;
+use crate::jobs::Job;
 use crate::models::kbr_event_attendee::{
     CreateEventAttendeeRequest, KbrEventAttendee, KbrEventAttendeeResponse,
     UpdateEventAttendeeRequest,
@@ -35,6 +53,15 @@ impl From<EventAttendeeRow> for KbrEventAttendee {
     }
 }
 
+/// Scan a QR code to increment attendee scan count.
+///
+/// Increments the scan_count by 1 for the given attendee ID.
+/// No authentication required.
+///
+/// # Response
+///
+/// `200 OK` — `KbrEventAttendeeResponse` with updated scan count
+/// `404 Not Found` — attendee does not exist
 pub async fn qr_scan(
     path: web::Path<i64>,
     state: web::Data<AppState>,
@@ -60,6 +87,16 @@ pub async fn qr_scan(
     }
 }
 
+/// List all attendees for a specific event.
+///
+/// Requires artist role or above. The kbr_event_id is passed as a
+/// query parameter.
+///
+/// # Response
+///
+/// `200 OK` — JSON array of `KbrEventAttendeeResponse`
+/// `403 Forbidden` — insufficient role
+/// `400 Bad Request` — missing or invalid kbr_event_id
 pub async fn attendees_for_event(
     user: CurrentUser,
     query: web::Query<serde_json::Value>,
@@ -92,6 +129,16 @@ pub async fn attendees_for_event(
     Ok(HttpResponse::Ok().json(responses))
 }
 
+/// Create new event attendee records from mail subscriber IDs.
+///
+/// Requires artist role or above. Creates one attendee record per
+/// mail_subscriber_id in a transaction.
+///
+/// # Response
+///
+/// `201 Created` — JSON array of `KbrEventAttendeeResponse`
+/// `403 Forbidden` — insufficient role
+/// `422 Unprocessable` — empty mail_subscriber_ids
 pub async fn create(
     user: CurrentUser,
     body: web::Json<CreateEventAttendeeRequest>,
@@ -127,11 +174,47 @@ pub async fn create(
 
     tx.commit().await?;
 
+    // Enqueue QR code email for each attendee (batched to avoid channel saturation)
+    const JOB_BATCH_SIZE: usize = 250;
+    for chunk in attendees.chunks(JOB_BATCH_SIZE) {
+        for attendee in chunk {
+            let job_id = Uuid::new_v4();
+            if let Err(e) = state
+                .job_handle
+                .send(Job::SendEventAttendeeEmail {
+                    job_id,
+                    attendee_id: attendee.id,
+                    event_id: attendee.kbr_event_id.map(|id| id as i64).unwrap_or(0),
+                })
+                .await
+            {
+                tracing::warn!(
+                    job_id = %job_id,
+                    attendee_id = attendee.id,
+                    error = %e,
+                    "Failed to enqueue event attendee email job"
+                );
+            }
+        }
+        if chunk.len() == JOB_BATCH_SIZE {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
+
     let responses: Vec<KbrEventAttendeeResponse> =
         attendees.iter().map(|a| a.to_response()).collect();
     Ok(HttpResponse::Created().json(responses))
 }
 
+/// Return attendees for an event.
+///
+/// Requires artist role or above. Used for text copy updates —
+/// returns all attendees matching the given kbr_event_id.
+///
+/// # Response
+///
+/// `200 OK` — JSON array of `KbrEventAttendeeResponse`
+/// `403 Forbidden` — insufficient role
 pub async fn update(
     user: CurrentUser,
     body: web::Json<UpdateEventAttendeeRequest>,
@@ -150,6 +233,34 @@ pub async fn update(
     .await?;
 
     let attendees: Vec<KbrEventAttendee> = rows.into_iter().map(|r| r.into()).collect();
+
+    // Enqueue text update email for each attendee (batched to avoid channel saturation)
+    const JOB_BATCH_SIZE: usize = 250;
+    for chunk in attendees.chunks(JOB_BATCH_SIZE) {
+        for attendee in chunk {
+            let job_id = Uuid::new_v4();
+            if let Err(e) = state
+                .job_handle
+                .send(Job::SendEventUpdateEmail {
+                    job_id,
+                    attendee_id: attendee.id,
+                    text_copy: body.text_copy.clone(),
+                })
+                .await
+            {
+                tracing::warn!(
+                    job_id = %job_id,
+                    attendee_id = attendee.id,
+                    error = %e,
+                    "Failed to enqueue event update email job"
+                );
+            }
+        }
+        if chunk.len() == JOB_BATCH_SIZE {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
+
     let responses: Vec<KbrEventAttendeeResponse> =
         attendees.iter().map(|a| a.to_response()).collect();
     Ok(HttpResponse::Ok().json(responses))
@@ -174,31 +285,15 @@ mod tests {
     const TEST_SECRET: &str = "test-secret-key";
     const TEST_DB_URL: &str = "postgresql://ws@localhost:5432/kbr_test";
 
-    async fn get_state() -> AppState {
+async fn get_state() -> AppState {
         let pool = sqlx::PgPool::connect(TEST_DB_URL)
             .await
             .expect("Failed to connect to test database");
-
-        let config = crate::services::storage_service::S3Config::from_env()
-            .unwrap_or_else(|_| crate::services::storage_service::S3Config {
-                access_key: "test".to_string(),
-                secret_key: "test".to_string(),
-                endpoint: "https://test.test".to_string(),
-                bucket_name: "test".to_string(),
-                region: "us-east-1".to_string(),
-            });
-        let s3 = crate::services::storage_service::create_s3_bucket(&config).unwrap_or_else(|_| {
-            let creds = s3::creds::Credentials::new(Some("test"), Some("test"), None, None, None).unwrap();
-            s3::bucket::Bucket::new("test", s3::region::Region::Custom { region: "us-east-1".to_string(), endpoint: "https://test.test".to_string() }, creds)
-                .unwrap()
-                .with_path_style()
-        });
-
-        AppState { db: pool, s3 }
+        crate::test_utils::build_test_state(pool).await
     }
 
     fn admin_token() -> String {
-        encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string())).unwrap()
+        encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap()
     }
 
     fn suffix() -> u128 {

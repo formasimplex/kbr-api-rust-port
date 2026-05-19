@@ -1,10 +1,31 @@
+//! Mailing list handlers
+//!
+//! Provides endpoints for managing mail subscribers, including listing,
+//! subscribing, and unsubscribing. Most endpoints require authentication,
+//! but some are public for unsubscribe flows.
+//!
+//! # Endpoints
+//!
+//! | Function | Method | Route | Auth | Description |
+//! |----------|--------|-------|------|-------------|
+//! | `index` | GET | `/v1/mail_subscribers` | admin | List all mail subscribers |
+//! | `index_artist_subscribers` | GET | `/v1/artist_mailing_list` | admin | List subscribers for a specific artist by artist_id query param |
+//! | `artist_mail_subscriber` | POST | `/v1/artistmailsubscriber` | admin | Create a subscriber for an artist (with user_id from auth) |
+//! | `add_mail_subscriber_with_user` | POST | `/v1/addmailsubscriber_with_user` | admin | Subscribe an email to an artist's mailing list (with user_id from auth) |
+//! | `add_mail_subscriber` | POST | `/v1/addmailsubscriber` | public | Subscribe an email to a mailing list |
+//! | `unsubscribe` | POST | `/v1/mail_subscribers/unsubscribe` | auth | Unsubscribe the authenticated user from an artist's mailing list |
+//! | `request_unsubscribe` | POST | `/v1/unsubscribe` | public | Generate an unsubscribe token for an email address |
+//! | `process_unsubscribe` | GET | `/v1/unsubscribe/{token}` | public | Process an unsubscribe request with verification token |
+
 use actix_web::{web, HttpResponse};
 use sqlx::FromRow;
+use uuid::Uuid;
 
 use crate::app::AppState;
 use crate::auth::middleware::CurrentUser;
 use crate::auth::roles::is_admin;
 use crate::error::AppError;
+use crate::jobs::Job;
 use crate::models::mail_subscriber::{
     CreateMailSubscriberRequest, MailSubscriber, MailSubscriberResponse,
 };
@@ -18,6 +39,7 @@ struct MailSubscriberRow {
     artist_id: Option<i64>,
     unsubscribed_at: Option<chrono::NaiveDateTime>,
     unsubscribe_token: Option<String>,
+    unsubscribe_token_expires_at: Option<chrono::NaiveDateTime>,
     user_id: Option<i64>,
     created_at: chrono::NaiveDateTime,
     updated_at: chrono::NaiveDateTime,
@@ -33,7 +55,10 @@ impl From<MailSubscriberRow> for MailSubscriber {
             artist_id: row.artist_id,
             unsubscribed_at: row.unsubscribed_at.map(|dt| dt.and_utc()),
             unsubscribe_token: row.unsubscribe_token,
+            unsubscribe_token_expires_at: row.unsubscribe_token_expires_at.map(|dt| dt.and_utc()),
             user_id: row.user_id,
+            first_name: None,
+            last_name: None,
             created_at: row.created_at.and_utc(),
             updated_at: row.updated_at.and_utc(),
         }
@@ -42,8 +67,16 @@ impl From<MailSubscriberRow> for MailSubscriber {
 
 const SUBSCRIBER_SELECT: &str =
     r#"SELECT id, full_name, email, active, artist_id, unsubscribed_at,
-       unsubscribe_token, user_id, created_at, updated_at FROM mail_subscribers"#;
+       unsubscribe_token, unsubscribe_token_expires_at, user_id, created_at, updated_at FROM mail_subscribers"#;
 
+/// List all mail subscribers.
+///
+/// Requires admin role.
+///
+/// # Response
+///
+/// `200 OK` — JSON array of `MailSubscriberResponse`
+/// `403 Forbidden` — insufficient role
 pub async fn index(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -63,6 +96,15 @@ pub async fn index(
     Ok(HttpResponse::Ok().json(responses))
 }
 
+/// List subscribers for a specific artist.
+///
+/// Requires admin role. The artist_id is passed as a query parameter.
+///
+/// # Response
+///
+/// `200 OK` — JSON array of `MailSubscriberResponse`
+/// `403 Forbidden` — insufficient role
+/// `400 Bad Request` — missing or invalid artist_id
 pub async fn index_artist_subscribers(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -94,6 +136,17 @@ pub async fn index_artist_subscribers(
     Ok(HttpResponse::Ok().json(responses))
 }
 
+/// Create a subscriber for an artist.
+///
+/// Requires admin role. Associates the subscriber with the authenticated
+/// user's ID. Validates email format and checks for duplicates.
+///
+/// # Response
+///
+/// `201 Created` — `MailSubscriberResponse` for the new subscriber
+/// `403 Forbidden` — insufficient role
+/// `400 Bad Request` — missing artist_id
+/// `422 Unprocessable` — invalid email or duplicate subscription
 pub async fn artist_mail_subscriber(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -131,7 +184,7 @@ pub async fn artist_mail_subscriber(
         r#"INSERT INTO mail_subscribers (full_name, email, active, artist_id, unsubscribe_token, user_id, created_at, updated_at)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                RETURNING id, full_name, email, active, artist_id, unsubscribed_at,
-               unsubscribe_token, user_id, created_at, updated_at"#,
+               unsubscribe_token, unsubscribe_token_expires_at, user_id, created_at, updated_at"#,
     )
     .bind(&body.full_name)
     .bind(&body.email)
@@ -148,6 +201,19 @@ pub async fn artist_mail_subscriber(
     Ok(HttpResponse::Created().json(subscriber.to_response()))
 }
 
+/// Subscribe an email to an artist's mailing list.
+///
+/// Requires admin role. Associates the subscriber with the authenticated
+/// user's ID. Validates email format and checks for duplicates. Syncs with
+/// Mailchimp if configured (non-fatal if Mailchimp fails).
+///
+/// # Response
+///
+/// `201 Created` — `MailSubscriberResponse` for the new subscriber
+/// `200 OK` — subscriber created but Mailchimp sync failed (includes `mailchimp_error: true`)
+/// `403 Forbidden` — insufficient role
+/// `400 Bad Request` — missing artist_id
+/// `422 Unprocessable` — invalid email or duplicate subscription
 pub async fn add_mail_subscriber_with_user(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -185,7 +251,7 @@ pub async fn add_mail_subscriber_with_user(
         r#"INSERT INTO mail_subscribers (full_name, email, active, artist_id, unsubscribe_token, user_id, created_at, updated_at)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                RETURNING id, full_name, email, active, artist_id, unsubscribed_at,
-               unsubscribe_token, user_id, created_at, updated_at"#,
+               unsubscribe_token, unsubscribe_token_expires_at, user_id, created_at, updated_at"#,
     )
     .bind(&body.full_name)
     .bind(&body.email)
@@ -199,9 +265,32 @@ pub async fn add_mail_subscriber_with_user(
     .await?;
 
     let subscriber: MailSubscriber = row.into();
+
+    if let Some(ref mc) = state.mailchimp
+        && let Err(e) = mc.subscribe(&body.email, &body.full_name).await
+    {
+        tracing::warn!(error = %e, email = %body.email, "Mailchimp subscribe failed");
+        return Ok(HttpResponse::Ok().json(serde_json::json!({
+            "status": 500,
+            "message": e.to_string(),
+            "subscriber": subscriber.to_response(),
+            "mailchimp_error": true
+        })));
+    }
+
     Ok(HttpResponse::Created().json(subscriber.to_response()))
 }
 
+/// Subscribe an email to a mailing list.
+///
+/// Public endpoint — no authentication required. Validates email format.
+/// Syncs with Mailchimp if configured (non-fatal if Mailchimp fails).
+///
+/// # Response
+///
+/// `201 Created` — `MailSubscriberResponse` for the new subscriber
+/// `200 OK` — subscriber created but Mailchimp sync failed (includes `mailchimp_error: true`)
+/// `422 Unprocessable` — invalid email
 pub async fn add_mail_subscriber(
     state: web::Data<AppState>,
     body: web::Json<CreateMailSubscriberRequest>,
@@ -217,7 +306,7 @@ pub async fn add_mail_subscriber(
         r#"INSERT INTO mail_subscribers (full_name, email, active, artist_id, unsubscribe_token, created_at, updated_at)
                VALUES ($1, $2, $3, $4, $5, $6, $7)
                RETURNING id, full_name, email, active, artist_id, unsubscribed_at,
-               unsubscribe_token, user_id, created_at, updated_at"#,
+               unsubscribe_token, unsubscribe_token_expires_at, user_id, created_at, updated_at"#,
     )
     .bind(&body.full_name)
     .bind(&body.email)
@@ -230,9 +319,32 @@ pub async fn add_mail_subscriber(
     .await?;
 
     let subscriber: MailSubscriber = row.into();
+
+    if let Some(ref mc) = state.mailchimp
+        && let Err(e) = mc.subscribe(&body.email, &body.full_name).await
+    {
+        tracing::warn!(error = %e, email = %body.email, "Mailchimp subscribe failed");
+        return Ok(HttpResponse::Ok().json(serde_json::json!({
+            "status": 500,
+            "message": e.to_string(),
+            "subscriber": subscriber.to_response(),
+            "mailchimp_error": true
+        })));
+    }
+
     Ok(HttpResponse::Created().json(subscriber.to_response()))
 }
 
+/// Unsubscribe the authenticated user from an artist's mailing list.
+///
+/// Sets unsubscribed_at for the matching user_id/artist_id pair.
+/// Requires authentication.
+///
+/// # Response
+///
+/// `200 OK` — success status
+/// `400 Bad Request` — missing or invalid artist_id
+/// `404 Not Found` — subscription not found
 pub async fn unsubscribe(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -267,6 +379,16 @@ pub async fn unsubscribe(
     })))
 }
 
+/// Generate an unsubscribe token for an email address.
+///
+/// Public endpoint — no authentication required. Validates that the
+/// email exists in the system. Returns a token and unsubscribe URL.
+///
+/// # Response
+///
+/// `200 OK` — unsubscribe token and URL
+/// `404 Not Found` — email not found
+/// `422 Unprocessable` — email is required
 pub async fn request_unsubscribe(
     state: web::Data<AppState>,
     body: web::Json<serde_json::Value>,
@@ -276,6 +398,10 @@ pub async fn request_unsubscribe(
         _ => return Err(AppError::UnprocessableEntity("Email is required".to_string())),
     };
 
+    if !MailSubscriber::validate_email(&email) {
+        return Err(AppError::Validation("Invalid email".to_string()));
+    }
+
     let existing = sqlx::query_as::<_, MailSubscriberRow>(
         &format!("{} WHERE email = $1", SUBSCRIBER_SELECT),
     )
@@ -283,18 +409,31 @@ pub async fn request_unsubscribe(
     .fetch_optional(&state.db)
     .await?;
 
-    if existing.is_none() {
-        return Err(AppError::NotFound("Email not found in our system".to_string()));
+    if existing.is_some() {
+        let job_id = Uuid::new_v4();
+        let email_clone = email.clone();
+        if let Err(e) = state.job_handle.send(Job::SendUnsubscribeEmail { job_id, email }).await {
+            tracing::warn!(job_id = %job_id, email = %email_clone, error = %e, "Failed to enqueue unsubscribe email job");
+        }
     }
 
-    let token = MailSubscriber::generate_unsubscribe_token();
     Ok(HttpResponse::Ok().json(serde_json::json!({
-        "message": "Unsubscribe link generated",
-        "token": token,
-        "unsubscribe_url": format!("/v1/unsubscribe/{}", token)
+        "message": "If your email is registered, an unsubscribe link has been sent",
+        "status": "success"
     })))
 }
 
+/// Process an unsubscribe request with verification token.
+///
+/// Public endpoint — no authentication required. Sets unsubscribed_at
+/// for the subscriber matching the given token. Syncs with Mailchimp
+/// if configured (non-fatal if Mailchimp fails).
+///
+/// # Response
+///
+/// `200 OK` — success confirmation
+/// `404 Not Found` — invalid or expired token
+/// `422 Unprocessable` — token is required
 pub async fn process_unsubscribe(
     state: web::Data<AppState>,
     path: web::Path<String>,
@@ -306,24 +445,32 @@ pub async fn process_unsubscribe(
 
     let now = chrono::Utc::now().naive_utc();
 
-    let result = sqlx::query(
-        r#"UPDATE mail_subscribers SET unsubscribed_at = $1, updated_at = $2
-           WHERE unsubscribe_token = $3 AND unsubscribed_at IS NULL"#,
+    let row = sqlx::query_as::<_, (String,)>(
+        r#"UPDATE mail_subscribers SET unsubscribed_at = $1, updated_at = $2, unsubscribe_token = NULL
+           WHERE unsubscribe_token = $3 AND unsubscribed_at IS NULL
+             AND (unsubscribe_token_expires_at IS NULL OR unsubscribe_token_expires_at > $1)
+           RETURNING email"#,
     )
     .bind(now)
     .bind(now)
     .bind(&token)
-    .execute(&state.db)
+    .fetch_optional(&state.db)
     .await?;
 
-    if result.rows_affected() == 0 {
-        return Err(AppError::NotFound("Invalid or expired unsubscribe token".to_string()));
+    match row {
+        Some((email,)) => {
+            if let Some(ref mc) = state.mailchimp {
+                if let Err(e) = mc.unsubscribe(&email).await {
+                    tracing::warn!(error = %e, email = %email, "Mailchimp unsubscribe failed");
+                }
+            }
+            Ok(HttpResponse::Ok().json(serde_json::json!({
+                "message": "Unsubscribed successfully",
+                "status": "success"
+            })))
+        }
+        None => Err(AppError::NotFound("Invalid or expired unsubscribe token".to_string())),
     }
-
-    Ok(HttpResponse::Ok().json(serde_json::json!({
-        "message": "Unsubscribed successfully",
-        "status": "success"
-    })))
 }
 
 pub fn config_routes(cfg: &mut web::ServiceConfig) {
@@ -352,31 +499,15 @@ mod tests {
     const TEST_SECRET: &str = "test-secret-key";
     const TEST_DB_URL: &str = "postgresql://ws@localhost:5432/kbr_test";
 
-    async fn get_state() -> AppState {
+async fn get_state() -> AppState {
         let pool = sqlx::PgPool::connect(TEST_DB_URL)
             .await
             .expect("Failed to connect to test database");
-
-        let config = crate::services::storage_service::S3Config::from_env()
-            .unwrap_or_else(|_| crate::services::storage_service::S3Config {
-                access_key: "test".to_string(),
-                secret_key: "test".to_string(),
-                endpoint: "https://test.test".to_string(),
-                bucket_name: "test".to_string(),
-                region: "us-east-1".to_string(),
-            });
-        let s3 = crate::services::storage_service::create_s3_bucket(&config).unwrap_or_else(|_| {
-            let creds = s3::creds::Credentials::new(Some("test"), Some("test"), None, None, None).unwrap();
-            s3::bucket::Bucket::new("test", s3::region::Region::Custom { region: "us-east-1".to_string(), endpoint: "https://test.test".to_string() }, creds)
-                .unwrap()
-                .with_path_style()
-        });
-
-        AppState { db: pool, s3 }
+        crate::test_utils::build_test_state(pool).await
     }
 
     fn admin_token() -> String {
-        encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string())).unwrap()
+        encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap()
     }
 
     async fn seed_user() -> i64 {
@@ -514,7 +645,7 @@ mod tests {
             std::env::set_var("DATABASE_URL", TEST_DB_URL);
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
-        let user_token = encode_token_with_role(99, TEST_SECRET, 3, Some("user".to_string())).unwrap();
+        let user_token = encode_token_with_role(99, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
         let state = web::Data::new(get_state().await);
         let app = test::init_service(
             App::new()
@@ -733,7 +864,7 @@ mod tests {
         let user_id = seed_user().await;
         let artist_id = seed_artist(user_id).await;
         let (sub_id, _) = seed_subscriber(artist_id, Some(user_id)).await;
-        let user_token = encode_token_with_role(user_id, TEST_SECRET, 3, Some("admin".to_string())).unwrap();
+        let user_token = encode_token_with_role(user_id, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap();
 
         let app = test::init_service(
             App::new()
@@ -837,8 +968,8 @@ mod tests {
         assert_eq!(resp.status(), 200);
 
         let body: serde_json::Value = test::read_body_json(resp).await;
-        assert!(body["token"].is_string());
-        assert!(body["unsubscribe_url"].is_string());
+        assert_eq!(body["status"], "success");
+        assert!(body["message"].is_string());
 
         let _ = sqlx::query(r"DELETE FROM mail_subscribers WHERE email = $1")
             .bind(&email)
@@ -847,7 +978,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
-    async fn request_unsubscribe_not_found() {
+    async fn request_unsubscribe_not_found_returns_same_response() {
         unsafe { std::env::set_var("DATABASE_URL", TEST_DB_URL); }
         let state = web::Data::new(get_state().await);
         let app = test::init_service(
@@ -864,7 +995,10 @@ mod tests {
             }))
             .to_request();
         let resp = test::call_service(&app, req).await;
-        assert_eq!(resp.status(), 404);
+        assert_eq!(resp.status(), 200);
+
+        let body: serde_json::Value = test::read_body_json(resp).await;
+        assert_eq!(body["status"], "success");
     }
 
     #[tokio::test(flavor = "current_thread")]

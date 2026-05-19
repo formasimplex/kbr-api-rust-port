@@ -1,5 +1,26 @@
+//! Playlist handlers
+//!
+//! Provides endpoints for managing playlists, including admin CRUD
+//! operations and dashboard views. Admin endpoints require artist role
+//! or above; dashboard endpoints require authentication.
+//!
+//! # Endpoints
+//!
+//! | Function | Method | Route | Auth | Description |
+//! |----------|--------|-------|------|-------------|
+//! | `index_admin` | GET | `/v1/admin/news_playlists` | admin | List all playlists (optionally filtered by user_id) |
+//! | `show_admin` | GET | `/v1/admin/news_playlists/{id}` | admin | Retrieve a single playlist by ID |
+//! | `destroy_admin` | DELETE | `/v1/admin/news_playlists/{id}` | admin | Delete a playlist and its associated users_news entries |
+//! | `dashboard_index` | GET | `/v1/dashboard/news_playlists` | auth | List playlists for the authenticated user |
+//! | `dashboard_show` | GET | `/v1/dashboard/news_playlists/{id}` | auth | Get a single playlist (owner or admin only) |
+//! | `dashboard_create` | POST | `/v1/dashboard/news_playlists` | auth | Create a new playlist for the authenticated user |
+//! | `dashboard_update` | PUT | `/v1/dashboard/news_playlists/{id}` | auth | Update a playlist (owner or admin only) |
+//! | `dashboard_destroy` | DELETE | `/v1/dashboard/news_playlists/{id}` | auth | Delete a playlist (owner or admin only) |
+//! | `dashboard_add_news` | POST | `/v1/dashboard/news_playlists/{id}/add_news` | auth | Add a news item to a playlist (owner or admin only) |
+//! | `dashboard_reorder` | POST | `/v1/dashboard/news_playlists/{id}/reorder` | auth | Reorder news items in a playlist (owner or admin only) |
+//! | `dashboard_remove_news` | POST | `/v1/dashboard/news_playlists/{playlist_id}/remove_news/{news_id}` | auth | Remove a news item from a playlist (owner or admin only) |
+
 use actix_web::{web, HttpResponse};
-use chrono::NaiveDateTime;
 use sqlx::FromRow;
 
 use crate::app::AppState;
@@ -15,8 +36,8 @@ struct PlaylistRow {
     user_id: i64,
     name: String,
     description: Option<String>,
-    created_at: NaiveDateTime,
-    updated_at: NaiveDateTime,
+    created_at: chrono::NaiveDateTime,
+    updated_at: chrono::NaiveDateTime,
 }
 
 impl From<PlaylistRow> for NewsPlaylist {
@@ -34,6 +55,14 @@ impl From<PlaylistRow> for NewsPlaylist {
 
 const PLAYLIST_COLUMNS: &str = "id, user_id, name, description, created_at, updated_at";
 
+/// List all playlists.
+///
+/// Requires admin role. Optionally filter by user_id query parameter.
+///
+/// # Response
+///
+/// `200 OK` — JSON array of `NewsPlaylistResponse`
+/// `403 Forbidden` — insufficient role
 pub async fn index_admin(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -65,6 +94,15 @@ pub async fn index_admin(
     Ok(HttpResponse::Ok().json(responses))
 }
 
+/// Retrieve a single playlist by ID.
+///
+/// Requires admin role.
+///
+/// # Response
+///
+/// `200 OK` — `NewsPlaylistResponse`
+/// `403 Forbidden` — insufficient role
+/// `404 Not Found` — playlist does not exist
 pub async fn show_admin(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -90,6 +128,15 @@ pub async fn show_admin(
     }
 }
 
+/// Delete a playlist and its associated users_news entries.
+///
+/// Requires admin role.
+///
+/// # Response
+///
+/// `200 OK` — confirmation message
+/// `403 Forbidden` — insufficient role
+/// `404 Not Found` — playlist does not exist
 pub async fn destroy_admin(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -124,6 +171,13 @@ pub async fn destroy_admin(
     }
 }
 
+/// List playlists for the authenticated user.
+///
+/// Requires authentication.
+///
+/// # Response
+///
+/// `200 OK` — JSON array of `NewsPlaylistResponse`
 pub async fn dashboard_index(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -140,6 +194,16 @@ pub async fn dashboard_index(
     Ok(HttpResponse::Ok().json(responses))
 }
 
+/// Get a single playlist.
+///
+/// Requires authentication. Only the playlist owner or an admin can
+/// access the playlist.
+///
+/// # Response
+///
+/// `200 OK` — `NewsPlaylistResponse`
+/// `403 Forbidden` — not the owner and not an admin
+/// `404 Not Found` — playlist does not exist
 pub async fn dashboard_show(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -165,6 +229,14 @@ pub async fn dashboard_show(
     }
 }
 
+/// Create a new playlist for the authenticated user.
+///
+/// Requires authentication. Validates that name is non-empty.
+///
+/// # Response
+///
+/// `201 Created` — `NewsPlaylistResponse` for the new playlist
+/// `422 Unprocessable` — empty name
 pub async fn dashboard_create(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -196,6 +268,16 @@ pub async fn dashboard_create(
     Ok(HttpResponse::Created().json(playlist.to_response()))
 }
 
+/// Update a playlist.
+///
+/// Requires authentication. Only the playlist owner or an admin can
+/// update. Supports partial updates — only provided fields are changed.
+///
+/// # Response
+///
+/// `200 OK` — `NewsPlaylistResponse` with updated values
+/// `403 Forbidden` — not the owner and not an admin
+/// `404 Not Found` — playlist does not exist
 pub async fn dashboard_update(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -274,6 +356,16 @@ pub async fn dashboard_update(
     Ok(HttpResponse::Ok().json(playlist.to_response()))
 }
 
+/// Delete a playlist and its associated users_news entries.
+///
+/// Requires authentication. Only the playlist owner or an admin can
+/// delete.
+///
+/// # Response
+///
+/// `200 OK` — confirmation message
+/// `403 Forbidden` — not the owner and not an admin
+/// `404 Not Found` — playlist does not exist
 pub async fn dashboard_destroy(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -311,6 +403,17 @@ pub async fn dashboard_destroy(
     })))
 }
 
+/// Add a news item to a playlist.
+///
+/// Requires authentication. Only the playlist owner or an admin can
+/// add. Automatically assigns the next available position.
+///
+/// # Response
+///
+/// `200 OK` — confirmation message
+/// `403 Forbidden` — not the owner and not an admin
+/// `404 Not Found` — playlist does not exist
+/// `422 Unprocessable` — news_id is required
 pub async fn dashboard_add_news(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -369,6 +472,17 @@ pub async fn dashboard_add_news(
     })))
 }
 
+/// Reorder news items in a playlist.
+///
+/// Requires authentication. Only the playlist owner or an admin can
+/// reorder. Accepts a news_ids array to determine new positions.
+///
+/// # Response
+///
+/// `200 OK` — confirmation message
+/// `403 Forbidden` — not the owner and not an admin
+/// `404 Not Found` — playlist does not exist
+/// `422 Unprocessable` — news_ids array is required
 pub async fn dashboard_reorder(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -419,6 +533,16 @@ pub async fn dashboard_reorder(
     })))
 }
 
+/// Remove a news item from a playlist.
+///
+/// Requires authentication. Only the playlist owner or an admin can
+/// remove.
+///
+/// # Response
+///
+/// `200 OK` — confirmation message
+/// `403 Forbidden` — not the owner and not an admin
+/// `404 Not Found` — playlist does not exist
 pub async fn dashboard_remove_news(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -489,31 +613,15 @@ mod tests {
         let pool = sqlx::PgPool::connect(TEST_DB_URL)
             .await
             .expect("Failed to connect to test database");
-
-        let config = crate::services::storage_service::S3Config::from_env()
-            .unwrap_or_else(|_| crate::services::storage_service::S3Config {
-                access_key: "test".to_string(),
-                secret_key: "test".to_string(),
-                endpoint: "https://test.test".to_string(),
-                bucket_name: "test".to_string(),
-                region: "us-east-1".to_string(),
-            });
-        let s3 = crate::services::storage_service::create_s3_bucket(&config).unwrap_or_else(|_| {
-            let creds = s3::creds::Credentials::new(Some("test"), Some("test"), None, None, None).unwrap();
-            s3::bucket::Bucket::new("test", s3::region::Region::Custom { region: "us-east-1".to_string(), endpoint: "https://test.test".to_string() }, creds)
-                .unwrap()
-                .with_path_style()
-        });
-
-        AppState { db: pool, s3 }
+        crate::test_utils::build_test_state(pool).await
     }
 
     fn admin_token() -> String {
-        encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string())).unwrap()
+        encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap()
     }
 
     fn user_token(user_id: i64) -> String {
-        encode_token_with_role(user_id, TEST_SECRET, 3, Some("user".to_string())).unwrap()
+        encode_token_with_role(user_id, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap()
     }
 
     async fn seed_playlist(state: &AppState, suffix: &str) -> (i64, String) {

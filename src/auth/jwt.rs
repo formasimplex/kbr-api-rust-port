@@ -1,19 +1,36 @@
 use chrono::Utc;
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 use crate::error::AppError;
+
+pub const JWT_AUDIENCE: &str = "kbr-api";
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct Claims {
     pub user_id: i64,
     pub exp: u64,
+    pub iat: u64,
     #[serde(default)]
     pub role: Option<String>,
+    pub jti: String,
+    #[serde(default = "default_token_version")]
+    pub token_version: i64,
+    #[serde(default = "default_audience")]
+    pub aud: String,
+}
+
+fn default_token_version() -> i64 {
+    1
+}
+
+fn default_audience() -> String {
+    JWT_AUDIENCE.to_string()
 }
 
 pub fn encode_token(user_id: i64, secret: &str, expiry_days: u64) -> Result<String, AppError> {
-    encode_token_with_role(user_id, secret, expiry_days, None)
+    encode_token_with_role(user_id, secret, expiry_days, None, 1)
 }
 
 pub fn encode_token_with_role(
@@ -21,13 +38,23 @@ pub fn encode_token_with_role(
     secret: &str,
     expiry_days: u64,
     role: Option<String>,
+    token_version: i64,
 ) -> Result<String, AppError> {
-    let exp = Utc::now()
+    let now = Utc::now();
+    let exp = now
         .checked_add_signed(chrono::TimeDelta::days(expiry_days as i64))
         .expect("valid timestamp")
         .timestamp() as u64;
 
-    let claims = Claims { user_id, exp, role };
+    let claims = Claims {
+        user_id,
+        exp,
+        iat: now.timestamp() as u64,
+        role,
+        jti: Uuid::new_v4().to_string(),
+        token_version,
+        aud: JWT_AUDIENCE.to_string(),
+    };
 
     encode(
         &Header::default(),
@@ -38,7 +65,10 @@ pub fn encode_token_with_role(
 }
 
 pub fn decode_token(token: &str, secret: &str) -> Result<Claims, AppError> {
-    let validation = Validation::default();
+    let mut validation = Validation::default();
+    validation.algorithms = vec![jsonwebtoken::Algorithm::HS256];
+    validation.validate_exp = true;
+    validation.set_audience(&[JWT_AUDIENCE]);
 
     decode::<Claims>(
         token,
@@ -53,7 +83,11 @@ pub fn create_expired_token(user_id: i64, secret: &str) -> String {
     let claims = Claims {
         user_id,
         exp: Utc::now().timestamp() as u64 - 600,
+        iat: Utc::now().timestamp() as u64 - 700,
         role: None,
+        jti: Uuid::new_v4().to_string(),
+        token_version: 1,
+        aud: JWT_AUDIENCE.to_string(),
     };
 
     encode(
@@ -73,7 +107,6 @@ mod tests {
     #[test]
     fn encode_token_returns_valid_jwt() {
         let token = encode_token(42, SECRET, 3).expect("should encode");
-        // JWT has 3 parts separated by dots
         assert_eq!(token.split('.').count(), 3);
     }
 
@@ -111,10 +144,8 @@ mod tests {
     fn decode_tampered_token_fails() {
         let token = encode_token(42, SECRET, 3).expect("should encode");
         let parts: Vec<&str> = token.split('.').collect();
-        // Tamper with the payload by flipping a bit
         let tampered: String = token.chars().enumerate().map(|(i, c)| {
             if i > 0 && i < parts[0].len() + parts[1].len() + 1 {
-                // In the payload section, flip a bit
                 (c as u8 ^ 0x01) as char
             } else {
                 c
@@ -142,11 +173,18 @@ mod tests {
         let claims = Claims {
             user_id: 42,
             exp: 9999999999,
+            iat: 9999999900,
             role: None,
+            jti: Uuid::new_v4().to_string(),
+            token_version: 1,
+            aud: JWT_AUDIENCE.to_string(),
         };
         let json = serde_json::to_string(&claims).expect("should serialize");
         assert!(json.contains("\"user_id\":42"));
         assert!(json.contains("\"exp\":9999999999"));
+        assert!(json.contains("\"iat\":9999999900"));
+        assert!(json.contains("\"jti\""));
+        assert!(json.contains("\"aud\":\"kbr-api\""));
     }
 
     #[test]
@@ -157,7 +195,51 @@ mod tests {
         let token_30days = encode_token(1, SECRET, 30).expect("should encode");
         let claims_30days = decode_token(&token_30days, SECRET).expect("should decode");
 
-        // 30-day token should expire later than 1-day token
         assert!(claims_30days.exp > claims_1day.exp);
+    }
+
+    #[test]
+    fn claims_include_iat_and_jti() {
+        let token = encode_token(42, SECRET, 3).expect("should encode");
+        let claims = decode_token(&token, SECRET).expect("should decode");
+        assert!(claims.iat > 0);
+        assert!(!claims.jti.is_empty());
+    }
+
+    #[test]
+    fn each_token_has_unique_jti() {
+        let token1 = encode_token(42, SECRET, 3).expect("should encode");
+        let token2 = encode_token(42, SECRET, 3).expect("should encode");
+        let claims1 = decode_token(&token1, SECRET).expect("should decode");
+        let claims2 = decode_token(&token2, SECRET).expect("should decode");
+        assert_ne!(claims1.jti, claims2.jti);
+    }
+
+    #[test]
+    fn claims_include_audience() {
+        let token = encode_token(42, SECRET, 3).expect("should encode");
+        let claims = decode_token(&token, SECRET).expect("should decode");
+        assert_eq!(claims.aud, JWT_AUDIENCE);
+    }
+
+    #[test]
+    fn decode_token_with_wrong_audience_fails() {
+        let claims = Claims {
+            user_id: 42,
+            exp: Utc::now().timestamp() as u64 + 3600,
+            iat: Utc::now().timestamp() as u64,
+            role: None,
+            jti: Uuid::new_v4().to_string(),
+            token_version: 1,
+            aud: "other-service".to_string(),
+        };
+        let token = encode(
+            &Header::default(),
+            &claims,
+            &EncodingKey::from_secret(SECRET.as_bytes()),
+        )
+        .expect("should encode");
+        let result = decode_token(&token, SECRET);
+        assert!(result.is_err());
     }
 }

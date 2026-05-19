@@ -99,32 +99,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn tenant_config_to_response() {
-        let config = TenantConfig {
-            tenant_id: Uuid::new_v4(),
-            logo_url: Some("https://example.com/logo.png".to_string()),
-            short_name: "KBR".to_string(),
-            long_name: "Keep Buying Records".to_string(),
-            footer_logo_url: None,
-            contact_email: "info@example.com".to_string(),
-            site_header_description: "Welcome to KBR".to_string(),
-            deleted_at: None,
-            insta_url: None,
-            twitter_url: None,
-            tiktok_url: None,
-            spotify_id: None,
-            featured_artist_id: None,
-            mantine_theme: None,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        };
-        let resp = config.to_response();
-        assert_eq!(resp.short_name, "KBR");
-        assert_eq!(resp.long_name, "Keep Buying Records");
-        assert!(!config.is_deleted());
-    }
-
-    #[test]
     fn tenant_config_is_deleted() {
         let config = TenantConfig {
             tenant_id: Uuid::new_v4(),

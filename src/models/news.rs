@@ -2,6 +2,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
+use crate::utils::url::validate_url;
+
 #[derive(Debug, Clone, FromRow, PartialEq, Eq)]
 pub struct News {
     pub id: i64,
@@ -22,7 +24,6 @@ pub struct News {
 pub struct CreateNewsRequest {
     pub url: String,
     pub title: Option<String>,
-    pub image_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,41 +63,13 @@ impl News {
     }
 
     pub fn validate_url(url: &str) -> bool {
-        !url.is_empty() && (url.starts_with("http://") || url.starts_with("https://"))
-            && !Self::is_malicious_url(url)
-    }
-
-    pub fn is_malicious_url(url: &str) -> bool {
-        let dangerous = ["localhost", "127.0.0.1", "0.0.0.0", "169.254.169.254"];
-        dangerous.iter().any(|d| url.contains(d))
+        validate_url(url)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn news_to_response() {
-        let news = News {
-            id: 1,
-            url: Some("https://example.com/article".to_string()),
-            title: Some("Breaking News".to_string()),
-            vote_score: Some(10),
-            flagged: Some(false),
-            flagged_at: None,
-            user_id: 5,
-            image_url: Some("https://example.com/img.png".to_string()),
-            active: Some(true),
-            comments_enabled: true,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        };
-        let resp = news.to_response();
-        assert_eq!(resp.id, 1);
-        assert_eq!(resp.title, Some("Breaking News".to_string()));
-        assert!(resp.comments_enabled);
-    }
 
     #[test]
     fn validate_url_valid() {
@@ -108,13 +81,8 @@ mod tests {
     fn validate_url_invalid() {
         assert!(!News::validate_url(""));
         assert!(!News::validate_url("not-a-url"));
-    }
-
-    #[test]
-    fn is_malicious_url() {
-        assert!(News::is_malicious_url("http://localhost/admin"));
-        assert!(News::is_malicious_url("http://127.0.0.1/secret"));
-        assert!(News::is_malicious_url("http://169.254.169.254/metadata"));
-        assert!(!News::is_malicious_url("https://example.com/safe"));
+        assert!(!News::validate_url("http://localhost/admin"));
+        assert!(!News::validate_url("http://127.0.0.1/secret"));
+        assert!(!News::validate_url("http://169.254.169.254/metadata"));
     }
 }

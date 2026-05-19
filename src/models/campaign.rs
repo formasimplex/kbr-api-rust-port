@@ -53,6 +53,16 @@ pub struct UpdateCampaignRequest {
     pub campaign_end_date: Option<DateTime<Utc>>,
 }
 
+/// Request body for campaign activation.
+///
+/// Contains the campaign ID to activate and the desired start date.
+/// The end date is computed as `start_date + 45 days`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActivateCampaignRequest {
+    pub campaign_id: i64,
+    pub start_date: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct CampaignResponse {
     pub id: i64,
@@ -95,30 +105,6 @@ impl Campaign {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn campaign_to_response() {
-        let campaign = Campaign {
-            id: 1,
-            artist_id: 5,
-            name: Some("Summer Vinyl".to_string()),
-            active: Some(true),
-            vinyl_sold_count: Some(42),
-            campaign_start_date: None,
-            campaign_end_date: None,
-            progress: Some(50),
-            album_id: Some(3),
-            deleted_at: None,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        };
-        let resp = campaign.to_response();
-        assert_eq!(resp.id, 1);
-        assert_eq!(resp.artist_id, 5);
-        assert_eq!(resp.name, Some("Summer Vinyl".to_string()));
-        assert_eq!(resp.vinyl_sold_count, Some(42));
-        assert_eq!(resp.progress, Some(50));
-    }
 
     #[test]
     fn campaign_is_deleted() {

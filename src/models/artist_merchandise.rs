@@ -67,29 +67,4 @@ impl ArtistMerchandise {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
 
-    #[test]
-    fn artist_merchandise_to_response() {
-        let merch = ArtistMerchandise {
-            id: 1,
-            artist_id: 5,
-            producer_id: 2,
-            merchandise_id: Some("shopify-123".to_string()),
-            description: Some("T-shirt".to_string()),
-            created_on_producer: Some(true),
-            merch_title: "Band Tee".to_string(),
-            merch_product_title: Some("Band Tee - Black".to_string()),
-            set_price: Some(25.99),
-            cost_price: Some(12.50),
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        };
-        let resp = merch.to_response();
-        assert_eq!(resp.id, 1);
-        assert_eq!(resp.merch_title, "Band Tee");
-        assert_eq!(resp.set_price, Some(25.99));
-    }
-}

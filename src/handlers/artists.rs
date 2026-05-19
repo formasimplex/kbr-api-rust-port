@@ -1,5 +1,24 @@
+//! Artist handlers
+//!
+//! Provides CRUD endpoints for artist management, including artist links
+//! (social media, streaming platforms). Reading is public; creation requires
+//! admin; updates and link management require artist+ role.
+//!
+//! # Endpoints
+//!
+//! | Function | Method | Route | Auth | Description |
+//! |----------|--------|-------|------|-------------|
+//! | `index` | GET | `/v1/artists` | public | List all artists with images |
+//! | `show` | GET | `/v1/artist/{id}` | public | Retrieve a single artist with images |
+//! | `create` | POST | `/v1/artist` | admin | Create a new artist |
+//! | `update` | PUT | `/v1/artist/{id}` | artist+ | Update artist details |
+//! | `add_artist_links` | POST | `/v1/artist/add_artist_links` | artist+ | Add a social/streaming link |
+//! | `delete_artist_links` | POST | `/v1/artist/delete_artist_links` | artist+ | Remove an artist link |
+//! | `available_link_types` | GET | `/v1/available_link_types` | public | List valid link type options |
+
 use actix_web::{web, HttpResponse};
 use sqlx::FromRow;
+use uuid::Uuid;
 
 use crate::app::AppState;
 use crate::auth::middleware::CurrentUser;
@@ -7,7 +26,20 @@ use crate::auth::roles::is_artist_or_above;
 use crate::error::AppError;
 use crate::models::artist::{Artist, ArtistResponse, CreateArtistRequest, UpdateArtistRequest};
 use crate::models::artist_link::{ArtistLink, CreateArtistLinkRequest};
+use crate::models::sign_up_trigger::SignUpTrigger;
+use crate::models::user::User;
 use crate::services::storage_service;
+use crate::services::user_service::UserService;
+
+/// Request body for artist sign-up via token.
+#[derive(serde::Deserialize)]
+pub(crate) struct ArtistSignUpRequest {
+    token: String,
+    name: String,
+    password: String,
+    password_confirmation: String,
+    username: Option<String>,
+}
 
 #[derive(Debug, FromRow)]
 struct ArtistRow {
@@ -42,7 +74,15 @@ impl From<ArtistRow> for Artist {
     }
 }
 
-  pub async fn index(state: web::Data<AppState>) -> Result<HttpResponse, AppError> {
+/// List all artists.
+///
+/// Returns all artists ordered by ID, including associated image and thumbnail
+/// URLs from S3 storage. No authentication required.
+///
+/// # Response
+///
+/// `200 OK` — JSON array of `ArtistResponse`
+pub async fn index(state: web::Data<AppState>) -> Result<HttpResponse, AppError> {
     let rows = sqlx::query_as::<_, ArtistRow>(
         r#"SELECT id, name, genre, bio, user_id, prospect,
            "spotifyId" AS spotify_id, "subHeading" AS sub_heading, intro,
@@ -65,6 +105,15 @@ impl From<ArtistRow> for Artist {
     Ok(HttpResponse::Ok().json(responses))
 }
 
+/// Retrieve a single artist by ID.
+///
+/// Includes associated image and thumbnail URLs from S3 storage.
+/// No authentication required.
+///
+/// # Response
+///
+/// `200 OK` — `ArtistResponse`
+/// `404 Not Found` — artist does not exist
 pub async fn show(
     state: web::Data<AppState>,
     path: web::Path<i64>,
@@ -94,6 +143,15 @@ pub async fn show(
     }
 }
 
+/// Create a new artist.
+///
+/// Validates intro (max 300 chars) and bio (max 3000 chars). Requires admin role.
+///
+/// # Response
+///
+/// `201 Created` — `ArtistResponse` for the new artist
+/// `403 Forbidden` — non-admin user
+/// `422 Unprocessable Entity` — validation error (intro/bio too long)
 pub async fn create(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -134,6 +192,150 @@ pub async fn create(
     Ok(HttpResponse::Created().json(artist.to_response(Vec::new(), Vec::new())))
 }
 
+/// Create a new artist account via sign-up trigger token.
+///
+/// Public endpoint. Uses a database transaction with `SELECT ... FOR UPDATE`
+/// to lock the sign-up trigger row, preventing concurrent token reuse.
+/// Checks for an existing user with the same email before creating a new one.
+/// Creates a user with "artist" role using the provided password and optional
+/// username, creates the artist record with the given name and `prospect = true`,
+/// and consumes the trigger. Enqueues a prospect welcome email job after
+/// successful commit.
+///
+/// # Response
+///
+/// `201 Created` — `ArtistResponse` for the new artist
+/// `409 Conflict` — email already has an artist account
+/// `422 Unprocessable Entity` — invalid token, password mismatch, or weak password
+pub(crate) async fn sign_up(
+    state: web::Data<AppState>,
+    body: web::Json<ArtistSignUpRequest>,
+) -> Result<HttpResponse, AppError> {
+    let mut tx = state.db.begin().await?;
+
+    let trigger = sqlx::query_as::<_, (Option<String>, Option<String>)>(
+        r"SELECT email, expires_at FROM sign_up_triggers WHERE token = $1 FOR UPDATE"
+    )
+    .bind(&body.token)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    match trigger {
+        Some((Some(trigger_email), trigger_expires)) => {
+            if let Some(expires_str) = trigger_expires {
+                if let Some(expired_time) = SignUpTrigger::parse_expires_at(&expires_str) {
+                    if expired_time < chrono::Utc::now() {
+                        return Err(AppError::Validation(
+                            "Sign-up token has expired".to_string(),
+                        ));
+                    }
+                }
+            }
+
+            if !User::validate_email(&trigger_email) {
+                return Err(AppError::Validation(
+                    "Invalid sign-up token".to_string(),
+                ));
+            }
+
+            if body.password != body.password_confirmation {
+                return Err(AppError::Validation(
+                    "Password and confirmation do not match".to_string(),
+                ));
+            }
+
+            if !User::validate_password(&body.password) {
+                return Err(AppError::Validation(
+                    "Password must be at least 8 characters with uppercase, lowercase, and a digit".to_string(),
+                ));
+            }
+
+            let existing: bool = sqlx::query_scalar(
+                r"SELECT EXISTS(SELECT 1 FROM users WHERE email = $1 AND role = 'artist')"
+            )
+            .bind(&trigger_email)
+            .fetch_one(&mut *tx)
+            .await?;
+
+            if existing {
+                return Err(AppError::Conflict(
+                    "Email already linked to artist account".to_string(),
+                ));
+            }
+
+            let now = chrono::Utc::now().naive_utc();
+            let password_digest = UserService::hash_password_for_create(&crate::models::user::CreateUserRequest {
+                email: trigger_email.clone(),
+                password: body.password.clone(),
+                username: body.username.clone(),
+                token: None,
+            })?;
+
+            let user_id: i64 = sqlx::query_scalar(
+                r"INSERT INTO users (email, password_digest, role, username, created_at, updated_at)
+                   VALUES ($1, $2, 'artist', $3, $4, $4) RETURNING id"
+            )
+            .bind(&trigger_email)
+            .bind(&password_digest)
+            .bind(body.username.as_deref())
+            .bind(&now)
+            .fetch_one(&mut *tx)
+            .await?;
+
+            let artist_row = sqlx::query_as::<_, ArtistRow>(
+                r#"INSERT INTO artists (name, user_id, prospect, created_at, updated_at)
+                   VALUES ($1, $2, true, $3, $3)
+                   RETURNING id, name, genre, bio, user_id, prospect, "spotifyId" AS spotify_id, "subHeading" AS sub_heading, intro, created_at, updated_at"#
+            )
+            .bind(&body.name)
+            .bind(user_id)
+            .bind(now)
+            .fetch_one(&mut *tx)
+            .await?;
+
+            let now_str = chrono::Utc::now().to_rfc3339();
+            sqlx::query(
+                r"UPDATE sign_up_triggers SET expires_at = $1, updated_at = $2 WHERE email = $3"
+            )
+            .bind(&now_str)
+            .bind(now)
+            .bind(&trigger_email)
+            .execute(&mut *tx)
+            .await?;
+
+            tx.commit().await?;
+
+            let job_id = Uuid::new_v4();
+            if let Err(e) = state
+                .job_handle
+                .send(crate::jobs::Job::SendProspectWelcomeEmail { job_id, user_id })
+                .await
+            {
+                tracing::warn!(job_id = %job_id, user_id, error = %e, "Failed to enqueue prospect welcome email job");
+            }
+
+            let artist: Artist = artist_row.into();
+            Ok(HttpResponse::Created().json(artist.to_response(Vec::new(), Vec::new())))
+        }
+        _ => {
+            Err(AppError::Validation(
+                "Invalid sign-up token".to_string(),
+            ))
+        }
+    }
+}
+
+/// Update artist details.
+///
+/// Performs a partial update using COALESCE — only provided fields are changed.
+/// Validates intro (max 300 chars) and bio (max 3000 chars). Requires artist+ role.
+///
+/// # Response
+///
+/// `200 OK` — updated `ArtistResponse`
+/// `403 Forbidden` — role below artist
+/// `404 Not Found` — artist does not exist
+/// `422 Unprocessable Entity` — validation error (intro/bio too long)
 pub async fn update(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -184,6 +386,15 @@ pub async fn update(
     Ok(HttpResponse::Ok().json(artist.to_response(Vec::new(), Vec::new())))
 }
 
+/// Add a social/streaming link for an artist.
+///
+/// Validates the URL format. Requires artist+ role.
+///
+/// # Response
+///
+/// `201 Created` — `ArtistLinkResponse` for the new link
+/// `403 Forbidden` — role below artist
+/// `422 Unprocessable Entity` — invalid URL format
 pub async fn add_artist_links(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -214,6 +425,16 @@ pub async fn add_artist_links(
     Ok(HttpResponse::Created().json(row.to_response()))
 }
 
+/// Remove an artist link by ID.
+///
+/// Accepts a JSON body with an `id` field. Requires artist+ role.
+///
+/// # Response
+///
+/// `200 OK` — confirmation message
+/// `403 Forbidden` — role below artist
+/// `404 Not Found` — link does not exist
+/// `422 Unprocessable Entity` — missing link id
 pub async fn delete_artist_links(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -242,6 +463,14 @@ pub async fn delete_artist_links(
     })))
 }
 
+/// List available artist link types.
+///
+/// Returns the set of valid link type identifiers (e.g., Spotify, Instagram)
+/// that can be used when creating artist links. No authentication required.
+///
+/// # Response
+///
+/// `200 OK` — JSON array of link type objects
 pub async fn available_link_types() -> Result<HttpResponse, AppError> {
     let types = ArtistLink::available_link_types();
     Ok(HttpResponse::Ok().json(types))
@@ -253,6 +482,7 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
             .route("/artists", web::get().to(index))
             .route("/artist/{id}", web::get().to(show))
             .route("/artist", web::post().to(create))
+            .route("/artist/sign_up", web::post().to(sign_up))
             .route("/artist/{id}", web::put().to(update))
             .route("/artist/add_artist_links", web::post().to(add_artist_links))
             .route("/artist/delete_artist_links", web::post().to(delete_artist_links))
@@ -273,31 +503,15 @@ mod tests {
         let pool = sqlx::PgPool::connect(TEST_DB_URL)
             .await
             .expect("Failed to connect to test database");
-
-        let config = crate::services::storage_service::S3Config::from_env()
-            .unwrap_or_else(|_| crate::services::storage_service::S3Config {
-                access_key: "test".to_string(),
-                secret_key: "test".to_string(),
-                endpoint: "https://test.test".to_string(),
-                bucket_name: "test".to_string(),
-                region: "us-east-1".to_string(),
-            });
-        let s3 = crate::services::storage_service::create_s3_bucket(&config).unwrap_or_else(|_| {
-            let creds = s3::creds::Credentials::new(Some("test"), Some("test"), None, None, None).unwrap();
-            s3::bucket::Bucket::new("test", s3::region::Region::Custom { region: "us-east-1".to_string(), endpoint: "https://test.test".to_string() }, creds)
-                .unwrap()
-                .with_path_style()
-        });
-
-        AppState { db: pool, s3 }
+        crate::test_utils::build_test_state(pool).await
     }
 
     fn admin_token() -> String {
-        encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string())).unwrap()
+        encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap()
     }
 
     fn artist_token() -> String {
-        encode_token_with_role(2, TEST_SECRET, 2, Some("artist".to_string())).unwrap()
+        encode_token_with_role(2, TEST_SECRET, 2, Some("artist".to_string()), 1).unwrap()
     }
 
     async fn seed_user() -> i64 {
@@ -469,7 +683,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let token = encode_token_with_role(2, TEST_SECRET, 3, Some("user".to_string())).unwrap();
+        let token = encode_token_with_role(2, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
         let state = web::Data::new(get_state().await);
 
         let app = test::init_service(
@@ -729,5 +943,367 @@ mod tests {
 
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert_eq!(body.as_array().unwrap().len(), 11);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn artist_sign_up_success() {
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+        }
+        let state = web::Data::new(get_state().await);
+        let ts = chrono::Utc::now().timestamp_micros();
+        let email = format!("artistsignup{}@example.com", ts);
+
+        let token = format!("artist_signup_token_{}", ts);
+        let future = (chrono::Utc::now() + chrono::Duration::days(1)).to_rfc3339();
+        let now = chrono::Utc::now().naive_utc();
+        let _trigger_id: i64 = sqlx::query_scalar(
+            r"INSERT INTO sign_up_triggers (email, token, expires_at, role, created_at, updated_at)
+               VALUES ($1, $2, $3, 'artist', $4, $4) RETURNING id"
+        )
+        .bind(&email)
+        .bind(&token)
+        .bind(&future)
+        .bind(&now)
+        .fetch_one(&state.db)
+        .await
+        .expect("Failed to seed trigger");
+
+        let app = test::init_service(
+            App::new()
+                .app_data(state.clone())
+                .configure(config_routes),
+        )
+        .await;
+
+        let req = test::TestRequest::post()
+            .uri("/v1/artist/sign_up")
+            .set_json(serde_json::json!({
+                "token": token,
+                "name": "New Artist Band",
+                "password": "TestPass1",
+                "password_confirmation": "TestPass1",
+                "username": "newartist"
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 201);
+
+        let body: serde_json::Value = test::read_body_json(resp).await;
+        assert_eq!(body["name"], "New Artist Band");
+
+        let user_role: Option<String> = sqlx::query_scalar(
+            r"SELECT role FROM users WHERE email = $1"
+        )
+        .bind(&email)
+        .fetch_one(&state.db)
+        .await
+        .expect("Failed to check user role");
+        assert_eq!(user_role, Some("artist".to_string()));
+
+        let user_username: Option<String> = sqlx::query_scalar(
+            r"SELECT username FROM users WHERE email = $1"
+        )
+        .bind(&email)
+        .fetch_one(&state.db)
+        .await
+        .expect("Failed to check username");
+        assert_eq!(user_username, Some("newartist".to_string()));
+
+        let _ = sqlx::query(r"DELETE FROM artists WHERE user_id IN (SELECT id FROM users WHERE email = $1)")
+            .bind(&email)
+            .execute(&state.db)
+            .await;
+        let _ = sqlx::query(r"DELETE FROM users WHERE email = $1")
+            .bind(&email)
+            .execute(&state.db)
+            .await;
+        let _ = sqlx::query(r"DELETE FROM sign_up_triggers WHERE email = $1")
+            .bind(&email)
+            .execute(&state.db)
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn artist_sign_up_invalid_token() {
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+        }
+        let state = web::Data::new(get_state().await);
+
+        let app = test::init_service(
+            App::new()
+                .app_data(state)
+                .configure(config_routes),
+        )
+        .await;
+
+        let req = test::TestRequest::post()
+            .uri("/v1/artist/sign_up")
+            .set_json(serde_json::json!({
+                "token": "nonexistent_token",
+                "name": "New Artist Band",
+                "password": "TestPass1",
+                "password_confirmation": "TestPass1"
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 422);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn artist_sign_up_duplicate_email_returns_409() {
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+        }
+        let state = web::Data::new(get_state().await);
+        let ts = chrono::Utc::now().timestamp_micros();
+        let email = format!("artistdup{}@example.com", ts);
+
+        // Seed an existing artist user
+        let now = chrono::Utc::now().naive_utc();
+        let existing_user_id: i64 = sqlx::query_scalar(
+            r"INSERT INTO users (email, password_digest, role, created_at, updated_at)
+               VALUES ($1, $2, 'artist', $3, $3) RETURNING id"
+        )
+        .bind(&email)
+        .bind("hashed_password_test")
+        .bind(&now)
+        .fetch_one(&state.db)
+        .await
+        .expect("Failed to seed existing user");
+
+        let token = format!("artist_dup_token_{}", ts);
+        let future = (chrono::Utc::now() + chrono::Duration::days(1)).to_rfc3339();
+        let _trigger_id: i64 = sqlx::query_scalar(
+            r"INSERT INTO sign_up_triggers (email, token, expires_at, role, created_at, updated_at)
+               VALUES ($1, $2, $3, 'artist', $4, $4) RETURNING id"
+        )
+        .bind(&email)
+        .bind(&token)
+        .bind(&future)
+        .bind(&now)
+        .fetch_one(&state.db)
+        .await
+        .expect("Failed to seed trigger");
+
+        let app = test::init_service(
+            App::new()
+                .app_data(state.clone())
+                .configure(config_routes),
+        )
+        .await;
+
+        let req = test::TestRequest::post()
+            .uri("/v1/artist/sign_up")
+            .set_json(serde_json::json!({
+                "token": token,
+                "name": "Duplicate Artist",
+                "password": "TestPass1",
+                "password_confirmation": "TestPass1"
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 409);
+
+        let _ = sqlx::query(r"DELETE FROM sign_up_triggers WHERE email = $1")
+            .bind(&email)
+            .execute(&state.db)
+            .await;
+        let _ = sqlx::query(r"DELETE FROM users WHERE id = $1")
+            .bind(existing_user_id)
+            .execute(&state.db)
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn artist_sign_up_sets_prospect_true() {
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+        }
+        let state = web::Data::new(get_state().await);
+        let ts = chrono::Utc::now().timestamp_micros();
+        let email = format!("artistprospect{}@example.com", ts);
+
+        let token = format!("artist_prospect_token_{}", ts);
+        let future = (chrono::Utc::now() + chrono::Duration::days(1)).to_rfc3339();
+        let now = chrono::Utc::now().naive_utc();
+        let _trigger_id: i64 = sqlx::query_scalar(
+            r"INSERT INTO sign_up_triggers (email, token, expires_at, role, created_at, updated_at)
+               VALUES ($1, $2, $3, 'artist', $4, $4) RETURNING id"
+        )
+        .bind(&email)
+        .bind(&token)
+        .bind(&future)
+        .bind(&now)
+        .fetch_one(&state.db)
+        .await
+        .expect("Failed to seed trigger");
+
+        let app = test::init_service(
+            App::new()
+                .app_data(state.clone())
+                .configure(config_routes),
+        )
+        .await;
+
+        let req = test::TestRequest::post()
+            .uri("/v1/artist/sign_up")
+            .set_json(serde_json::json!({
+                "token": token,
+                "name": "Prospect Artist",
+                "password": "TestPass1",
+                "password_confirmation": "TestPass1"
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 201);
+
+        let prospect: bool = sqlx::query_scalar(
+            r"SELECT prospect FROM artists WHERE user_id IN (SELECT id FROM users WHERE email = $1)"
+        )
+        .bind(&email)
+        .fetch_one(&state.db)
+        .await
+        .expect("Failed to check prospect flag");
+        assert!(prospect, "Artist should have prospect = true");
+
+        let _ = sqlx::query(r"DELETE FROM artists WHERE user_id IN (SELECT id FROM users WHERE email = $1)")
+            .bind(&email)
+            .execute(&state.db)
+            .await;
+        let _ = sqlx::query(r"DELETE FROM users WHERE email = $1")
+            .bind(&email)
+            .execute(&state.db)
+            .await;
+        let _ = sqlx::query(r"DELETE FROM sign_up_triggers WHERE email = $1")
+            .bind(&email)
+            .execute(&state.db)
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn artist_sign_up_expired_token() {
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+        }
+        let state = web::Data::new(get_state().await);
+        let ts = chrono::Utc::now().timestamp_micros();
+        let email = format!("artistexpired{}@example.com", ts);
+
+        let token = format!("artist_expired_token_{}", ts);
+        let past = (chrono::Utc::now() - chrono::Duration::days(1)).to_rfc3339();
+        let now = chrono::Utc::now().naive_utc();
+        let _trigger_id: i64 = sqlx::query_scalar(
+            r"INSERT INTO sign_up_triggers (email, token, expires_at, role, created_at, updated_at)
+               VALUES ($1, $2, $3, 'artist', $4, $4) RETURNING id"
+        )
+        .bind(&email)
+        .bind(&token)
+        .bind(&past)
+        .bind(&now)
+        .fetch_one(&state.db)
+        .await
+        .expect("Failed to seed trigger");
+
+        let app = test::init_service(
+            App::new()
+                .app_data(state.clone())
+                .configure(config_routes),
+        )
+        .await;
+
+        let req = test::TestRequest::post()
+            .uri("/v1/artist/sign_up")
+            .set_json(serde_json::json!({
+                "token": token,
+                "name": "Expired Artist Band",
+                "password": "TestPass1",
+                "password_confirmation": "TestPass1"
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 422);
+
+        let _ = sqlx::query(r"DELETE FROM sign_up_triggers WHERE email = $1")
+            .bind(&email)
+            .execute(&state.db)
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn artist_sign_up_password_mismatch() {
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+        }
+        let state = web::Data::new(get_state().await);
+
+        let app = test::init_service(
+            App::new()
+                .app_data(state)
+                .configure(config_routes),
+        )
+        .await;
+
+        let req = test::TestRequest::post()
+            .uri("/v1/artist/sign_up")
+            .set_json(serde_json::json!({
+                "token": "any_token",
+                "name": "Test Artist",
+                "password": "TestPass1",
+                "password_confirmation": "Different1"
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 422);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn artist_sign_up_weak_password() {
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+        }
+        let state = web::Data::new(get_state().await);
+        let ts = chrono::Utc::now().timestamp_micros();
+        let email = format!("artistweak{}@example.com", ts);
+
+        let token = format!("artist_weak_token_{}", ts);
+        let future = (chrono::Utc::now() + chrono::Duration::days(1)).to_rfc3339();
+        let now = chrono::Utc::now().naive_utc();
+        let _trigger_id: i64 = sqlx::query_scalar(
+            r"INSERT INTO sign_up_triggers (email, token, expires_at, role, created_at, updated_at)
+               VALUES ($1, $2, $3, 'artist', $4, $4) RETURNING id"
+        )
+        .bind(&email)
+        .bind(&token)
+        .bind(&future)
+        .bind(&now)
+        .fetch_one(&state.db)
+        .await
+        .expect("Failed to seed trigger");
+
+        let app = test::init_service(
+            App::new()
+                .app_data(state.clone())
+                .configure(config_routes),
+        )
+        .await;
+
+        let req = test::TestRequest::post()
+            .uri("/v1/artist/sign_up")
+            .set_json(serde_json::json!({
+                "token": token,
+                "name": "Weak Artist",
+                "password": "weak",
+                "password_confirmation": "weak"
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 422);
+
+        let _ = sqlx::query(r"DELETE FROM sign_up_triggers WHERE email = $1")
+            .bind(&email)
+            .execute(&state.db)
+            .await;
     }
 }

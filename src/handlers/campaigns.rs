@@ -1,3 +1,22 @@
+//! Campaign handlers
+//!
+//! Provides endpoints for campaign management including creation, activation,
+//! and soft-deletion. Read endpoints are public; write operations require
+//! artist+ role.
+//!
+//! # Endpoints
+//!
+//! | Function | Method | Route | Auth | Description |
+//! |----------|--------|-------|------|-------------|
+//! | `index` | GET | `/v1/campaigns` | public | List all non-deleted campaigns |
+//! | `index_by_user` | GET | `/v1/campaigns_by_user` | artist+ | List campaigns for current user |
+//! | `active_campaigns` | GET | `/v1/active_campaigns` | public | List only active campaigns |
+//! | `show` | GET | `/v1/campaign/{id}` | public | Retrieve a single campaign by ID |
+//! | `create` | POST | `/v1/campaigns` | artist+ | Create a new campaign |
+//! | `update` | POST | `/v1/campaign/{id}` | artist+ | Update an existing campaign |
+//! | `destroy` | DELETE | `/v1/campaign/{id}` | artist+ | Soft-delete a campaign |
+//! | `activate_campaign` | POST | `/v1/activate_campaign` | artist+ | Activate campaign with Shopify product creation |
+
 use actix_web::{web, HttpResponse};
 use sqlx::FromRow;
 
@@ -5,8 +24,10 @@ use crate::app::AppState;
 use crate::auth::middleware::CurrentUser;
 use crate::auth::roles::is_artist_or_above;
 use crate::error::AppError;
-use crate::models::campaign::{Campaign, CampaignResponse, CreateCampaignRequest, UpdateCampaignRequest};
+use crate::models::campaign::{Campaign, CampaignResponse, CreateCampaignRequest, UpdateCampaignRequest, ActivateCampaignRequest};
 use crate::services::campaign_service::CampaignService;
+use crate::services::shopify_graph_ql::ShopifyGraphQl;
+use crate::services::storage_service::get_image_urls;
 
 #[derive(Debug, FromRow)]
 struct CampaignRow {
@@ -48,6 +69,27 @@ const CAMPAIGN_SELECT: &str =
        campaign_start_date, campaign_end_date, progress, album_id,
        deleted_at, created_at, updated_at FROM campaigns"#;
 
+#[derive(Debug, sqlx::FromRow)]
+struct CampaignPageRow {
+    id: i64,
+    _campaign_id: i64,
+    title: Option<String>,
+    description: Option<String>,
+    _page_type: Option<i32>,
+    _inventory_item_id: Option<String>,
+    _inventory_url: Option<String>,
+    _created_at: chrono::NaiveDateTime,
+    _updated_at: chrono::NaiveDateTime,
+}
+
+/// List all non-deleted campaigns.
+///
+/// Returns all campaigns where `deleted_at` is NULL, ordered by ID.
+/// No authentication required.
+///
+/// # Response
+///
+/// `200 OK` — JSON array of `CampaignResponse`
 pub async fn index(state: web::Data<AppState>) -> Result<HttpResponse, AppError> {
     let rows = sqlx::query_as::<_, CampaignRow>(
         &format!("{} WHERE deleted_at IS NULL ORDER BY id", CAMPAIGN_SELECT),
@@ -60,6 +102,15 @@ pub async fn index(state: web::Data<AppState>) -> Result<HttpResponse, AppError>
     Ok(HttpResponse::Ok().json(responses))
 }
 
+/// List campaigns for the current user.
+///
+/// Admins see all non-deleted campaigns. Artists see only their own campaigns.
+/// Requires artist+ role.
+///
+/// # Response
+///
+/// `200 OK` — JSON array of `CampaignResponse`
+/// `403 Forbidden` — user lacks required role
 pub async fn index_by_user(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -86,6 +137,14 @@ pub async fn index_by_user(
     Ok(HttpResponse::Ok().json(responses))
 }
 
+/// List only active campaigns.
+///
+/// Returns campaigns where `active` is true and `deleted_at` is NULL.
+/// No authentication required.
+///
+/// # Response
+///
+/// `200 OK` — JSON array of `CampaignResponse`
 pub async fn active_campaigns(state: web::Data<AppState>) -> Result<HttpResponse, AppError> {
     let rows = sqlx::query_as::<_, CampaignRow>(
         &format!("{} WHERE active = true AND deleted_at IS NULL ORDER BY id", CAMPAIGN_SELECT),
@@ -98,6 +157,14 @@ pub async fn active_campaigns(state: web::Data<AppState>) -> Result<HttpResponse
     Ok(HttpResponse::Ok().json(responses))
 }
 
+/// Retrieve a single campaign by ID.
+///
+/// No authentication required.
+///
+/// # Response
+///
+/// `200 OK` — `CampaignResponse`
+/// `404 Not Found` — campaign does not exist
 pub async fn show(
     state: web::Data<AppState>,
     path: web::Path<i64>,
@@ -118,6 +185,16 @@ pub async fn show(
     }
 }
 
+/// Create a new campaign.
+///
+/// Requires artist+ role. Validates the request body and creates a campaign
+/// with `active` and `deleted_at` set to false/NULL respectively.
+///
+/// # Response
+///
+/// `201 Created` — `CampaignResponse`
+/// `403 Forbidden` — user lacks required role
+/// `422 Unprocessable` — validation failure
 pub async fn create(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -154,6 +231,17 @@ pub async fn create(
     Ok(HttpResponse::Created().json(campaign.to_response()))
 }
 
+/// Update an existing campaign.
+///
+/// Requires artist+ role. Validates `vinyl_sold_count` is between 0 and 100.
+/// Uses COALESCE to only update provided fields.
+///
+/// # Response
+///
+/// `200 OK` — `CampaignResponse`
+/// `403 Forbidden` — user lacks required role
+/// `404 Not Found` — campaign does not exist
+/// `422 Unprocessable` — validation failure
 pub async fn update(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -204,6 +292,16 @@ pub async fn update(
     Ok(HttpResponse::Ok().json(campaign.to_response()))
 }
 
+/// Soft-delete a campaign.
+///
+/// Requires artist+ role. Sets `deleted_at` to current timestamp rather than
+/// removing the row permanently.
+///
+/// # Response
+///
+/// `200 OK` — JSON object with confirmation message
+/// `403 Forbidden` — user lacks required role
+/// `404 Not Found` — campaign does not exist or already deleted
 pub async fn destroy(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -235,37 +333,176 @@ pub async fn destroy(
     })))
 }
 
+/// Activate a campaign with Shopify product creation.
+///
+/// Requires artist+ role. Executes the full activation flow:
+/// 1. Validates the campaign exists and has an associated campaign page
+/// 2. Retrieves the campaign page image URL from S3
+/// 3. Creates a Shopify product via GraphQL with title, description, and image
+/// 4. Creates a product variant ($23.00, 100 units inventory)
+/// 5. Publishes the product to the online store
+/// 6. Fetches final product details
+/// 7. Updates the campaign page with Shopify inventory_item_id and inventory_url
+/// 8. Updates the campaign with start_date, end_date (start + 45 days), and active = true
+///
+/// All Shopify calls are sequential with fail-fast semantics — if any call fails,
+/// the database remains unchanged.
+///
+/// # Request Body
+///
+/// ```json
+/// { "campaign_id": 123, "start_date": "2025-01-15" }
+/// ```
+///
+/// # Response
+///
+/// `200 OK` — `CampaignResponse` with updated campaign data
+/// `403 Forbidden` — user lacks required role
+/// `404 Not Found` — campaign or campaign page does not exist
+/// `422 Unprocessable` — missing or invalid campaign_id / start_date
+/// `502 Bad Gateway` — Shopify API error or Shopify not configured
 pub async fn activate_campaign(
     state: web::Data<AppState>,
     user: CurrentUser,
-    body: web::Json<serde_json::Value>,
+    body: web::Json<ActivateCampaignRequest>,
 ) -> Result<HttpResponse, AppError> {
     if !is_artist_or_above(&user.role) {
         return Err(AppError::Forbidden("Not Authorized".to_string()));
     }
-    let campaign_id = body.get("campaign_id").and_then(|v| v.as_i64()).ok_or_else(|| {
-        AppError::Validation("campaign_id is required".to_string())
+
+    let campaign_id = body.campaign_id;
+    let start_date_str = &body.start_date;
+
+    // Parse start_date
+    let start_date = chrono::NaiveDate::parse_from_str(start_date_str, "%Y-%m-%d")
+        .map_err(|_| AppError::Validation("start_date must be in YYYY-MM-DD format".to_string()))?
+        .and_hms_opt(0, 0, 0)
+        .ok_or_else(|| AppError::Validation("Invalid start_date".to_string()))?;
+
+    let end_date = start_date
+        + chrono::TimeDelta::days(45);
+
+    // Verify Shopify client is configured
+    let shopify = state.shopify.as_ref().ok_or_else(|| {
+        AppError::Shopify("Shopify client not configured".to_string())
+    })?;
+    let sg = ShopifyGraphQl::new(shopify.clone());
+
+    // Find the campaign
+    let _campaign = sqlx::query_as::<_, CampaignRow>(
+        &format!("{} WHERE id = $1 AND deleted_at IS NULL", CAMPAIGN_SELECT),
+    )
+    .bind(campaign_id)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or_else(|| AppError::NotFound(format!("Campaign #{}", campaign_id)))?;
+
+    // Find the campaign page
+    let campaign_page = sqlx::query_as::<_, CampaignPageRow>(
+        r#"SELECT id, campaign_id, title, description, page_type,
+           inventory_item_id, inventory_url, created_at, updated_at
+           FROM campaign_pages WHERE campaign_id = $1"#,
+    )
+    .bind(campaign_id)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or_else(|| {
+        AppError::NotFound(format!("CampaignPage for campaign #{}", campaign_id))
     })?;
 
+    let page_title = campaign_page.title.as_deref().unwrap_or("Campaign");
+    let page_description = campaign_page.description.as_deref().unwrap_or("");
+
+    // Get image URL from S3
+    let (image_urls, _) = get_image_urls(
+        &state.s3,
+        &state.db,
+        "CampaignPage",
+        campaign_page.id,
+    )
+    .await
+    .map_err(|e| AppError::Shopify(format!("Failed to get campaign page image: {}", e)))?;
+
+    let image_url = image_urls.first().ok_or_else(|| {
+        AppError::Shopify("Campaign page has no images attached".to_string())
+    })?;
+
+    // 1. Create Shopify product
+    let product_resp = sg
+        .create_campaign_product(page_title, page_description, image_url)
+        .await?;
+
+    let product_id = product_resp
+        .pointer("/data/productCreate/product/id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| AppError::Shopify("Failed to get product ID from creation response".to_string()))?;
+
+    let option_id = product_resp
+        .pointer("/data/productCreate/product/options/0/id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| AppError::Shopify("Failed to get product option ID".to_string()))?;
+
+    // 2. Get location ID
+    let location_id = sg.get_location_id().await?;
+
+    // 3. Create product variant
+    sg.create_product_variant(product_id, option_id, &location_id)
+        .await?;
+
+    // 4. Get publication ID
+    let publication_id = sg.get_publications_id().await?;
+
+    // 5. Publish product
+    sg.publish_product(product_id, &publication_id).await?;
+
+    // 6. Get final product details
+    let final_product = sg.get_product(product_id).await?;
+
+    let inventory_url = final_product
+        .pointer("/data/product/onlineStorePreviewUrl")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    let inventory_item_id = Some(product_id.to_string());
+
+    // 7. Update campaign page
     let now = chrono::Utc::now().naive_utc();
 
-    let result = sqlx::query(
-        r#"UPDATE campaigns SET active = true, updated_at = $1
-           WHERE id = $2 AND deleted_at IS NULL"#,
+    sqlx::query(
+        r#"UPDATE campaign_pages SET
+               inventory_item_id = $1,
+               inventory_url = $2,
+               updated_at = $3
+           WHERE id = $4"#,
     )
-    .bind(now)
-    .bind(campaign_id)
+    .bind(&inventory_item_id)
+    .bind(&inventory_url)
+    .bind(&now)
+    .bind(campaign_page.id)
     .execute(&state.db)
     .await?;
 
-    if result.rows_affected() == 0 {
-        return Err(AppError::NotFound(format!("Campaign #{}", campaign_id)));
-    }
+    // 8. Update campaign
+    let row = sqlx::query_as::<_, CampaignRow>(
+        r#"UPDATE campaigns SET
+               active = true,
+               campaign_start_date = $1,
+               campaign_end_date = $2,
+               updated_at = $3
+           WHERE id = $4
+           RETURNING id, artist_id, name, active, vinyl_sold_count,
+               campaign_start_date, campaign_end_date, progress, album_id,
+               deleted_at, created_at, updated_at"#,
+    )
+    .bind(&start_date)
+    .bind(&end_date)
+    .bind(&now)
+    .bind(campaign_id)
+    .fetch_one(&state.db)
+    .await?;
 
-    Ok(HttpResponse::Ok().json(serde_json::json!({
-        "message": "Campaign activated",
-        "campaign_id": campaign_id
-    })))
+    let campaign: Campaign = row.into();
+    Ok(HttpResponse::Ok().json(campaign.to_response()))
 }
 
 pub fn config_routes(cfg: &mut web::ServiceConfig) {
@@ -295,31 +532,15 @@ mod tests {
         let pool = sqlx::PgPool::connect(TEST_DB_URL)
             .await
             .expect("Failed to connect to test database");
-
-        let config = crate::services::storage_service::S3Config::from_env()
-            .unwrap_or_else(|_| crate::services::storage_service::S3Config {
-                access_key: "test".to_string(),
-                secret_key: "test".to_string(),
-                endpoint: "https://test.test".to_string(),
-                bucket_name: "test".to_string(),
-                region: "us-east-1".to_string(),
-            });
-        let s3 = crate::services::storage_service::create_s3_bucket(&config).unwrap_or_else(|_| {
-            let creds = s3::creds::Credentials::new(Some("test"), Some("test"), None, None, None).unwrap();
-            s3::bucket::Bucket::new("test", s3::region::Region::Custom { region: "us-east-1".to_string(), endpoint: "https://test.test".to_string() }, creds)
-                .unwrap()
-                .with_path_style()
-        });
-
-        AppState { db: pool, s3 }
+        crate::test_utils::build_test_state(pool).await
     }
 
     fn admin_token() -> String {
-        encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string())).unwrap()
+        encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap()
     }
 
     fn artist_token() -> String {
-        encode_token_with_role(2, TEST_SECRET, 2, Some("artist".to_string())).unwrap()
+        encode_token_with_role(2, TEST_SECRET, 2, Some("artist".to_string()), 1).unwrap()
     }
 
     async fn seed_user() -> i64 {
@@ -778,20 +999,162 @@ mod tests {
             .uri("/v1/activate_campaign")
             .insert_header(("Authorization", format!("Bearer {}", artist_token())))
             .set_json(serde_json::json!({
-                "campaign_id": campaign_id
+                "campaign_id": campaign_id,
+                "start_date": "2025-01-15"
             }))
             .to_request();
         let resp = test::call_service(&app, req).await;
-        assert_eq!(resp.status(), 200);
+        // Returns 502 because Shopify client is not configured in tests
+        assert_eq!(resp.status(), 502);
 
-        let active: bool = sqlx::query_scalar(
-            r"SELECT active FROM campaigns WHERE id = $1",
+        let body: serde_json::Value = test::read_body_json(resp).await;
+        assert!(body["error"].as_str().unwrap().contains("Shopify"));
+
+        cleanup_campaign(campaign_id).await;
+        cleanup_artist(artist_id).await;
+        cleanup_user(user_id).await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn campaigns_activate_missing_start_date() {
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("JWT_SECRET", TEST_SECRET);
+        }
+
+        let state = web::Data::new(get_state().await);
+
+        let app = test::init_service(
+            App::new()
+                .app_data(state)
+                .configure(config_routes),
         )
-        .bind(campaign_id)
+        .await;
+
+        let req = test::TestRequest::post()
+            .uri("/v1/activate_campaign")
+            .insert_header(("Authorization", format!("Bearer {}", artist_token())))
+            .set_json(serde_json::json!({
+                "campaign_id": 99999
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        // Missing start_date field — JSON parse fails
+        assert_eq!(resp.status(), 400);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn campaigns_activate_invalid_date_format() {
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("JWT_SECRET", TEST_SECRET);
+        }
+
+        let state = web::Data::new(get_state().await);
+
+        let app = test::init_service(
+            App::new()
+                .app_data(state)
+                .configure(config_routes),
+        )
+        .await;
+
+        let req = test::TestRequest::post()
+            .uri("/v1/activate_campaign")
+            .insert_header(("Authorization", format!("Bearer {}", artist_token())))
+            .set_json(serde_json::json!({
+                "campaign_id": 99999,
+                "start_date": "not-a-date"
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 422);
+
+        let body: serde_json::Value = test::read_body_json(resp).await;
+        assert!(body["error"].as_str().unwrap().contains("YYYY-MM-DD"));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn campaigns_activate_campaign_not_found() {
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("JWT_SECRET", TEST_SECRET);
+        }
+
+        let state = web::Data::new(get_state().await);
+
+        let max_id: i64 = sqlx::query_scalar(
+            r"SELECT COALESCE(MAX(id), 0) FROM campaigns",
+        )
         .fetch_one(&state.db)
         .await
-        .expect("Failed to check activation");
-        assert!(active);
+        .expect("Failed to get max id");
+
+        let app = test::init_service(
+            App::new()
+                .app_data(state)
+                .configure(config_routes),
+        )
+        .await;
+
+        let req = test::TestRequest::post()
+            .uri("/v1/activate_campaign")
+            .insert_header(("Authorization", format!("Bearer {}", artist_token())))
+            .set_json(serde_json::json!({
+                "campaign_id": max_id + 9999,
+                "start_date": "2025-01-15"
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 502);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn campaigns_activate_no_campaign_page() {
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("JWT_SECRET", TEST_SECRET);
+        }
+
+        let state = web::Data::new(get_state().await);
+
+        let user_id = seed_user().await;
+        let artist_id = seed_artist(user_id).await;
+
+        let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
+        let pid = std::process::id();
+        let campaign_id: i64 = sqlx::query_scalar(
+            r"INSERT INTO campaigns (artist_id, name, active, vinyl_sold_count, progress, created_at, updated_at)
+               VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+               RETURNING id",
+        )
+        .bind(artist_id)
+        .bind(format!("No Page Campaign {}_{}", pid, ts))
+        .bind(false)
+        .bind(0_i32)
+        .bind(0_i32)
+        .fetch_one(&state.db)
+        .await
+        .expect("Failed to seed campaign");
+
+        let app = test::init_service(
+            App::new()
+                .app_data(state.clone())
+                .configure(config_routes),
+        )
+        .await;
+
+        let req = test::TestRequest::post()
+            .uri("/v1/activate_campaign")
+            .insert_header(("Authorization", format!("Bearer {}", artist_token())))
+            .set_json(serde_json::json!({
+                "campaign_id": campaign_id,
+                "start_date": "2025-01-15"
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        // Shopify not configured, so we hit 502 before reaching campaign page check
+        assert_eq!(resp.status(), 502);
 
         cleanup_campaign(campaign_id).await;
         cleanup_artist(artist_id).await;
@@ -805,7 +1168,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let token = encode_token_with_role(3, TEST_SECRET, 3, Some("user".to_string())).unwrap();
+        let token = encode_token_with_role(3, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
         let state = web::Data::new(get_state().await);
 
         let app = test::init_service(

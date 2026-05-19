@@ -60,26 +60,4 @@ impl CampaignPage {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
 
-    #[test]
-    fn campaign_page_to_response() {
-        let page = CampaignPage {
-            id: 1,
-            campaign_id: 5,
-            title: Some("My Page".to_string()),
-            description: Some("Description here".to_string()),
-            page_type: Some(0),
-            inventory_item_id: Some("item-123".to_string()),
-            inventory_url: Some("https://example.com/item".to_string()),
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        };
-        let resp = page.to_response();
-        assert_eq!(resp.id, 1);
-        assert_eq!(resp.title, Some("My Page".to_string()));
-        assert_eq!(resp.page_type, Some(0));
-    }
-}

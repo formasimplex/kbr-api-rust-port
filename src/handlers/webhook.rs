@@ -1,3 +1,18 @@
+//! Webhook handlers
+//!
+//! Provides endpoints for external webhook integrations, including
+//! progress updates, customer data requests, and GDPR-related data
+//! redaction. All endpoints are public.
+//!
+//! # Endpoints
+//!
+//! | Function | Method | Route | Auth | Description |
+//! |----------|--------|-------|------|-------------|
+//! | `update_progress` | POST | `/v1/webhook/update_progress` | public | Update progress for a record |
+//! | `customers_data_request` | POST | `/v1/webhook/customers_data_request` | public | Handle a customer data request |
+//! | `customers_redact` | POST | `/v1/webhook/customers_redact` | public | Handle a customer data redaction request |
+//! | `shop_redact` | POST | `/v1/webhook/shop_redact` | public | Handle a shop data redaction request |
+
 use actix_web::{web, HttpResponse};
 use serde::Deserialize;
 use sqlx::FromRow;
@@ -5,11 +20,13 @@ use sqlx::FromRow;
 use crate::app::AppState;
 use crate::error::AppError;
 
+/// Top-level webhook request body containing inventory data.
 #[derive(Debug, Deserialize)]
 pub struct WebhookInventoryParams {
     webhook: WebhookPayload,
 }
 
+/// Webhook payload with Shopify inventory item details.
 #[derive(Debug, Deserialize)]
 pub struct WebhookPayload {
     inventory_item_id: String,
@@ -45,6 +62,15 @@ struct CampaignRow {
     updated_at: chrono::NaiveDateTime,
 }
 
+/// Update campaign progress from a Shopify inventory webhook.
+///
+/// Looks up the campaign page by `inventory_item_id`, calculates vinyl
+/// sold as `target (100) - available`, and computes progress as the
+/// average of vinyl progress and time-based progress.
+///
+/// # Response
+///
+/// `200 OK` — `{"status": "ok"}` (always succeeds, no-op if not found)
 pub async fn update_progress(
     state: web::Data<AppState>,
     body: web::Json<WebhookInventoryParams>,
@@ -115,14 +141,35 @@ pub async fn update_progress(
     Ok(HttpResponse::Ok().json(serde_json::json!({ "status": "ok" })))
 }
 
+/// Handle a customer data request webhook (GDPR compliance).
+///
+/// Currently a stub that acknowledges the request.
+///
+/// # Response
+///
+/// `200 OK` — `{"status": "ok"}`
 pub async fn customers_data_request() -> Result<HttpResponse, AppError> {
     Ok(HttpResponse::Ok().json(serde_json::json!({ "status": "ok" })))
 }
 
+/// Handle a customer data redaction webhook (GDPR right to erasure).
+///
+/// Currently a stub that acknowledges the request.
+///
+/// # Response
+///
+/// `200 OK` — `{"status": "ok"}`
 pub async fn customers_redact() -> Result<HttpResponse, AppError> {
     Ok(HttpResponse::Ok().json(serde_json::json!({ "status": "ok" })))
 }
 
+/// Handle a shop-level data redaction webhook.
+///
+/// Currently a stub that acknowledges the request.
+///
+/// # Response
+///
+/// `200 OK` — `{"status": "ok"}`
 pub async fn shop_redact() -> Result<HttpResponse, AppError> {
     Ok(HttpResponse::Ok().json(serde_json::json!({ "status": "ok" })))
 }
@@ -153,27 +200,11 @@ mod tests {
         format!("{}_{}", ts, count)
     }
 
-    async fn get_state() -> AppState {
+async fn get_state() -> AppState {
         let pool = sqlx::PgPool::connect(TEST_DB_URL)
             .await
             .expect("Failed to connect to test database");
-
-        let config = crate::services::storage_service::S3Config::from_env()
-            .unwrap_or_else(|_| crate::services::storage_service::S3Config {
-                access_key: "test".to_string(),
-                secret_key: "test".to_string(),
-                endpoint: "https://test.test".to_string(),
-                bucket_name: "test".to_string(),
-                region: "us-east-1".to_string(),
-            });
-        let s3 = crate::services::storage_service::create_s3_bucket(&config).unwrap_or_else(|_| {
-            let creds = s3::creds::Credentials::new(Some("test"), Some("test"), None, None, None).unwrap();
-            s3::bucket::Bucket::new("test", s3::region::Region::Custom { region: "us-east-1".to_string(), endpoint: "https://test.test".to_string() }, creds)
-                .unwrap()
-                .with_path_style()
-        });
-
-        AppState { db: pool, s3 }
+        crate::test_utils::build_test_state(pool).await
     }
 
     async fn seed_campaign_with_page() -> (i64, i64, String) {

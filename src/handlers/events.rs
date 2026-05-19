@@ -1,11 +1,28 @@
-use actix_web::{web, HttpResponse};
+//! Event handlers
+//!
+//! Provides endpoints for event management including creation, listing,
+//! and updates. Read endpoints are public; write operations require artist+ role.
+//!
+//! # Endpoints
+//!
+//! | Function | Method | Route | Auth | Description |
+//! |----------|--------|-------|------|-------------|
+//! | `index` | GET | `/v1/kbrevents` | public | List all events |
+//! | `show` | GET | `/v1/kbrevent/{id}` | public | Retrieve a single event by ID |
+//! | `index_by_user` | GET | `/v1/kbr_events_by_user` | artist+ | List events for current user |
+//! | `create` | POST | `/v1/kbrevents` | artist+ | Create a new event |
+//! | `update` | PUT | `/v1/kbrevents/{id}` | artist+ | Update an existing event |
+
+use actix_web::{HttpResponse, web};
 use sqlx::FromRow;
 
 use crate::app::AppState;
 use crate::auth::middleware::CurrentUser;
 use crate::auth::roles::is_artist_or_above;
 use crate::error::AppError;
-use crate::models::kbr_event::{CreateKbrEventRequest, KbrEvent, KbrEventResponse, UpdateKbrEventRequest};
+use crate::models::kbr_event::{
+    CreateKbrEventRequest, KbrEvent, KbrEventResponse, UpdateKbrEventRequest,
+};
 
 #[derive(Debug, FromRow)]
 struct KbrEventRow {
@@ -44,11 +61,18 @@ impl From<KbrEventRow> for KbrEvent {
     }
 }
 
+/// List all events.
+///
+/// Returns all events ordered by ID. No authentication required.
+///
+/// # Response
+///
+/// `200 OK` — JSON array of `KbrEventResponse`
 pub async fn index(state: web::Data<AppState>) -> Result<HttpResponse, AppError> {
     let rows = sqlx::query_as::<_, KbrEventRow>(
         r#"SELECT id, name, description, active, event_start_date, event_end_date,
            create_by_user_id, event_url, qr_encode_string, ticket_url, external_url,
-           created_at, updated_at FROM kbr_events ORDER BY id"#
+           created_at, updated_at FROM kbr_events ORDER BY id"#,
     )
     .fetch_all(&state.db)
     .await?;
@@ -58,6 +82,14 @@ pub async fn index(state: web::Data<AppState>) -> Result<HttpResponse, AppError>
     Ok(HttpResponse::Ok().json(responses))
 }
 
+/// Retrieve a single event by ID.
+///
+/// No authentication required.
+///
+/// # Response
+///
+/// `200 OK` — `KbrEventResponse`
+/// `404 Not Found` — event does not exist
 pub async fn show(
     state: web::Data<AppState>,
     path: web::Path<i64>,
@@ -67,7 +99,7 @@ pub async fn show(
     match sqlx::query_as::<_, KbrEventRow>(
         r#"SELECT id, name, description, active, event_start_date, event_end_date,
            create_by_user_id, event_url, qr_encode_string, ticket_url, external_url,
-           created_at, updated_at FROM kbr_events WHERE id = $1"#
+           created_at, updated_at FROM kbr_events WHERE id = $1"#,
     )
     .bind(id)
     .fetch_optional(&state.db)
@@ -81,6 +113,15 @@ pub async fn show(
     }
 }
 
+/// List events for the current user.
+///
+/// Admins see all events. Artists see only events they created.
+/// Requires artist+ role.
+///
+/// # Response
+///
+/// `200 OK` — JSON array of `KbrEventResponse`
+/// `403 Forbidden` — user lacks required role
 pub async fn index_by_user(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -89,7 +130,7 @@ pub async fn index_by_user(
         sqlx::query_as::<_, KbrEventRow>(
             r#"SELECT id, name, description, active, event_start_date, event_end_date,
                create_by_user_id, event_url, qr_encode_string, ticket_url, external_url,
-               created_at, updated_at FROM kbr_events ORDER BY id"#
+               created_at, updated_at FROM kbr_events ORDER BY id"#,
         )
         .fetch_all(&state.db)
         .await?
@@ -97,7 +138,7 @@ pub async fn index_by_user(
         sqlx::query_as::<_, KbrEventRow>(
             r#"SELECT id, name, description, active, event_start_date, event_end_date,
                create_by_user_id, event_url, qr_encode_string, ticket_url, external_url,
-               created_at, updated_at FROM kbr_events WHERE create_by_user_id = $1 ORDER BY id"#
+               created_at, updated_at FROM kbr_events WHERE create_by_user_id = $1 ORDER BY id"#,
         )
         .bind(user.id as i32)
         .fetch_all(&state.db)
@@ -111,6 +152,17 @@ pub async fn index_by_user(
     Ok(HttpResponse::Ok().json(responses))
 }
 
+/// Create a new event.
+///
+/// Requires artist+ role. Validates that name, description, and dates are
+/// provided. Strips carriage returns and newlines from the description.
+/// Validates and checks ticket_url and external_url against Safe Browsing.
+///
+/// # Response
+///
+/// `201 Created` — `KbrEventResponse`
+/// `403 Forbidden` — user lacks required role
+/// `422 Unprocessable` — validation failure
 pub async fn create(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -119,10 +171,26 @@ pub async fn create(
     if !is_artist_or_above(&user.role) {
         return Err(AppError::Forbidden("Not Authorized".to_string()));
     }
-    if !KbrEvent::validate_required(&body.name, &body.description, true, true) {
+    if !KbrEvent::validate_required(&body.name, &body.description) {
         return Err(AppError::Validation(
-            "name, description, dates, and user are required".to_string(),
+            "name, description, required".to_string(),
         ));
+    }
+
+    for url in body.ticket_url.iter().chain(body.external_url.iter()) {
+        if !KbrEvent::validate_url(url) {
+            return Err(AppError::Validation(format!(
+                "Invalid URL format: {}. Must start with http:// or https://",
+                url
+            )));
+        }
+        if let Some(ref sb) = state.safe_browsing
+            && sb.is_malicious(url).await
+        {
+            return Err(AppError::UnprocessableEntity(
+                "The URL provided is flagged as potentially malicious".to_string(),
+            ));
+        }
     }
 
     let now = chrono::Utc::now().naive_utc();
@@ -153,6 +221,18 @@ pub async fn create(
     Ok(HttpResponse::Created().json(event.to_response()))
 }
 
+/// Update an existing event.
+///
+/// Requires artist+ role. Updates name, description, active status, ticket URL,
+/// and external URL using COALESCE for partial updates. Strips carriage returns
+/// and newlines from name and description. Validates and checks ticket_url and
+/// external_url against Safe Browsing.
+///
+/// # Response
+///
+/// `200 OK` — `KbrEventResponse`
+/// `403 Forbidden` — user lacks required role
+/// `404 Not Found` — event does not exist
 pub async fn update(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -163,6 +243,22 @@ pub async fn update(
         return Err(AppError::Forbidden("Not Authorized".to_string()));
     }
     let id = path.into_inner();
+
+    for url in body.ticket_url.iter().chain(body.external_url.iter()) {
+        if !KbrEvent::validate_url(url) {
+            return Err(AppError::Validation(format!(
+                "Invalid URL format: {}. Must start with http:// or https://",
+                url
+            )));
+        }
+        if let Some(ref sb) = state.safe_browsing
+            && sb.is_malicious(url).await
+        {
+            return Err(AppError::UnprocessableEntity(
+                "The URL provided is flagged as potentially malicious".to_string(),
+            ));
+        }
+    }
 
     let now = chrono::Utc::now().naive_utc();
 
@@ -208,7 +304,7 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 mod tests {
     use super::*;
     use crate::auth::jwt::encode_token_with_role;
-    use actix_web::{test, App};
+    use actix_web::{App, test};
 
     const TEST_SECRET: &str = "test-secret-key";
     const TEST_DB_URL: &str = "postgresql://ws@localhost:5432/kbr_test";
@@ -226,31 +322,15 @@ mod tests {
         let pool = sqlx::PgPool::connect(TEST_DB_URL)
             .await
             .expect("Failed to connect to test database");
-
-        let config = crate::services::storage_service::S3Config::from_env()
-            .unwrap_or_else(|_| crate::services::storage_service::S3Config {
-                access_key: "test".to_string(),
-                secret_key: "test".to_string(),
-                endpoint: "https://test.test".to_string(),
-                bucket_name: "test".to_string(),
-                region: "us-east-1".to_string(),
-            });
-        let s3 = crate::services::storage_service::create_s3_bucket(&config).unwrap_or_else(|_| {
-            let creds = s3::creds::Credentials::new(Some("test"), Some("test"), None, None, None).unwrap();
-            s3::bucket::Bucket::new("test", s3::region::Region::Custom { region: "us-east-1".to_string(), endpoint: "https://test.test".to_string() }, creds)
-                .unwrap()
-                .with_path_style()
-        });
-
-        AppState { db: pool, s3 }
+        crate::test_utils::build_test_state(pool).await
     }
 
     fn admin_token() -> String {
-        encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string())).unwrap()
+        encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap()
     }
 
     fn artist_token() -> String {
-        encode_token_with_role(2, TEST_SECRET, 2, Some("artist".to_string())).unwrap()
+        encode_token_with_role(2, TEST_SECRET, 2, Some("artist".to_string()), 1).unwrap()
     }
 
     async fn seed_user() -> (i64, String) {
@@ -258,7 +338,7 @@ mod tests {
         let id: i64 = sqlx::query_scalar(
             r"INSERT INTO users (email, password_digest, role, created_at, updated_at)
                VALUES ($1, $2, $3, NOW(), NOW())
-               RETURNING id"
+               RETURNING id",
         )
         .bind(&email)
         .bind("hashed_password_test".to_string())
@@ -275,7 +355,7 @@ mod tests {
             r"INSERT INTO kbr_events (name, description, active, event_start_date, event_end_date,
                create_by_user_id, ticket_url, created_at, updated_at)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-               RETURNING id"
+               RETURNING id",
         )
         .bind(format!("Test Event {}", unique_suffix()))
         .bind("A test event description")
@@ -311,14 +391,11 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn events_index_public() {
-        unsafe { std::env::set_var("DATABASE_URL", TEST_DB_URL); }
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+        }
         let state = web::Data::new(get_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::get().uri("/v1/kbrevents").to_request();
         let resp = test::call_service(&app, req).await;
@@ -327,18 +404,15 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn event_show_found() {
-        unsafe { std::env::set_var("DATABASE_URL", TEST_DB_URL); }
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+        }
         let state = web::Data::new(get_state().await);
 
         let (user_id, user_email) = seed_user().await;
         let event_id = seed_event(user_id as i32).await;
 
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::get()
             .uri(&format!("/v1/kbrevent/{}", event_id))
@@ -355,22 +429,17 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn event_show_not_found() {
-        unsafe { std::env::set_var("DATABASE_URL", TEST_DB_URL); }
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+        }
         let state = web::Data::new(get_state().await);
 
-        let max_id: i64 = sqlx::query_scalar(
-            r"SELECT COALESCE(MAX(id), 0) FROM kbr_events"
-        )
-        .fetch_one(&state.db)
-        .await
-        .expect("Failed to get max id");
+        let max_id: i64 = sqlx::query_scalar(r"SELECT COALESCE(MAX(id), 0) FROM kbr_events")
+            .fetch_one(&state.db)
+            .await
+            .expect("Failed to get max id");
 
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::get()
             .uri(&format!("/v1/kbrevent/{}", max_id + 9999))
@@ -387,12 +456,8 @@ mod tests {
         }
 
         let state = web::Data::new(get_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
+        let app =
+            test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
 
         let name = format!("New Event {}", unique_suffix());
         let now = chrono::Utc::now();
@@ -426,15 +491,10 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let token = encode_token_with_role(2, TEST_SECRET, 3, Some("user".to_string())).unwrap();
+        let token = encode_token_with_role(2, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
         let state = web::Data::new(get_state().await);
 
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let now = chrono::Utc::now();
         let req = test::TestRequest::post()
@@ -463,12 +523,7 @@ mod tests {
         let (user_id, user_email) = seed_user().await;
         let event_id = seed_event(user_id as i32).await;
 
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::get()
             .uri("/v1/kbr_events_by_user")
@@ -493,12 +548,7 @@ mod tests {
         let (user_id, user_email) = seed_user().await;
         let event_id = seed_event(user_id as i32).await;
 
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::get()
             .uri("/v1/kbr_events_by_user")
@@ -518,15 +568,10 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let token = encode_token_with_role(2, TEST_SECRET, 3, Some("user".to_string())).unwrap();
+        let token = encode_token_with_role(2, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
         let state = web::Data::new(get_state().await);
 
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::get()
             .uri("/v1/kbr_events_by_user")
@@ -548,12 +593,8 @@ mod tests {
         let (user_id, user_email) = seed_user().await;
         let event_id = seed_event(user_id as i32).await;
 
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
+        let app =
+            test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
 
         let req = test::TestRequest::put()
             .uri(&format!("/v1/kbrevents/{}", event_id))
@@ -583,19 +624,12 @@ mod tests {
 
         let state = web::Data::new(get_state().await);
 
-        let max_id: i64 = sqlx::query_scalar(
-            r"SELECT COALESCE(MAX(id), 0) FROM kbr_events"
-        )
-        .fetch_one(&state.db)
-        .await
-        .expect("Failed to get max id");
+        let max_id: i64 = sqlx::query_scalar(r"SELECT COALESCE(MAX(id), 0) FROM kbr_events")
+            .fetch_one(&state.db)
+            .await
+            .expect("Failed to get max id");
 
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::put()
             .uri(&format!("/v1/kbrevents/{}", max_id + 9999))

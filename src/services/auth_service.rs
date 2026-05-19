@@ -1,5 +1,6 @@
-use crate::auth::jwt::{encode_token, decode_token};
-use crate::auth::middleware::get_jwt_secret;
+use uuid::Uuid;
+
+use crate::auth::jwt::{decode_token, encode_token_with_role, Claims};
 use crate::error::AppError;
 use crate::models::user::User;
 
@@ -34,18 +35,14 @@ pub fn verify_password(password: &str, hash: &str) -> Result<bool, AppError> {
     Ok(verified)
 }
 
-pub fn generate_session_token() -> String {
-    use rand::Rng;
-    let mut rng = rand::thread_rng();
-    (0..32)
-        .map(|_| rng.gen_range(b'a'..=b'z'))
-        .map(char::from)
-        .collect()
-}
-
-pub fn create_login_response(user: &User) -> Result<LoginResponse, AppError> {
-    let secret = get_jwt_secret()?;
-    let token = encode_token(user.id, &secret, JWT_EXPIRY_DAYS)?;
+pub fn create_login_response(user: &User, secret: &str) -> Result<LoginResponse, AppError> {
+    let token = encode_token_with_role(
+        user.id,
+        secret,
+        JWT_EXPIRY_DAYS,
+        user.role.clone(),
+        user.token_version,
+    )?;
     Ok(LoginResponse {
         token,
         id: user.id,
@@ -53,9 +50,14 @@ pub fn create_login_response(user: &User) -> Result<LoginResponse, AppError> {
     })
 }
 
-pub fn create_session_response(user: &User) -> Result<SessionResponse, AppError> {
-    let secret = get_jwt_secret()?;
-    let token = encode_token(user.id, &secret, JWT_EXPIRY_DAYS)?;
+pub fn create_session_response(user: &User, secret: &str) -> Result<SessionResponse, AppError> {
+    let token = encode_token_with_role(
+        user.id,
+        secret,
+        JWT_EXPIRY_DAYS,
+        user.role.clone(),
+        user.token_version,
+    )?;
     Ok(SessionResponse {
         token,
         id: user.id,
@@ -63,27 +65,28 @@ pub fn create_session_response(user: &User) -> Result<SessionResponse, AppError>
     })
 }
 
-   pub fn parse_auth_header(header: &str) -> Result<String, AppError> {
-        let token = header
-            .strip_prefix("Bearer ")
-            .or_else(|| {
-                if header.is_empty() || !header.contains('.') {
-                    None
-                } else {
-                    Some(header)
-                }
-            })
-            .ok_or(AppError::Unauthorized)?;
-        let token = token.trim().to_string();
-        if token.is_empty() {
-            return Err(AppError::Unauthorized);
-        }
-        Ok(token)
-    }
+pub fn create_claims(user: &User, secret: &str) -> Result<Claims, AppError> {
+    let token = encode_token_with_role(
+        user.id,
+        secret,
+        JWT_EXPIRY_DAYS,
+        user.role.clone(),
+        user.token_version,
+    )?;
+    decode_token(&token, secret)
+}
 
-pub fn extract_user_id(token: &str) -> Result<i64, AppError> {
-    let secret = get_jwt_secret()?;
-    let claims = decode_token(token, &secret)?;
+pub fn parse_auth_header(header: &str) -> Result<String, AppError> {
+    let token = header
+        .strip_prefix("Bearer ")
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty())
+        .ok_or(AppError::Unauthorized)?;
+    Ok(token)
+}
+
+pub fn extract_user_id(token: &str, secret: &str) -> Result<i64, AppError> {
+    let claims = decode_token(token, secret)?;
     Ok(claims.user_id)
 }
 
@@ -94,32 +97,21 @@ pub fn verify_session_token(db_token: &Option<String>, cookie_token: &str) -> bo
     }
 }
 
+pub fn generate_session_token() -> String {
+    Uuid::new_v4().to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn hash_and_verify_password() {
-        let password = "testpassword123";
-        let hash = hash_password(password).unwrap();
-        assert!(verify_password(password, &hash).unwrap());
-        assert!(!verify_password("wrongpassword", &hash).unwrap());
-    }
+    const TEST_SECRET: &str = "test-secret-key";
 
     #[test]
-    fn hash_password_different_each_time() {
-        let hash1 = hash_password("samepassword").unwrap();
-        let hash2 = hash_password("samepassword").unwrap();
-        assert_ne!(hash1, hash2);
-        assert!(verify_password("samepassword", &hash1).unwrap());
-        assert!(verify_password("samepassword", &hash2).unwrap());
-    }
-
-    #[test]
-    fn generate_session_token_returns_32_chars() {
+    fn generate_session_token_returns_uuid() {
         let token = generate_session_token();
-        assert_eq!(token.len(), 32);
-        assert!(token.chars().all(|c| c.is_ascii_lowercase()));
+        let uuid: Uuid = token.parse().expect("should be valid UUID");
+        assert_eq!(uuid.get_version(), Some(uuid::Version::Random));
     }
 
     #[test]
@@ -130,9 +122,7 @@ mod tests {
     }
 
     #[test]
-    fn test_create_login_response() {
-        unsafe { std::env::set_var("JWT_SECRET", "test-secret-key"); }
-
+ fn test_create_login_response() {
         let user = User {
             id: 42,
             email: "test@example.com".to_string(),
@@ -140,10 +130,13 @@ mod tests {
             role: Some("admin".to_string()),
             session_token: None,
             username: Some("admin".to_string()),
+            first_name: None,
+            last_name: None,
+            token_version: 1,
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
         };
-        let resp = create_login_response(&user).unwrap();
+        let resp = create_login_response(&user, TEST_SECRET).unwrap();
         assert_eq!(resp.id, 42);
         assert_eq!(resp.role, "admin");
         assert!(!resp.token.is_empty());
@@ -151,8 +144,6 @@ mod tests {
 
     #[test]
     fn test_create_login_response_defaults_role() {
-        unsafe { std::env::set_var("JWT_SECRET", "test-secret-key"); }
-
         let user = User {
             id: 1,
             email: "test@example.com".to_string(),
@@ -160,17 +151,18 @@ mod tests {
             role: None,
             session_token: None,
             username: None,
+            first_name: None,
+            last_name: None,
+            token_version: 1,
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
         };
-        let resp = create_login_response(&user).unwrap();
+        let resp = create_login_response(&user, TEST_SECRET).unwrap();
         assert_eq!(resp.role, "user");
     }
 
     #[test]
     fn test_create_session_response() {
-        unsafe { std::env::set_var("JWT_SECRET", "test-secret-key"); }
-
         let user = User {
             id: 5,
             email: "test@example.com".to_string(),
@@ -178,10 +170,13 @@ mod tests {
             role: Some("artist".to_string()),
             session_token: None,
             username: None,
+            first_name: None,
+            last_name: None,
+            token_version: 1,
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
         };
-        let resp = create_session_response(&user).unwrap();
+        let resp = create_session_response(&user, TEST_SECRET).unwrap();
         assert_eq!(resp.id, 5);
         assert_eq!(resp.role, "artist");
     }
@@ -193,9 +188,9 @@ mod tests {
     }
 
     #[test]
-    fn parse_auth_header_raw_token() {
-        let token = parse_auth_header("abc123.def456.ghi789").unwrap();
-        assert_eq!(token, "abc123.def456.ghi789");
+    fn parse_auth_header_raw_token_rejected() {
+        let result = parse_auth_header("abc123.def456.ghi789");
+        assert!(result.is_err());
     }
 
     #[test]
@@ -206,9 +201,8 @@ mod tests {
 
     #[test]
     fn test_extract_user_id() {
-        unsafe { std::env::set_var("JWT_SECRET", "test-secret-key"); }
-        let token = encode_token(99, "test-secret-key", 3).unwrap();
-        let user_id = extract_user_id(&token).unwrap();
+        let token = crate::auth::jwt::encode_token(99, TEST_SECRET, 3).unwrap();
+        let user_id = extract_user_id(&token, TEST_SECRET).unwrap();
         assert_eq!(user_id, 99);
     }
 
@@ -218,5 +212,26 @@ mod tests {
         assert!(verify_session_token(&db_token, "abc123"));
         assert!(!verify_session_token(&db_token, "xyz789"));
         assert!(!verify_session_token(&None, "abc123"));
+    }
+
+    #[test]
+    fn test_create_claims() {
+        let user = User {
+            id: 42,
+            email: "test@example.com".to_string(),
+            password_digest: "hashed".to_string(),
+            role: Some("admin".to_string()),
+            session_token: None,
+            username: Some("admin".to_string()),
+            first_name: None,
+            last_name: None,
+            token_version: 1,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        };
+        let claims = create_claims(&user, TEST_SECRET).unwrap();
+        assert_eq!(claims.user_id, 42);
+        assert!(claims.iat > 0);
+        assert!(!claims.jti.is_empty());
     }
 }

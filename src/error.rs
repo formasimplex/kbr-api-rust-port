@@ -18,6 +18,9 @@ pub enum AppError {
     #[error("not found: {0}")]
     NotFound(String),
 
+    #[error("conflict: {0}")]
+    Conflict(String),
+
     #[error("validation error: {0}")]
     Validation(String),
 
@@ -41,6 +44,18 @@ pub enum AppError {
 
     #[error("storage error: {0}")]
     Storage(String),
+
+    #[error("Shopify API error: {0}")]
+    Shopify(String),
+
+    #[error("Mailchimp API error: {0}")]
+    Mailchimp(String),
+
+    #[error("Safe Browsing error: {0}")]
+    SafeBrowsing(String),
+
+    #[error("Email error: {0}")]
+    Email(String),
 }
 
 impl actix_web::ResponseError for AppError {
@@ -51,6 +66,7 @@ impl actix_web::ResponseError for AppError {
             Self::Unauthorized => StatusCode::UNAUTHORIZED,
             Self::Forbidden(_) => StatusCode::FORBIDDEN,
             Self::NotFound(_) => StatusCode::NOT_FOUND,
+            Self::Conflict(_) => StatusCode::CONFLICT,
             Self::Validation(_) => StatusCode::UNPROCESSABLE_ENTITY,
             Self::BadRequest(_) => StatusCode::BAD_REQUEST,
             Self::UnprocessableEntity(_) => StatusCode::UNPROCESSABLE_ENTITY,
@@ -59,12 +75,26 @@ impl actix_web::ResponseError for AppError {
             Self::Bcrypt(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Self::Io(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Self::Storage(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            Self::Shopify(_) => StatusCode::BAD_GATEWAY,
+            Self::Mailchimp(_) => StatusCode::BAD_GATEWAY,
+            Self::SafeBrowsing(_) => StatusCode::BAD_GATEWAY,
+            Self::Email(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 
     fn error_response(&self) -> HttpResponse {
+        let msg = if cfg!(debug_assertions) {
+            self.to_string()
+        } else {
+            match self {
+                Self::Database(_) => "A database error occurred".to_string(),
+                Self::Jwt(_) => "An authentication error occurred".to_string(),
+                Self::Bcrypt(_) => "An internal error occurred".to_string(),
+                _ => self.to_string(),
+            }
+        };
         HttpResponse::build(self.status_code()).json(serde_json::json!({
-            "error": self.to_string()
+            "error": msg
         }))
     }
 }
@@ -100,7 +130,12 @@ mod tests {
     fn not_found_returns_404() {
         let err = AppError::NotFound("user".into());
         assert_eq!(err.status_code(), StatusCode::NOT_FOUND);
-        assert_eq!(err.to_string(), "not found: user");
+    }
+
+    #[test]
+    fn conflict_returns_409() {
+        let err = AppError::Conflict("email already in use".into());
+        assert_eq!(err.status_code(), StatusCode::CONFLICT);
     }
 
     #[test]
@@ -137,5 +172,26 @@ mod tests {
         let sqlx_err = sqlx::Error::RowNotFound;
         let app_err: AppError = sqlx_err.into();
         matches!(app_err, AppError::Database(_));
+    }
+
+    #[test]
+    fn shopify_error_returns_502() {
+        let err = AppError::Shopify("GraphQL mutation failed".into());
+        assert_eq!(err.status_code(), StatusCode::BAD_GATEWAY);
+        assert_eq!(err.to_string(), "Shopify API error: GraphQL mutation failed");
+    }
+
+    #[test]
+    fn mailchimp_error_returns_502() {
+        let err = AppError::Mailchimp("API rate limit".into());
+        assert_eq!(err.status_code(), StatusCode::BAD_GATEWAY);
+        assert_eq!(err.to_string(), "Mailchimp API error: API rate limit");
+    }
+
+    #[test]
+    fn safe_browsing_error_returns_502() {
+        let err = AppError::SafeBrowsing("request failed".into());
+        assert_eq!(err.status_code(), StatusCode::BAD_GATEWAY);
+        assert_eq!(err.to_string(), "Safe Browsing error: request failed");
     }
 }

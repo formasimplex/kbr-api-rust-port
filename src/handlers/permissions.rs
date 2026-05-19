@@ -1,3 +1,18 @@
+//! Permission management handlers
+//!
+//! Provides CRUD endpoints for role-based permissions. All endpoints require
+//! admin authentication. Permissions control what resources users can access.
+//!
+//! # Endpoints
+//!
+//! | Function | Method | Route | Auth | Description |
+//! |----------|--------|-------|------|-------------|
+//! | `index` | GET | `/v1/permissions` | admin | List all permissions |
+//! | `index_resources` | GET | `/v1/permissions_resources` | admin | List available permission resources |
+//! | `show` | GET | `/v1/permissions/{id}` | admin | Retrieve a single permission |
+//! | `create` | POST | `/v1/permissions` | admin | Create a new permission |
+//! | `update` | PUT | `/v1/permissions/{id}` | admin | Update permission flags |
+
 use actix_web::{web, HttpResponse};
 use sqlx::FromRow;
 
@@ -38,6 +53,14 @@ impl From<PermissionRow> for Permission {
     }
 }
 
+/// List all permissions.
+///
+/// Returns all permission records. Requires admin role.
+///
+/// # Response
+///
+/// `200 OK` — JSON array of `PermissionResponse`
+/// `403 Forbidden` — non-admin user
 pub async fn index(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -56,6 +79,15 @@ pub async fn index(
     Ok(HttpResponse::Ok().json(responses))
 }
 
+/// List available permission resource names.
+///
+/// Returns the set of valid resource identifiers that can be used when
+/// creating permissions. Requires admin role.
+///
+/// # Response
+///
+/// `200 OK` — JSON array of resource name strings
+/// `403 Forbidden` — non-admin user
 pub async fn index_resources(user: CurrentUser) -> Result<HttpResponse, AppError> {
     if !user.is_admin() {
         return Err(AppError::Forbidden("Not Authorized".to_string()));
@@ -64,6 +96,15 @@ pub async fn index_resources(user: CurrentUser) -> Result<HttpResponse, AppError
     Ok(HttpResponse::Ok().json(resources))
 }
 
+/// Retrieve a single permission by ID.
+///
+/// Requires admin role.
+///
+/// # Response
+///
+/// `200 OK` — `PermissionResponse`
+/// `403 Forbidden` — non-admin user
+/// `404 Not Found` — permission does not exist
 pub async fn show(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -89,6 +130,17 @@ pub async fn show(
     }
 }
 
+/// Create a new permission record.
+///
+/// Validates the resource name against the known set of resources.
+/// Boolean flags default to `false` for create/update/delete and `true` for read.
+/// Requires admin role.
+///
+/// # Response
+///
+/// `201 Created` — `PermissionResponse` for the new permission
+/// `403 Forbidden` — non-admin user
+/// `422 Unprocessable Entity` — invalid resource name
 pub async fn create(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -121,6 +173,16 @@ pub async fn create(
     Ok(HttpResponse::Created().json(perm.to_response()))
 }
 
+/// Update permission flags for an existing permission.
+///
+/// Performs a partial update using COALESCE — only provided fields are changed.
+/// Requires admin role.
+///
+/// # Response
+///
+/// `200 OK` — updated `PermissionResponse`
+/// `403 Forbidden` — non-admin user
+/// `404 Not Found` — permission does not exist
 pub async fn update(
     state: web::Data<AppState>,
     user: CurrentUser,
@@ -185,31 +247,15 @@ mod tests {
         let pool = sqlx::PgPool::connect(TEST_DB_URL)
             .await
             .expect("Failed to connect to test database");
-
-        let config = crate::services::storage_service::S3Config::from_env()
-            .unwrap_or_else(|_| crate::services::storage_service::S3Config {
-                access_key: "test".to_string(),
-                secret_key: "test".to_string(),
-                endpoint: "https://test.test".to_string(),
-                bucket_name: "test".to_string(),
-                region: "us-east-1".to_string(),
-            });
-        let s3 = crate::services::storage_service::create_s3_bucket(&config).unwrap_or_else(|_| {
-            let creds = s3::creds::Credentials::new(Some("test"), Some("test"), None, None, None).unwrap();
-            s3::bucket::Bucket::new("test", s3::region::Region::Custom { region: "us-east-1".to_string(), endpoint: "https://test.test".to_string() }, creds)
-                .unwrap()
-                .with_path_style()
-        });
-
-        AppState { db: pool, s3 }
+        crate::test_utils::build_test_state(pool).await
     }
 
     fn admin_token() -> String {
-        encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string())).unwrap()
+        encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap()
     }
 
     fn user_token() -> String {
-        encode_token_with_role(2, TEST_SECRET, 3, None).unwrap()
+        encode_token_with_role(2, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap()
     }
 
     #[tokio::test(flavor = "current_thread")]

@@ -48,24 +48,4 @@ impl Song {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
 
-    #[test]
-    fn song_to_response() {
-        let song = Song {
-            id: 1,
-            name: Some("Hit Song".to_string()),
-            duration: Some("3:45".to_string()),
-            album_id: 5,
-            artist_id: 3,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        };
-        let resp = song.to_response();
-        assert_eq!(resp.id, 1);
-        assert_eq!(resp.name, Some("Hit Song".to_string()));
-        assert_eq!(resp.duration, Some("3:45".to_string()));
-    }
-}

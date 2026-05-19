@@ -140,7 +140,8 @@ pub async fn get_image_urls(
     record_type: &str,
     record_id: i64,
 ) -> Result<(Vec<String>, Vec<String>), AppError> {
-    let blobs: Vec<BlobRecord> = sqlx::query_as(
+    // Fetch original blobs attached to the record
+    let originals: Vec<BlobRecord> = sqlx::query_as(
         r#"
         SELECT
             b.id,
@@ -148,11 +149,9 @@ pub async fn get_image_urls(
             b.filename,
             b.content_type,
             b.byte_size,
-            vr.variation_digest AS variant_key
+            NULL::TEXT AS variant_key
         FROM active_storage_attachments a
         JOIN active_storage_blobs b ON b.id = a.blob_id
-        LEFT JOIN active_storage_variant_records vr
-            ON vr.blob_id = b.id
         WHERE a.record_type = $1
           AND a.record_id = $2
           AND a.name = 'images'
@@ -164,14 +163,51 @@ pub async fn get_image_urls(
     .fetch_all(db)
     .await?;
 
+    // Extract UUIDs from original blob keys (format: "blobs/{prefix}/{uuid}/filename")
+    let uuids: Vec<String> = originals
+        .iter()
+        .filter_map(|b| {
+            b.key
+                .split('/')
+                .enumerate()
+                .find(|(i, segment)| *i >= 1 && segment.len() == 36)
+                .map(|(_, segment)| segment.to_string())
+        })
+        .collect();
+
+    // Fetch variant blobs whose keys match any original UUID
+    let mut variant_keys: Vec<String> = Vec::new();
+    for uuid in &uuids {
+        let pattern = format!("variants/{}/%", uuid);
+        let variants: Vec<(String,)> = sqlx::query_as(
+            "SELECT key FROM active_storage_blobs WHERE key LIKE $1"
+        )
+        .bind(&pattern)
+        .fetch_all(db)
+        .await?;
+        variant_keys.extend(variants.into_iter().map(|v| v.0));
+    }
+
     let mut urls: Vec<String> = Vec::new();
     let mut thumbnail_urls: Vec<String> = Vec::new();
 
-    for blob in &blobs {
-        let url = generate_presigned_url(s3, &blob.key).await?;
-        if blob.variant_key.is_some() {
-            thumbnail_urls.push(url);
-        } else {
+    // Categorize variant URLs by size in the key path
+    for vkey in variant_keys {
+        let url = generate_presigned_url(s3, &vkey).await?;
+        let size_str = vkey
+            .split('/')
+            .nth(2)
+            .unwrap_or("");
+        match size_str {
+            "100" => thumbnail_urls.push(url),
+            _ => urls.push(url),
+        }
+    }
+
+    // If no variants exist, fall back to original blobs
+    if urls.is_empty() && thumbnail_urls.is_empty() {
+        for blob in &originals {
+            let url = generate_presigned_url(s3, &blob.key).await?;
             urls.push(url);
         }
     }
