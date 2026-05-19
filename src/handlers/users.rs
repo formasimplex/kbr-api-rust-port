@@ -142,53 +142,50 @@ pub async fn create(
             "Password must be at least 8 characters with uppercase, lowercase, and a digit".to_string(),
         ));
     }
-    if let Some(ref token) = body.token {
-        if token.is_empty() {
-            return Err(AppError::Validation(
-                "Sign-up token is required".to_string(),
-            ));
-        }
+    if body.token.is_none() || body.token.as_ref().unwrap().is_empty() {
+        return Err(AppError::Validation(
+            "Sign-up token is required".to_string(),
+        ));
     }
 
     let mut tx = state.db.begin().await?;
 
-    if let Some(ref token) = body.token {
-        let trigger = sqlx::query_as::<_, (Option<String>, Option<String>)>(
-            r"SELECT email, expires_at FROM sign_up_triggers WHERE token = $1 FOR UPDATE"
-        )
-        .bind(token)
-        .fetch_optional(&mut *tx)
-        .await?;
+    let token = body.token.as_ref().unwrap();
+    let trigger = sqlx::query_as::<_, (Option<String>, Option<String>)>(
+        r"SELECT email, expires_at FROM sign_up_triggers WHERE token = $1 FOR UPDATE"
+    )
+    .bind(token)
+    .fetch_optional(&mut *tx)
+    .await?;
 
-        match trigger {
-            Some((trigger_email, trigger_expires)) => {
-                if let Some(expires_str) = trigger_expires {
-                    if let Some(expired_time) = SignUpTrigger::parse_expires_at(&expires_str) {
-                        if expired_time < chrono::Utc::now() {
-                            return Err(AppError::Validation(
-                                "Sign-up token has expired".to_string(),
-                            ));
-                        }
+    match trigger {
+        Some((trigger_email, trigger_expires)) => {
+            if let Some(expires_str) = trigger_expires {
+                if let Some(expired_time) = SignUpTrigger::parse_expires_at(&expires_str) {
+                    if expired_time < chrono::Utc::now() {
+                        return Err(AppError::Validation(
+                            "Sign-up token has expired".to_string(),
+                        ));
                     }
                 }
-
-                let emails_match = trigger_email
-                    .as_ref()
-                    .map(|e| UserService::normalize_email(e))
-                    .as_deref()
-                    == Some(&normalized_email);
-
-                if !emails_match {
-                    return Err(AppError::Validation(
-                        "Email does not match sign-up token".to_string(),
-                    ));
-                }
             }
-            None => {
+
+            let emails_match = trigger_email
+                .as_ref()
+                .map(|e| UserService::normalize_email(e))
+                .as_deref()
+                == Some(&normalized_email);
+
+            if !emails_match {
                 return Err(AppError::Validation(
-                    "Invalid sign-up token".to_string(),
+                    "Email does not match sign-up token".to_string(),
                 ));
             }
+        }
+        None => {
+            return Err(AppError::Validation(
+                "Invalid sign-up token".to_string(),
+            ));
         }
     }
 
@@ -229,17 +226,15 @@ pub async fn create(
     .fetch_one(&mut *tx)
     .await?;
 
-    if body.token.is_some() {
-        let now_str = chrono::Utc::now().to_rfc3339();
-        let _ = sqlx::query(
-            r"UPDATE sign_up_triggers SET expires_at = $1, updated_at = $2 WHERE email = $3"
-        )
-        .bind(&now_str)
-        .bind(now)
-        .bind(&normalized_email)
-        .execute(&mut *tx)
-        .await;
-    }
+    let now_str = chrono::Utc::now().to_rfc3339();
+    let _ = sqlx::query(
+        r"UPDATE sign_up_triggers SET expires_at = $1, updated_at = $2 WHERE email = $3"
+    )
+    .bind(&now_str)
+    .bind(now)
+    .bind(&normalized_email)
+    .execute(&mut *tx)
+    .await;
 
     tx.commit().await?;
 
@@ -353,6 +348,13 @@ mod tests {
     const TEST_SECRET: &str = "test-secret-key";
     const TEST_DB_URL: &str = "postgresql://ws@localhost:5432/kbr_test";
 
+    fn setup_env() {
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("JWT_SECRET", TEST_SECRET);
+        }
+    }
+
     async fn get_state() -> AppState {
         let pool = sqlx::PgPool::connect(TEST_DB_URL)
             .await
@@ -402,36 +404,33 @@ mod tests {
             .await;
     }
 
-    async fn cleanup_user_by_username(state: &AppState, username: &str) {
-        let _ = sqlx::query(r"DELETE FROM users WHERE username = $1")
-            .bind(username)
+    async fn seed_trigger(state: &AppState, email: &str, token: &str, expires_at: &str) -> i64 {
+        let now = chrono::Utc::now().naive_utc();
+        sqlx::query_scalar(
+            r"INSERT INTO sign_up_triggers (email, token, expires_at, role, created_at, updated_at)
+               VALUES ($1, $2, $3, 'user', $4, $4) RETURNING id"
+        )
+        .bind(email)
+        .bind(token)
+        .bind(expires_at)
+        .bind(&now)
+        .fetch_one(&state.db)
+        .await
+        .expect("Failed to seed trigger")
+    }
+
+    async fn cleanup_trigger(state: &AppState, email: &str) {
+        let _ = sqlx::query(r"DELETE FROM sign_up_triggers WHERE email = $1")
+            .bind(email)
             .execute(&state.db)
             .await;
     }
 
-    #[tokio::test(flavor = "current_thread")]
-    async fn user_index_admin_sees_all() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
-        let state = web::Data::new(get_state().await);
-        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
-
-        let req = test::TestRequest::get()
-            .uri("/v1/users")
-            .insert_header(("Authorization", format!("Bearer {}", admin_token())))
-            .to_request();
-        let resp = test::call_service(&app, req).await;
-        assert_eq!(resp.status(), 200);
-    }
+    // — index —
 
     #[tokio::test(flavor = "current_thread")]
     async fn user_index_non_admin_forbidden() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        setup_env();
         let state = web::Data::new(get_state().await);
         let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
@@ -443,17 +442,13 @@ mod tests {
         assert_eq!(resp.status(), 403);
     }
 
+    // — show —
+
     #[tokio::test(flavor = "current_thread")]
     async fn user_show_self() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        setup_env();
         let state = web::Data::new(get_state().await);
-        let ts = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis();
+        let ts = timestamp();
         let email = format!("showself{}@example.com", ts);
         let user_id = seed_test_user(&state, &email, "user").await;
         let token =
@@ -461,7 +456,7 @@ mod tests {
 
         let app = test::init_service(
             App::new()
-                .app_data(web::Data::new(get_state().await))
+                .app_data(state.clone())
                 .configure(config_routes),
         )
         .await;
@@ -478,41 +473,62 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn user_show_other_not_admin() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        setup_env();
         let state = web::Data::new(get_state().await);
-        let ts = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis();
-        let email = format!("showother{}@example.com", ts);
-        let _other_id = seed_test_user(&state, &email, "user").await;
+        let ts = timestamp();
+        let email_a = format!("showa{}@example.com", ts);
+        let email_b = format!("showb{}@example.com", ts);
+        let other_id = seed_test_user(&state, &email_a, "user").await;
+        let viewer_id = seed_test_user(&state, &email_b, "user").await;
+        let viewer_token =
+            encode_token_with_role(viewer_id, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
 
         let app = test::init_service(
             App::new()
-                .app_data(web::Data::new(get_state().await))
+                .app_data(state.clone())
                 .configure(config_routes),
         )
         .await;
 
         let req = test::TestRequest::get()
-            .uri("/v1/user/99999")
-            .insert_header(("Authorization", format!("Bearer {}", user_token(2))))
+            .uri(&format!("/v1/user/{}", other_id))
+            .insert_header(("Authorization", format!("Bearer {}", viewer_token)))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 403);
+
+        cleanup_user(&state, &email_a).await;
+        cleanup_user(&state, &email_b).await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn user_show_admin_sees_other() {
+        setup_env();
+        let state = web::Data::new(get_state().await);
+        let ts = timestamp();
+        let email = format!("showadmin{}@example.com", ts);
+        let user_id = seed_test_user(&state, &email, "user").await;
+
+        let app = test::init_service(
+            App::new()
+                .app_data(state.clone())
+                .configure(config_routes),
+        )
+        .await;
+
+        let req = test::TestRequest::get()
+            .uri(&format!("/v1/user/{}", user_id))
+            .insert_header(("Authorization", format!("Bearer {}", admin_token())))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 200);
 
         cleanup_user(&state, &email).await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn user_show_not_found() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        setup_env();
         let state = web::Data::new(get_state().await);
         let app =
             test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
@@ -530,19 +546,18 @@ mod tests {
         assert_eq!(resp.status(), 404);
     }
 
+    // — create —
+
     #[tokio::test(flavor = "current_thread")]
     async fn user_create_success() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        setup_env();
         let state = web::Data::new(get_state().await);
-        let ts = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis();
+        let ts = timestamp();
         let email = format!("newuser{}@example.com", ts);
         let username = format!("newuser{}", ts);
+        let token = format!("create_success_token_{}", ts);
+        let future = (chrono::Utc::now() + chrono::Duration::days(1)).to_rfc3339();
+        seed_trigger(&state, &email, &token, &future).await;
 
         let app =
             test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
@@ -552,7 +567,8 @@ mod tests {
             .set_json(serde_json::json!({
                 "email": email,
                 "password": "Password123",
-                "username": username
+                "username": username,
+                "token": token
             }))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -561,36 +577,19 @@ mod tests {
         assert_eq!(body["role"], "user");
 
         cleanup_user(&state, &email).await;
+        cleanup_trigger(&state, &email).await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn user_create_with_valid_token_consumes_trigger() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        setup_env();
         let state = web::Data::new(get_state().await);
-        let ts = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis();
+        let ts = timestamp();
         let email = format!("tokenuser{}@example.com", ts);
         let username = format!("tokenuser{}", ts);
-
         let token = format!("valid_token_{}", ts);
         let future = (chrono::Utc::now() + chrono::Duration::days(1)).to_rfc3339();
-        let now = chrono::Utc::now().naive_utc();
-        let trigger_id: i64 = sqlx::query_scalar(
-            r"INSERT INTO sign_up_triggers (email, token, expires_at, role, created_at, updated_at)
-               VALUES ($1, $2, $3, 'user', $4, $4) RETURNING id"
-        )
-        .bind(&email)
-        .bind(&token)
-        .bind(&future)
-        .bind(&now)
-        .fetch_one(&state.db)
-        .await
-        .expect("Failed to seed trigger");
+        let trigger_id = seed_trigger(&state, &email, &token, &future).await;
 
         let app =
             test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
@@ -625,39 +624,18 @@ mod tests {
         );
 
         cleanup_user(&state, &email).await;
-        let _ = sqlx::query(r"DELETE FROM sign_up_triggers WHERE email = $1")
-            .bind(&email)
-            .execute(&state.db)
-            .await;
+        cleanup_trigger(&state, &email).await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn user_create_with_expired_token_fails() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        setup_env();
         let state = web::Data::new(get_state().await);
-        let ts = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis();
+        let ts = timestamp();
         let email = format!("expiredtoken{}@example.com", ts);
-
         let token = format!("expired_token_{}", ts);
         let past = (chrono::Utc::now() - chrono::Duration::days(1)).to_rfc3339();
-        let now = chrono::Utc::now().naive_utc();
-        let _trigger_id: i64 = sqlx::query_scalar(
-            r"INSERT INTO sign_up_triggers (email, token, expires_at, role, created_at, updated_at)
-               VALUES ($1, $2, $3, 'user', $4, $4) RETURNING id"
-        )
-        .bind(&email)
-        .bind(&token)
-        .bind(&past)
-        .bind(&now)
-        .fetch_one(&state.db)
-        .await
-        .expect("Failed to seed trigger");
+        seed_trigger(&state, &email, &token, &past).await;
 
         let app =
             test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
@@ -666,7 +644,7 @@ mod tests {
             .uri("/v1/users")
             .set_json(serde_json::json!({
                 "email": email,
-                "password": "password123",
+                "password": "Password123",
                 "username": "expireduser",
                 "token": token
             }))
@@ -675,40 +653,19 @@ mod tests {
         assert_eq!(resp.status(), 422);
 
         cleanup_user(&state, &email).await;
-        let _ = sqlx::query(r"DELETE FROM sign_up_triggers WHERE email = $1")
-            .bind(&email)
-            .execute(&state.db)
-            .await;
+        cleanup_trigger(&state, &email).await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn user_create_with_mismatched_email_token_fails() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        setup_env();
         let state = web::Data::new(get_state().await);
-        let ts = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis();
+        let ts = timestamp();
         let trigger_email = format!("trigger_email_{}@example.com", ts);
         let request_email = format!("request_email_{}@example.com", ts);
-
         let token = format!("mismatch_token_{}", ts);
         let future = (chrono::Utc::now() + chrono::Duration::days(1)).to_rfc3339();
-        let now = chrono::Utc::now().naive_utc();
-        let _trigger_id: i64 = sqlx::query_scalar(
-            r"INSERT INTO sign_up_triggers (email, token, expires_at, role, created_at, updated_at)
-               VALUES ($1, $2, $3, 'user', $4, $4) RETURNING id"
-        )
-        .bind(&trigger_email)
-        .bind(&token)
-        .bind(&future)
-        .bind(&now)
-        .fetch_one(&state.db)
-        .await
-        .expect("Failed to seed trigger");
+        seed_trigger(&state, &trigger_email, &token, &future).await;
 
         let app =
             test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
@@ -717,7 +674,7 @@ mod tests {
             .uri("/v1/users")
             .set_json(serde_json::json!({
                 "email": request_email,
-                "password": "password123",
+                "password": "Password123",
                 "username": "mismatchuser",
                 "token": token
             }))
@@ -727,26 +684,20 @@ mod tests {
 
         cleanup_user(&state, &trigger_email).await;
         cleanup_user(&state, &request_email).await;
-        let _ = sqlx::query(r"DELETE FROM sign_up_triggers WHERE email = $1")
-            .bind(&trigger_email)
-            .execute(&state.db)
-            .await;
+        cleanup_trigger(&state, &trigger_email).await;
     }
 
     #[tokio::test(flavor = "current_thread")]
-    async fn user_create_invalid_email() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+    async fn user_create_without_token_fails() {
+        setup_env();
         let state = web::Data::new(get_state().await);
         let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::post()
             .uri("/v1/users")
             .set_json(serde_json::json!({
-                "email": "bad-email",
-                "password": "password123"
+                "email": "notoken@example.com",
+                "password": "Password123"
             }))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -754,36 +705,78 @@ mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
-    async fn user_create_short_password() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+    async fn user_create_duplicate_email_returns_409() {
+        setup_env();
         let state = web::Data::new(get_state().await);
-        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
+        let ts = timestamp();
+        let email = format!("dupemail{}@example.com", ts);
+        let username2 = format!("dupuser{}b", ts);
+
+        seed_test_user(&state, &email, "user").await;
+
+        let token2 = format!("dup_token2_{}", ts);
+        let future = (chrono::Utc::now() + chrono::Duration::days(1)).to_rfc3339();
+        seed_trigger(&state, &email, &token2, &future).await;
+
+        let app =
+            test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
 
         let req = test::TestRequest::post()
             .uri("/v1/users")
             .set_json(serde_json::json!({
-                "email": "new@example.com",
-                "password": "short"
+                "email": email.clone(),
+                "password": "Password456",
+                "username": username2,
+                "token": token2
             }))
             .to_request();
         let resp = test::call_service(&app, req).await;
-        assert_eq!(resp.status(), 422);
+        assert_eq!(resp.status(), 409);
+
+        cleanup_user(&state, &email).await;
+        cleanup_trigger(&state, &email).await;
     }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn user_create_email_normalized_on_create() {
+        setup_env();
+        let state = web::Data::new(get_state().await);
+        let ts = timestamp();
+        let email_upper = format!("Normalised{}@Example.COM", ts);
+        let email_lower = format!("normalised{}@example.com", ts);
+
+        let token = format!("norm_token_{}", ts);
+        let future = (chrono::Utc::now() + chrono::Duration::days(1)).to_rfc3339();
+        seed_trigger(&state, &email_lower, &token, &future).await;
+
+        let app =
+            test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
+
+        // Creation with mixed-case email succeeds and returns normalized lowercase
+        let req = test::TestRequest::post()
+            .uri("/v1/users")
+            .set_json(serde_json::json!({
+                "email": email_upper,
+                "password": "Password123",
+                "token": token
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 201);
+        let body: serde_json::Value = test::read_body_json(resp).await;
+        assert_eq!(body["email"], email_lower);
+
+        cleanup_user(&state, &email_lower).await;
+        cleanup_trigger(&state, &email_lower).await;
+    }
+
+    // — update —
 
     #[tokio::test(flavor = "current_thread")]
     async fn user_update_self() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        setup_env();
         let state = web::Data::new(get_state().await);
-        let ts = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis();
+        let ts = timestamp();
         let email = format!("updateself{}@example.com", ts);
         let user_id = seed_test_user(&state, &email, "user").await;
         let token =
@@ -791,7 +784,7 @@ mod tests {
 
         let app = test::init_service(
             App::new()
-                .app_data(web::Data::new(get_state().await))
+                .app_data(state.clone())
                 .configure(config_routes),
         )
         .await;
@@ -813,30 +806,89 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn user_update_other_not_admin() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        setup_env();
         let state = web::Data::new(get_state().await);
-        let ts = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis();
-        let email = format!("updateother{}@example.com", ts);
-        let _other_id = seed_test_user(&state, &email, "user").await;
+        let ts = timestamp();
+        let email_a = format!("updatea{}@example.com", ts);
+        let email_b = format!("updateb{}@example.com", ts);
+        let other_id = seed_test_user(&state, &email_a, "user").await;
+        let viewer_id = seed_test_user(&state, &email_b, "user").await;
+        let viewer_token =
+            encode_token_with_role(viewer_id, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
 
         let app = test::init_service(
             App::new()
-                .app_data(web::Data::new(get_state().await))
+                .app_data(state.clone())
                 .configure(config_routes),
         )
         .await;
 
         let req = test::TestRequest::put()
-            .uri("/v1/user/99999")
-            .insert_header(("Authorization", format!("Bearer {}", user_token(2))))
+            .uri(&format!("/v1/user/{}", other_id))
+            .insert_header(("Authorization", format!("Bearer {}", viewer_token)))
             .set_json(serde_json::json!({
                 "username": "hacked"
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 403);
+
+        cleanup_user(&state, &email_a).await;
+        cleanup_user(&state, &email_b).await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn user_update_admin_changes_other() {
+        setup_env();
+        let state = web::Data::new(get_state().await);
+        let ts = timestamp();
+        let email = format!("updateadmin{}@example.com", ts);
+        let user_id = seed_test_user(&state, &email, "user").await;
+
+        let app = test::init_service(
+            App::new()
+                .app_data(state.clone())
+                .configure(config_routes),
+        )
+        .await;
+
+        let req = test::TestRequest::put()
+            .uri(&format!("/v1/user/{}", user_id))
+            .insert_header(("Authorization", format!("Bearer {}", admin_token())))
+            .set_json(serde_json::json!({
+                "username": "adminupdated"
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 200);
+        let body: serde_json::Value = test::read_body_json(resp).await;
+        assert_eq!(body["username"], "adminupdated");
+
+        cleanup_user(&state, &email).await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn user_update_non_admin_cannot_change_role() {
+        setup_env();
+        let state = web::Data::new(get_state().await);
+        let ts = timestamp();
+        let email = format!("updaterole{}@example.com", ts);
+        let user_id = seed_test_user(&state, &email, "user").await;
+        let token =
+            encode_token_with_role(user_id, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
+
+        let app = test::init_service(
+            App::new()
+                .app_data(state.clone())
+                .configure(config_routes),
+        )
+        .await;
+
+        let req = test::TestRequest::put()
+            .uri(&format!("/v1/user/{}", user_id))
+            .insert_header(("Authorization", format!("Bearer {}", token)))
+            .set_json(serde_json::json!({
+                "role": "admin"
             }))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -845,20 +897,15 @@ mod tests {
         cleanup_user(&state, &email).await;
     }
 
+    // — cross-handler —
+
     #[tokio::test(flavor = "current_thread")]
     async fn password_change_revokes_old_tokens() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        setup_env();
         let state_data = web::Data::new(get_state().await);
-        let ts = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis();
+        let ts = timestamp();
         let email = format!("pwdchange{}@example.com", ts);
         let user_id = seed_test_user(&state_data, &email, "user").await;
-        // Create a token with token_version=1
         let old_token = encode_token_with_role(user_id, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
 
         let app = test::init_service(
@@ -872,7 +919,6 @@ mod tests {
         )
         .await;
 
-        // Change password
         let req = test::TestRequest::put()
             .uri(&format!("/v1/user/{}", user_id))
             .insert_header(("Authorization", format!("Bearer {}", old_token)))
@@ -883,7 +929,6 @@ mod tests {
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
 
-        // Old token should now be rejected (token_version incremented)
         let req = test::TestRequest::get()
             .uri("/v1/auth/session")
             .insert_header(("Authorization", format!("Bearer {}", old_token)))
@@ -894,97 +939,10 @@ mod tests {
         cleanup_user(&state_data, &email).await;
     }
 
-    #[tokio::test(flavor = "current_thread")]
-    async fn user_create_duplicate_email_returns_409() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
-        let state = web::Data::new(get_state().await);
-        let ts = std::time::SystemTime::now()
+    fn timestamp() -> u128 {
+        std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
-            .as_millis();
-        let email = format!("dupemail{}@example.com", ts);
-        let username1 = format!("dupuser{}a", ts);
-        let username2 = format!("dupuser{}b", ts);
-
-        let app =
-            test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
-
-        // First creation succeeds
-        let req = test::TestRequest::post()
-            .uri("/v1/users")
-            .set_json(serde_json::json!({
-                "email": email.clone(),
-                "password": "Password123",
-                "username": username1
-            }))
-            .to_request();
-        let resp = test::call_service(&app, req).await;
-        assert_eq!(resp.status(), 201);
-
-        // Second creation with same email returns 409
-        let req = test::TestRequest::post()
-            .uri("/v1/users")
-            .set_json(serde_json::json!({
-                "email": email.clone(),
-                "password": "Password456",
-                "username": username2
-            }))
-            .to_request();
-        let resp = test::call_service(&app, req).await;
-        assert_eq!(resp.status(), 409);
-
-        cleanup_user(&state, &email).await;
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn user_create_email_normalized_on_create() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
-        let state = web::Data::new(get_state().await);
-        let ts = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis();
-        let email_upper = format!("Normalised{}@Example.COM", ts);
-        let email_lower = format!("normalised{}@example.com", ts);
-        let username1 = format!("normuser{}a", ts);
-        let username2 = format!("normuser{}b", ts);
-
-        let app =
-            test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
-
-        // First creation with mixed-case email succeeds
-        let req = test::TestRequest::post()
-            .uri("/v1/users")
-            .set_json(serde_json::json!({
-                "email": email_upper,
-                "password": "Password123",
-                "username": username1
-            }))
-            .to_request();
-        let resp = test::call_service(&app, req).await;
-        assert_eq!(resp.status(), 201);
-        let body: serde_json::Value = test::read_body_json(resp).await;
-        // Email should be stored in normalized (lowercase) form
-        assert_eq!(body["email"], email_lower);
-
-        // Second creation with lowercase version returns 409
-        let req = test::TestRequest::post()
-            .uri("/v1/users")
-            .set_json(serde_json::json!({
-                "email": email_lower.clone(),
-                "password": "Password456",
-                "username": username2
-            }))
-            .to_request();
-        let resp = test::call_service(&app, req).await;
-        assert_eq!(resp.status(), 409);
-
-        cleanup_user(&state, &email_lower).await;
+            .as_millis()
     }
 }

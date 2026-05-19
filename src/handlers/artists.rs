@@ -36,6 +36,9 @@ use crate::services::user_service::UserService;
 pub(crate) struct ArtistSignUpRequest {
     token: String,
     name: String,
+    password: String,
+    password_confirmation: String,
+    username: Option<String>,
 }
 
 #[derive(Debug, FromRow)]
@@ -194,15 +197,16 @@ pub async fn create(
 /// Public endpoint. Uses a database transaction with `SELECT ... FOR UPDATE`
 /// to lock the sign-up trigger row, preventing concurrent token reuse.
 /// Checks for an existing user with the same email before creating a new one.
-/// Creates a user with "artist" role and a random password, creates the artist
-/// record with the given name and `prospect = true`, and consumes the trigger.
-/// Enqueues a prospect welcome email job after successful commit.
+/// Creates a user with "artist" role using the provided password and optional
+/// username, creates the artist record with the given name and `prospect = true`,
+/// and consumes the trigger. Enqueues a prospect welcome email job after
+/// successful commit.
 ///
 /// # Response
 ///
 /// `201 Created` — `ArtistResponse` for the new artist
 /// `409 Conflict` — email already has an artist account
-/// `422 Unprocessable Entity` — invalid or expired token
+/// `422 Unprocessable Entity` — invalid token, password mismatch, or weak password
 pub(crate) async fn sign_up(
     state: web::Data<AppState>,
     body: web::Json<ArtistSignUpRequest>,
@@ -234,6 +238,18 @@ pub(crate) async fn sign_up(
                 ));
             }
 
+            if body.password != body.password_confirmation {
+                return Err(AppError::Validation(
+                    "Password and confirmation do not match".to_string(),
+                ));
+            }
+
+            if !User::validate_password(&body.password) {
+                return Err(AppError::Validation(
+                    "Password must be at least 8 characters with uppercase, lowercase, and a digit".to_string(),
+                ));
+            }
+
             let existing: bool = sqlx::query_scalar(
                 r"SELECT EXISTS(SELECT 1 FROM users WHERE email = $1 AND role = 'artist')"
             )
@@ -248,20 +264,20 @@ pub(crate) async fn sign_up(
             }
 
             let now = chrono::Utc::now().naive_utc();
-            let random_password = format!("artist_{}_{}", chrono::Utc::now().timestamp_micros(), uuid::Uuid::new_v4());
             let password_digest = UserService::hash_password_for_create(&crate::models::user::CreateUserRequest {
                 email: trigger_email.clone(),
-                password: random_password.clone(),
-                username: None,
+                password: body.password.clone(),
+                username: body.username.clone(),
                 token: None,
             })?;
 
             let user_id: i64 = sqlx::query_scalar(
-                r"INSERT INTO users (email, password_digest, role, created_at, updated_at)
-                   VALUES ($1, $2, 'artist', $3, $3) RETURNING id"
+                r"INSERT INTO users (email, password_digest, role, username, created_at, updated_at)
+                   VALUES ($1, $2, 'artist', $3, $4, $4) RETURNING id"
             )
             .bind(&trigger_email)
             .bind(&password_digest)
+            .bind(body.username.as_deref())
             .bind(&now)
             .fetch_one(&mut *tx)
             .await?;
@@ -964,7 +980,10 @@ mod tests {
             .uri("/v1/artist/sign_up")
             .set_json(serde_json::json!({
                 "token": token,
-                "name": "New Artist Band"
+                "name": "New Artist Band",
+                "password": "TestPass1",
+                "password_confirmation": "TestPass1",
+                "username": "newartist"
             }))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -981,6 +1000,15 @@ mod tests {
         .await
         .expect("Failed to check user role");
         assert_eq!(user_role, Some("artist".to_string()));
+
+        let user_username: Option<String> = sqlx::query_scalar(
+            r"SELECT username FROM users WHERE email = $1"
+        )
+        .bind(&email)
+        .fetch_one(&state.db)
+        .await
+        .expect("Failed to check username");
+        assert_eq!(user_username, Some("newartist".to_string()));
 
         let _ = sqlx::query(r"DELETE FROM artists WHERE user_id IN (SELECT id FROM users WHERE email = $1)")
             .bind(&email)
@@ -1014,7 +1042,9 @@ mod tests {
             .uri("/v1/artist/sign_up")
             .set_json(serde_json::json!({
                 "token": "nonexistent_token",
-                "name": "New Artist Band"
+                "name": "New Artist Band",
+                "password": "TestPass1",
+                "password_confirmation": "TestPass1"
             }))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -1068,7 +1098,9 @@ mod tests {
             .uri("/v1/artist/sign_up")
             .set_json(serde_json::json!({
                 "token": token,
-                "name": "Duplicate Artist"
+                "name": "Duplicate Artist",
+                "password": "TestPass1",
+                "password_confirmation": "TestPass1"
             }))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -1119,7 +1151,9 @@ mod tests {
             .uri("/v1/artist/sign_up")
             .set_json(serde_json::json!({
                 "token": token,
-                "name": "Prospect Artist"
+                "name": "Prospect Artist",
+                "password": "TestPass1",
+                "password_confirmation": "TestPass1"
             }))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -1183,7 +1217,85 @@ mod tests {
             .uri("/v1/artist/sign_up")
             .set_json(serde_json::json!({
                 "token": token,
-                "name": "Expired Artist Band"
+                "name": "Expired Artist Band",
+                "password": "TestPass1",
+                "password_confirmation": "TestPass1"
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 422);
+
+        let _ = sqlx::query(r"DELETE FROM sign_up_triggers WHERE email = $1")
+            .bind(&email)
+            .execute(&state.db)
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn artist_sign_up_password_mismatch() {
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+        }
+        let state = web::Data::new(get_state().await);
+
+        let app = test::init_service(
+            App::new()
+                .app_data(state)
+                .configure(config_routes),
+        )
+        .await;
+
+        let req = test::TestRequest::post()
+            .uri("/v1/artist/sign_up")
+            .set_json(serde_json::json!({
+                "token": "any_token",
+                "name": "Test Artist",
+                "password": "TestPass1",
+                "password_confirmation": "Different1"
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 422);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn artist_sign_up_weak_password() {
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+        }
+        let state = web::Data::new(get_state().await);
+        let ts = chrono::Utc::now().timestamp_micros();
+        let email = format!("artistweak{}@example.com", ts);
+
+        let token = format!("artist_weak_token_{}", ts);
+        let future = (chrono::Utc::now() + chrono::Duration::days(1)).to_rfc3339();
+        let now = chrono::Utc::now().naive_utc();
+        let _trigger_id: i64 = sqlx::query_scalar(
+            r"INSERT INTO sign_up_triggers (email, token, expires_at, role, created_at, updated_at)
+               VALUES ($1, $2, $3, 'artist', $4, $4) RETURNING id"
+        )
+        .bind(&email)
+        .bind(&token)
+        .bind(&future)
+        .bind(&now)
+        .fetch_one(&state.db)
+        .await
+        .expect("Failed to seed trigger");
+
+        let app = test::init_service(
+            App::new()
+                .app_data(state.clone())
+                .configure(config_routes),
+        )
+        .await;
+
+        let req = test::TestRequest::post()
+            .uri("/v1/artist/sign_up")
+            .set_json(serde_json::json!({
+                "token": token,
+                "name": "Weak Artist",
+                "password": "weak",
+                "password_confirmation": "weak"
             }))
             .to_request();
         let resp = test::call_service(&app, req).await;

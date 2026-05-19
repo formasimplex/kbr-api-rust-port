@@ -130,21 +130,14 @@ pub async fn login(
 
     let user_row = sqlx::query_as::<_, UserRow>(
         r"SELECT id, email, password_digest, role, session_token, username, COALESCE(token_version, 1) as token_version, created_at, updated_at
-           FROM users WHERE email = $1 OR username = $2"
+           FROM users WHERE email = $1"
     )
-    .bind(&normalized_email)
     .bind(&normalized_email)
     .fetch_optional(&state.db)
     .await?;
 
     match user_row {
         Some(row) => {
-            let matched_field = if row.email == normalized_email {
-                "email"
-            } else {
-                "username"
-            };
-
             let user: User = row.into();
             let valid = auth_service::verify_password(&login_req.password, &user.password_digest)?;
             if valid {
@@ -152,7 +145,6 @@ pub async fn login(
                 tracing::info!(
                     user_id = user.id,
                     event = "login_success",
-                    matched_field = matched_field,
                 );
                 Ok(HttpResponse::Ok().json(&resp))
             } else {
@@ -160,7 +152,6 @@ pub async fn login(
                     email = %normalized_email,
                     event = "login_failed",
                     reason = "invalid_password",
-                    matched_field = matched_field,
                 );
                 Ok(HttpResponse::Unauthorized().json(LoginErrorResponse {
                     error: "Invalid credentials".to_string(),
