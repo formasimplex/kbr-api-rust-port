@@ -232,15 +232,12 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
         .finish()
         .expect("valid governor config");
 
-    cfg.service(
-        web::scope("/v1")
-            .route("/reset_trigger", web::post()
-                .wrap(Governor::new(&reset_create_governor))
-                .to(create))
-            .route("/reset_trigger/{token}", web::post()
-                .wrap(Governor::new(&reset_update_governor))
-                .to(update)),
-    );
+    cfg.route("/reset_trigger", web::post()
+        .wrap(Governor::new(&reset_create_governor))
+        .to(create))
+        .route("/reset_trigger/{token}", web::post()
+        .wrap(Governor::new(&reset_update_governor))
+        .to(update));
 }
 
 #[cfg(test)]
@@ -272,7 +269,7 @@ mod tests {
         let email = format!("reset_create_{}@example.com", chrono::Utc::now().timestamp_micros());
 
         let req = test::TestRequest::post()
-            .uri("/v1/reset_trigger")
+            .uri("/reset_trigger")
             .set_json(serde_json::json!({
                 "email": email
             }))
@@ -303,7 +300,7 @@ mod tests {
         let nonexistent = format!("nonexistent_{}@example.com", chrono::Utc::now().timestamp_micros());
 
         let req = test::TestRequest::post()
-            .uri("/v1/reset_trigger")
+            .uri("/reset_trigger")
             .set_json(serde_json::json!({
                 "email": nonexistent
             }))
@@ -330,7 +327,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/reset_trigger")
+            .uri("/reset_trigger")
             .set_json(serde_json::json!({
                 "email": "bad-email"
             }))
@@ -375,7 +372,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::post()
-            .uri(&format!("/v1/reset_trigger/{}", token))
+            .uri(&format!("/reset_trigger/{}", token))
             .set_json(serde_json::json!({
                 "password": "Newpassword123",
                 "password_confirmation": "Newpassword123"
@@ -439,7 +436,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::post()
-            .uri(&format!("/v1/reset_trigger/{}", token))
+            .uri(&format!("/reset_trigger/{}", token))
             .set_json(serde_json::json!({
                 "password": "Newpassword123",
                 "password_confirmation": "Differentpass1"
@@ -503,7 +500,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::post()
-            .uri(&format!("/v1/reset_trigger/{}", token))
+            .uri(&format!("/reset_trigger/{}", token))
             .set_json(serde_json::json!({
                 "password": "short",
                 "password_confirmation": "short"
@@ -568,7 +565,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::post()
-            .uri(&format!("/v1/reset_trigger/{}", token))
+            .uri(&format!("/reset_trigger/{}", token))
             .set_json(serde_json::json!({
                 "password": current_password,
                 "password_confirmation": current_password
@@ -619,7 +616,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::post()
-            .uri(&format!("/v1/reset_trigger/{}", token))
+            .uri(&format!("/reset_trigger/{}", token))
             .set_json(serde_json::json!({
                 "password": "Newpassword123",
                 "password_confirmation": "Newpassword123"
@@ -672,7 +669,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::post()
-            .uri(&format!("/v1/reset_trigger/{}", token))
+            .uri(&format!("/reset_trigger/{}", token))
             .set_json(serde_json::json!({
                 "password": "Newpassword123",
                 "password_confirmation": "Newpassword123"
@@ -736,7 +733,7 @@ mod tests {
         .await;
 
         let req1 = test::TestRequest::post()
-            .uri(&format!("/v1/reset_trigger/{}", token))
+            .uri(&format!("/reset_trigger/{}", token))
             .set_json(serde_json::json!({
                 "password": "Newpassword123",
                 "password_confirmation": "Newpassword123"
@@ -746,7 +743,7 @@ mod tests {
         assert_eq!(resp1.status(), 200);
 
         let req2 = test::TestRequest::post()
-            .uri(&format!("/v1/reset_trigger/{}", token))
+            .uri(&format!("/reset_trigger/{}", token))
             .set_json(serde_json::json!({
                 "password": "Anotherpass123",
                 "password_confirmation": "Anotherpass123"

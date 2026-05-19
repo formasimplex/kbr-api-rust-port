@@ -130,12 +130,9 @@ pub async fn create(
 }
 
 pub fn config_routes(cfg: &mut web::ServiceConfig) {
-    cfg.service(
-        web::scope("/v1")
-            .route("/songs", web::get().to(index))
-            .route("/song/{id}", web::get().to(show))
-            .route("/songs", web::post().to(create)),
-    );
+    cfg.route("/songs", web::get().to(index))
+        .route("/song/{id}", web::get().to(show))
+        .route("/songs", web::post().to(create));
 }
 
 #[cfg(test)]
@@ -196,7 +193,7 @@ mod tests {
         )
         .await;
 
-        let req = test::TestRequest::get().uri("/v1/songs").to_request();
+        let req = test::TestRequest::get().uri("/songs").to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
     }
@@ -227,7 +224,7 @@ mod tests {
         if let Ok(row) = seed {
             let id = row.id;
             let req = test::TestRequest::get()
-                .uri(&format!("/v1/song/{}", id))
+                .uri(&format!("/song/{}", id))
                 .to_request();
             let resp = test::call_service(&app, req).await;
             assert_eq!(resp.status(), 200);
@@ -260,7 +257,7 @@ mod tests {
         .expect("Failed to get max id");
 
         let req = test::TestRequest::get()
-            .uri(&format!("/v1/song/{}", max_id + 9999))
+            .uri(&format!("/song/{}", max_id + 9999))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
@@ -285,7 +282,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/songs")
+            .uri("/songs")
             .insert_header(("Authorization", format!("Bearer {}", token)))
             .set_json(serde_json::json!({
                 "name": "Rust Test Song",
@@ -326,7 +323,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/songs")
+            .uri("/songs")
             .insert_header(("Authorization", format!("Bearer {}", token)))
             .set_json(serde_json::json!({
                 "name": "Should Fail",

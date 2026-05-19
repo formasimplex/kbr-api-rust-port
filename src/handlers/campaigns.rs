@@ -506,17 +506,14 @@ pub async fn activate_campaign(
 }
 
 pub fn config_routes(cfg: &mut web::ServiceConfig) {
-    cfg.service(
-        web::scope("/v1")
-            .route("/campaigns", web::get().to(index))
-            .route("/campaigns_by_user", web::get().to(index_by_user))
-            .route("/active_campaigns", web::get().to(active_campaigns))
-            .route("/campaign/{id}", web::get().to(show))
-            .route("/campaigns", web::post().to(create))
-            .route("/campaign/{id}", web::post().to(update))
-            .route("/campaign/{id}", web::delete().to(destroy))
-            .route("/activate_campaign", web::post().to(activate_campaign)),
-    );
+    cfg.route("/campaigns", web::get().to(index))
+        .route("/campaigns_by_user", web::get().to(index_by_user))
+        .route("/active_campaigns", web::get().to(active_campaigns))
+        .route("/campaign/{id}", web::get().to(show))
+        .route("/campaigns", web::post().to(create))
+        .route("/campaign/{id}", web::post().to(update))
+        .route("/campaign/{id}", web::delete().to(destroy))
+        .route("/activate_campaign", web::post().to(activate_campaign));
 }
 
 #[cfg(test)]
@@ -651,7 +648,7 @@ mod tests {
         )
         .await;
 
-        let req = test::TestRequest::get().uri("/v1/campaigns").to_request();
+        let req = test::TestRequest::get().uri("/campaigns").to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
     }
@@ -673,7 +670,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::get()
-            .uri(&format!("/v1/campaign/{}", campaign_id))
+            .uri(&format!("/campaign/{}", campaign_id))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
@@ -706,7 +703,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::get()
-            .uri(&format!("/v1/campaign/{}", max_id + 9999))
+            .uri(&format!("/campaign/{}", max_id + 9999))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
@@ -735,7 +732,7 @@ mod tests {
         let name = format!("New Campaign {}_{}", pid, ts);
 
         let req = test::TestRequest::post()
-            .uri("/v1/campaigns")
+            .uri("/campaigns")
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .set_json(serde_json::json!({
                 "artist_id": artist_id,
@@ -777,7 +774,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/campaigns")
+            .uri("/campaigns")
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .set_json(serde_json::json!({
                 "artist_id": artist_id,
@@ -807,7 +804,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::get()
-            .uri("/v1/campaigns_by_user")
+            .uri("/campaigns_by_user")
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -835,7 +832,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::post()
-            .uri(&format!("/v1/campaign/{}", campaign_id))
+            .uri(&format!("/campaign/{}", campaign_id))
             .insert_header(("Authorization", format!("Bearer {}", artist_token())))
             .set_json(serde_json::json!({
                 "name": "Updated Campaign Name",
@@ -878,7 +875,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::post()
-            .uri(&format!("/v1/campaign/{}", max_id + 9999))
+            .uri(&format!("/campaign/{}", max_id + 9999))
             .insert_header(("Authorization", format!("Bearer {}", artist_token())))
             .set_json(serde_json::json!({
                 "name": "Updated"
@@ -909,7 +906,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::delete()
-            .uri(&format!("/v1/campaign/{}", campaign_id))
+            .uri(&format!("/campaign/{}", campaign_id))
             .insert_header(("Authorization", format!("Bearer {}", artist_token())))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -953,7 +950,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::delete()
-            .uri(&format!("/v1/campaign/{}", max_id + 9999))
+            .uri(&format!("/campaign/{}", max_id + 9999))
             .insert_header(("Authorization", format!("Bearer {}", artist_token())))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -996,7 +993,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/activate_campaign")
+            .uri("/activate_campaign")
             .insert_header(("Authorization", format!("Bearer {}", artist_token())))
             .set_json(serde_json::json!({
                 "campaign_id": campaign_id,
@@ -1032,7 +1029,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/activate_campaign")
+            .uri("/activate_campaign")
             .insert_header(("Authorization", format!("Bearer {}", artist_token())))
             .set_json(serde_json::json!({
                 "campaign_id": 99999
@@ -1060,7 +1057,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/activate_campaign")
+            .uri("/activate_campaign")
             .insert_header(("Authorization", format!("Bearer {}", artist_token())))
             .set_json(serde_json::json!({
                 "campaign_id": 99999,
@@ -1098,7 +1095,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/activate_campaign")
+            .uri("/activate_campaign")
             .insert_header(("Authorization", format!("Bearer {}", artist_token())))
             .set_json(serde_json::json!({
                 "campaign_id": max_id + 9999,
@@ -1145,7 +1142,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/activate_campaign")
+            .uri("/activate_campaign")
             .insert_header(("Authorization", format!("Bearer {}", artist_token())))
             .set_json(serde_json::json!({
                 "campaign_id": campaign_id,
@@ -1179,7 +1176,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/campaigns")
+            .uri("/campaigns")
             .insert_header(("Authorization", format!("Bearer {}", token)))
             .set_json(serde_json::json!({
                 "artist_id": 1,
@@ -1229,7 +1226,7 @@ mod tests {
         )
         .await;
 
-        let req = test::TestRequest::get().uri("/v1/active_campaigns").to_request();
+        let req = test::TestRequest::get().uri("/active_campaigns").to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
 

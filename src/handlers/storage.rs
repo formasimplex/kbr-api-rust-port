@@ -313,12 +313,9 @@ pub async fn delete_image(
 }
 
 pub fn config_routes(cfg: &mut web::ServiceConfig) {
-    cfg.service(
-        web::scope("/v1/storage")
-            .route("/upload", web::post().to(upload))
-            .route("/images/{record_type}/{record_id}", web::get().to(get_images))
-            .route("/blob/{blob_id}", web::delete().to(delete_image)),
-    );
+    cfg.route("/storage/upload", web::post().to(upload))
+        .route("/storage/images/{record_type}/{record_id}", web::get().to(get_images))
+        .route("/storage/blob/{blob_id}", web::delete().to(delete_image));
 }
 
 #[cfg(test)]
@@ -358,7 +355,7 @@ mod tests {
         .await;
 
         let mut builder = actix_web::test::TestRequest::post()
-            .uri("/v1/storage/upload")
+            .uri("/storage/upload")
             .insert_header(("Authorization", format!("Bearer {}", user_token())));
 
         let body = multipart_body();
@@ -391,7 +388,7 @@ mod tests {
         let body = no_file_body();
 
         let req = actix_web::test::TestRequest::post()
-            .uri("/v1/storage/upload")
+            .uri("/storage/upload")
             .insert_header(("Authorization", format!("Bearer {}", artist_token())))
             .insert_header(("Content-Type", "multipart/form-data; boundary=boundary456"))
             .set_payload(body)

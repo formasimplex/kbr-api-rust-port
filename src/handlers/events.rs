@@ -290,14 +290,11 @@ pub async fn update(
 }
 
 pub fn config_routes(cfg: &mut web::ServiceConfig) {
-    cfg.service(
-        web::scope("/v1")
-            .route("/kbrevents", web::get().to(index))
-            .route("/kbrevent/{id}", web::get().to(show))
-            .route("/kbr_events_by_user", web::get().to(index_by_user))
-            .route("/kbrevents", web::post().to(create))
-            .route("/kbrevents/{id}", web::put().to(update)),
-    );
+    cfg.route("/kbrevents", web::get().to(index))
+        .route("/kbrevent/{id}", web::get().to(show))
+        .route("/kbr_events_by_user", web::get().to(index_by_user))
+        .route("/kbrevents", web::post().to(create))
+        .route("/kbrevents/{id}", web::put().to(update));
 }
 
 #[cfg(test)]
@@ -397,7 +394,7 @@ mod tests {
         let state = web::Data::new(get_state().await);
         let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
-        let req = test::TestRequest::get().uri("/v1/kbrevents").to_request();
+        let req = test::TestRequest::get().uri("/kbrevents").to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
     }
@@ -415,7 +412,7 @@ mod tests {
         let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::get()
-            .uri(&format!("/v1/kbrevent/{}", event_id))
+            .uri(&format!("/kbrevent/{}", event_id))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
@@ -442,7 +439,7 @@ mod tests {
         let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::get()
-            .uri(&format!("/v1/kbrevent/{}", max_id + 9999))
+            .uri(&format!("/kbrevent/{}", max_id + 9999))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
@@ -463,7 +460,7 @@ mod tests {
         let now = chrono::Utc::now();
 
         let req = test::TestRequest::post()
-            .uri("/v1/kbrevents")
+            .uri("/kbrevents")
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .set_json(serde_json::json!({
                 "name": name,
@@ -498,7 +495,7 @@ mod tests {
 
         let now = chrono::Utc::now();
         let req = test::TestRequest::post()
-            .uri("/v1/kbrevents")
+            .uri("/kbrevents")
             .insert_header(("Authorization", format!("Bearer {}", token)))
             .set_json(serde_json::json!({
                 "name": "Should Fail",
@@ -526,7 +523,7 @@ mod tests {
         let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::get()
-            .uri("/v1/kbr_events_by_user")
+            .uri("/kbr_events_by_user")
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -551,7 +548,7 @@ mod tests {
         let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::get()
-            .uri("/v1/kbr_events_by_user")
+            .uri("/kbr_events_by_user")
             .insert_header(("Authorization", format!("Bearer {}", artist_token())))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -574,7 +571,7 @@ mod tests {
         let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::get()
-            .uri("/v1/kbr_events_by_user")
+            .uri("/kbr_events_by_user")
             .insert_header(("Authorization", format!("Bearer {}", token)))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -597,7 +594,7 @@ mod tests {
             test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
 
         let req = test::TestRequest::put()
-            .uri(&format!("/v1/kbrevents/{}", event_id))
+            .uri(&format!("/kbrevents/{}", event_id))
             .insert_header(("Authorization", format!("Bearer {}", artist_token())))
             .set_json(serde_json::json!({
                 "name": "Updated Event Name",
@@ -632,7 +629,7 @@ mod tests {
         let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::put()
-            .uri(&format!("/v1/kbrevents/{}", max_id + 9999))
+            .uri(&format!("/kbrevents/{}", max_id + 9999))
             .insert_header(("Authorization", format!("Bearer {}", artist_token())))
             .set_json(serde_json::json!({
                 "name": "Updated"

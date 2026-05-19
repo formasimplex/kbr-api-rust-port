@@ -267,13 +267,10 @@ pub async fn update(
 }
 
 pub fn config_routes(cfg: &mut web::ServiceConfig) {
-    cfg.service(
-        web::scope("/v1")
-            .route("/qr_scan/{id}", web::get().to(qr_scan))
-            .route("/kbr_event_attendees", web::get().to(attendees_for_event))
-            .route("/kbr_event_attendees", web::post().to(create))
-            .route("/kbr_event_update_txt", web::post().to(update)),
-    );
+    cfg.route("/qr_scan/{id}", web::get().to(qr_scan))
+        .route("/kbr_event_attendees", web::get().to(attendees_for_event))
+        .route("/kbr_event_attendees", web::post().to(create))
+        .route("/kbr_event_update_txt", web::post().to(update));
 }
 
 #[cfg(test)]
@@ -379,7 +376,7 @@ async fn get_state() -> AppState {
         let attendee_id = seed_attendee(&state, event_id, sub_id).await;
 
         let req = test::TestRequest::get()
-            .uri(&format!("/v1/qr_scan/{}", attendee_id))
+            .uri(&format!("/qr_scan/{}", attendee_id))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
@@ -405,7 +402,7 @@ async fn get_state() -> AppState {
         .await;
 
         let req = test::TestRequest::get()
-            .uri("/v1/qr_scan/99999999")
+            .uri("/qr_scan/99999999")
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
@@ -432,7 +429,7 @@ async fn get_state() -> AppState {
         seed_attendee(&state, event_id, sub2).await;
 
         let req = test::TestRequest::get()
-            .uri(&format!("/v1/kbr_event_attendees?kbr_event_id={}", event_id))
+            .uri(&format!("/kbr_event_attendees?kbr_event_id={}", event_id))
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -459,7 +456,7 @@ async fn get_state() -> AppState {
         .await;
 
         let req = test::TestRequest::get()
-            .uri("/v1/kbr_event_attendees?kbr_event_id=1")
+            .uri("/kbr_event_attendees?kbr_event_id=1")
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert!(resp.status().is_client_error());
@@ -484,7 +481,7 @@ async fn get_state() -> AppState {
         let sub2 = seed_mail_subscriber(&state, &format!("CreateSub2 {}", suffix())).await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/kbr_event_attendees")
+            .uri("/kbr_event_attendees")
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .set_json(serde_json::json!({
                 "kbr_event_id": event_id as i32,
@@ -515,7 +512,7 @@ async fn get_state() -> AppState {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/kbr_event_attendees")
+            .uri("/kbr_event_attendees")
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .set_json(serde_json::json!({
                 "kbr_event_id": 1,
@@ -545,7 +542,7 @@ async fn get_state() -> AppState {
         seed_attendee(&state, event_id, sub1).await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/kbr_event_update_txt")
+            .uri("/kbr_event_update_txt")
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .set_json(serde_json::json!({
                 "kbr_event_id": event_id as i32,

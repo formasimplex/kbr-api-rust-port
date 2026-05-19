@@ -224,14 +224,11 @@ pub async fn update(
 }
 
 pub fn config_routes(cfg: &mut web::ServiceConfig) {
-    cfg.service(
-        web::scope("/v1")
-            .route("/permissions", web::get().to(index))
-            .route("/permissions_resources", web::get().to(index_resources))
-            .route("/permissions", web::post().to(create))
-            .route("/permissions/{id}", web::get().to(show))
-            .route("/permissions/{id}", web::put().to(update)),
-    );
+    cfg.route("/permissions", web::get().to(index))
+        .route("/permissions_resources", web::get().to(index_resources))
+        .route("/permissions", web::post().to(create))
+        .route("/permissions/{id}", web::get().to(show))
+        .route("/permissions/{id}", web::put().to(update));
 }
 
 #[cfg(test)]
@@ -273,7 +270,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::get()
-            .uri("/v1/permissions")
+            .uri("/permissions")
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -295,7 +292,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::get()
-            .uri("/v1/permissions")
+            .uri("/permissions")
             .insert_header(("Authorization", format!("Bearer {}", user_token())))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -317,7 +314,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::get()
-            .uri("/v1/permissions_resources")
+            .uri("/permissions_resources")
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -347,7 +344,7 @@ mod tests {
             .expect("Failed to get max id");
 
         let req = test::TestRequest::get()
-            .uri(&format!("/v1/permissions/{}", max_id + 9999))
+            .uri(&format!("/permissions/{}", max_id + 9999))
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -378,7 +375,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/permissions")
+            .uri("/permissions")
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .set_json(serde_json::json!({
                 "resource": "Album",
@@ -415,7 +412,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/permissions")
+            .uri("/permissions")
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .set_json(serde_json::json!({
                 "resource": "InvalidResource"
@@ -445,7 +442,7 @@ mod tests {
             .expect("Failed to get max id");
 
         let req = test::TestRequest::put()
-            .uri(&format!("/v1/permissions/{}", max_id + 9999))
+            .uri(&format!("/permissions/{}", max_id + 9999))
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .set_json(serde_json::json!({
                 "can_delete": true

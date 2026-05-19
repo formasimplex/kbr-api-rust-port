@@ -227,13 +227,10 @@ pub async fn create_reply(
 }
 
 pub fn config_routes(cfg: &mut web::ServiceConfig) {
-    cfg.service(
-        web::scope("/v1")
-            .route("/comment/{id}", web::get().to(show))
-            .route("/comments", web::get().to(index))
-            .route("/comments", web::post().to(create))
-            .route("/comments/{parent_id}", web::post().to(create_reply)),
-    );
+    cfg.route("/comment/{id}", web::get().to(show))
+        .route("/comments", web::get().to(index))
+        .route("/comments", web::post().to(create))
+        .route("/comments/{parent_id}", web::post().to(create_reply));
 }
 
 #[cfg(test)]
@@ -302,7 +299,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::get()
-            .uri(&format!("/v1/comment/{}", comment_id))
+            .uri(&format!("/comment/{}", comment_id))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
@@ -325,7 +322,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::get()
-            .uri("/v1/comment/99999999")
+            .uri("/comment/99999999")
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
@@ -346,7 +343,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::get()
-            .uri("/v1/comments")
+            .uri("/comments")
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
@@ -367,7 +364,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/comments")
+            .uri("/comments")
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .set_json(serde_json::json!({
                 "content": "Nice!",
@@ -399,7 +396,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/comments")
+            .uri("/comments")
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .set_json(serde_json::json!({
                 "content": "",
@@ -426,7 +423,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/comments")
+            .uri("/comments")
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .set_json(serde_json::json!({
                 "content": "Test",
@@ -455,7 +452,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::post()
-            .uri(&format!("/v1/comments/{}", parent_id))
+            .uri(&format!("/comments/{}", parent_id))
             .insert_header(("Authorization", format!("Bearer {}", customer_token())))
             .set_json(serde_json::json!({
                 "content": "Reply content",
@@ -488,7 +485,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/comments/1")
+            .uri("/comments/1")
             .insert_header(("Authorization", format!("Bearer {}", customer_token())))
             .set_json(serde_json::json!({
                 "content": "",

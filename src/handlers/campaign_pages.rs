@@ -107,11 +107,8 @@ pub async fn show(
 }
 
 pub fn config_routes(cfg: &mut web::ServiceConfig) {
-    cfg.service(
-        web::scope("/v1")
-            .route("/campaign_pages", web::get().to(index))
-            .route("/campaign_pages/{id}", web::get().to(show)),
-    );
+    cfg.route("/campaign_pages", web::get().to(index))
+        .route("/campaign_pages/{id}", web::get().to(show));
 }
 
 #[cfg(test)]
@@ -271,7 +268,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::get()
-            .uri("/v1/campaign_pages")
+            .uri("/campaign_pages")
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -293,7 +290,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::get()
-            .uri("/v1/campaign_pages")
+            .uri("/campaign_pages")
             .insert_header(("Authorization", format!("Bearer {}", user_token())))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -321,7 +318,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::get()
-            .uri(&format!("/v1/campaign_pages/{}", page_id))
+            .uri(&format!("/campaign_pages/{}", page_id))
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -359,7 +356,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::get()
-            .uri(&format!("/v1/campaign_pages/{}", max_id + 9999))
+            .uri(&format!("/campaign_pages/{}", max_id + 9999))
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .to_request();
         let resp = test::call_service(&app, req).await;

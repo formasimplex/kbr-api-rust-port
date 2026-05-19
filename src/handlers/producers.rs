@@ -150,12 +150,9 @@ pub async fn update(
 }
 
 pub fn config_routes(cfg: &mut web::ServiceConfig) {
-    cfg.service(
-        web::scope("/v1")
-            .route("/producers", web::get().to(index))
-            .route("/producers", web::post().to(create))
-            .route("/producers/{id}", web::put().to(update)),
-    );
+    cfg.route("/producers", web::get().to(index))
+        .route("/producers", web::post().to(create))
+        .route("/producers/{id}", web::put().to(update));
 }
 
 #[cfg(test)]
@@ -193,7 +190,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::get()
-            .uri("/v1/producers")
+            .uri("/producers")
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -221,7 +218,7 @@ mod tests {
         let name = format!("New Pressing Co {}", suffix);
 
         let req = test::TestRequest::post()
-            .uri("/v1/producers")
+            .uri("/producers")
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .set_json(serde_json::json!({
                 "producer_name": name,
@@ -253,7 +250,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/producers")
+            .uri("/producers")
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .set_json(serde_json::json!({
                 "producer_name": ""
@@ -296,7 +293,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::put()
-            .uri(&format!("/v1/producers/{}", id))
+            .uri(&format!("/producers/{}", id))
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .set_json(serde_json::json!({
                 "producer_name": new_name,
@@ -330,7 +327,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::put()
-            .uri("/v1/producers/99999999")
+            .uri("/producers/99999999")
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .set_json(serde_json::json!({
                 "producer_name": "Updated"

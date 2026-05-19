@@ -287,14 +287,11 @@ pub async fn destroy(
 }
 
 pub fn config_routes(cfg: &mut web::ServiceConfig) {
-    cfg.service(
-        web::scope("/v1")
-            .route("/configs", web::get().to(index))
-            .route("/config/{tenant_id}", web::get().to(show))
-            .route("/configs", web::post().to(create))
-            .route("/configs/{tenant_id}", web::put().to(update))
-            .route("/configs/{tenant_id}", web::delete().to(destroy)),
-    );
+    cfg.route("/configs", web::get().to(index))
+        .route("/config/{tenant_id}", web::get().to(show))
+        .route("/configs", web::post().to(create))
+        .route("/configs/{tenant_id}", web::put().to(update))
+        .route("/configs/{tenant_id}", web::delete().to(destroy));
 }
 
 #[cfg(test)]
@@ -332,7 +329,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::get()
-            .uri("/v1/configs")
+            .uri("/configs")
             .insert_header(("Authorization", format!("Bearer {}", token())))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -354,7 +351,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/configs")
+            .uri("/configs")
             .insert_header(("Authorization", format!("Bearer {}", token())))
             .set_json(serde_json::json!({
                 "short_name": "TestKBR",
@@ -393,7 +390,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/configs")
+            .uri("/configs")
             .insert_header(("Authorization", format!("Bearer {}", token())))
             .set_json(serde_json::json!({
                 "short_name": "",
@@ -421,7 +418,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::get()
-            .uri("/v1/config/00000000-0000-0000-0000-000000000000")
+            .uri("/config/00000000-0000-0000-0000-000000000000")
             .insert_header(("Authorization", format!("Bearer {}", token())))
             .to_request();
         let resp = test::call_service(&app, req).await;
