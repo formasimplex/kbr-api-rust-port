@@ -144,7 +144,9 @@ pub async fn index_by_user(
         .fetch_all(&state.db)
         .await?
     } else {
-        return Err(AppError::Forbidden("Not Authorized".to_string()));
+        return Err(AppError::Forbidden(
+            "Hey you! Yes you! You Are Not Authorized".to_string(),
+        ));
     };
 
     let events: Vec<KbrEvent> = rows.into_iter().map(|r| r.into()).collect();
