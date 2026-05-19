@@ -347,7 +347,7 @@ pub fn spawn_retry_worker(pool: PgPool) {
                 r#"SELECT id, job_type, payload, attempts, max_attempts, last_error
                    FROM job_queue
                    WHERE status = 'retrying' AND next_retry_at <= NOW()
-                   ORDER BY priority ASC, next_retry_at ASC
+                   ORDER BY next_retry_at ASC
                    LIMIT 10
                    FOR UPDATE SKIP LOCKED"#,
             )
