@@ -7,6 +7,10 @@ edition = "2024"
 name = "kbr-api-rust"
 path = "src/main.rs"
 
+[[bin]]
+name = "deploy_webhook"
+path = "src/bin/deploy_webhook.rs"
+
 [lib]
 name = "kbr_api_rust"
 path = "src/lib.rs"
@@ -61,6 +65,10 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 # Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Deploy webhook
+hmac = "0.12"
+constant_time_eq = "0.3"
 
 [dev-dependencies]
 actix-http = "3"
