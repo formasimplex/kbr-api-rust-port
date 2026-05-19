@@ -132,12 +132,9 @@ pub async fn create(
 }
 
 pub fn config_routes(cfg: &mut web::ServiceConfig) {
-    cfg.service(
-        web::scope("/v1")
-            .route("/albums", web::get().to(index))
-            .route("/album/{id}", web::get().to(show))
-            .route("/albums", web::post().to(create)),
-    );
+    cfg.route("/albums", web::get().to(index))
+        .route("/album/{id}", web::get().to(show))
+        .route("/albums", web::post().to(create));
 }
 
 #[cfg(test)]
@@ -171,7 +168,7 @@ async fn get_state() -> AppState {
         )
         .await;
 
-        let req = test::TestRequest::get().uri("/v1/albums").to_request();
+        let req = test::TestRequest::get().uri("/albums").to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
     }
@@ -199,7 +196,7 @@ async fn get_state() -> AppState {
         if let Ok(row) = seed {
             let id = row.id;
             let req = test::TestRequest::get()
-                .uri(&format!("/v1/album/{}", id))
+                .uri(&format!("/album/{}", id))
                 .to_request();
             let resp = test::call_service(&app, req).await;
             assert_eq!(resp.status(), 200);
@@ -232,7 +229,7 @@ async fn get_state() -> AppState {
         .expect("Failed to get max id");
 
         let req = test::TestRequest::get()
-            .uri(&format!("/v1/album/{}", max_id + 9999))
+            .uri(&format!("/album/{}", max_id + 9999))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
@@ -256,7 +253,7 @@ async fn get_state() -> AppState {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/albums")
+            .uri("/albums")
             .insert_header(("Authorization", format!("Bearer {}", token)))
             .set_json(serde_json::json!({
                 "name": "Rust Test Album",
@@ -295,7 +292,7 @@ async fn get_state() -> AppState {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/albums")
+            .uri("/albums")
             .insert_header(("Authorization", format!("Bearer {}", token)))
             .set_json(serde_json::json!({
                 "name": "Should Fail"

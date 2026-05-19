@@ -581,23 +581,17 @@ pub async fn dashboard_remove_news(
 }
 
 pub fn config_routes(cfg: &mut web::ServiceConfig) {
-    cfg.service(
-        web::scope("/v1")
-            .route("/admin/news_playlists", web::get().to(index_admin))
-            .route("/admin/news_playlists/{id}", web::get().to(show_admin))
-            .route("/admin/news_playlists/{id}", web::delete().to(destroy_admin))
-            .route("/dashboard/news_playlists", web::get().to(dashboard_index))
-            .route("/dashboard/news_playlists/{id}", web::get().to(dashboard_show))
-            .route("/dashboard/news_playlists", web::post().to(dashboard_create))
-            .route("/dashboard/news_playlists/{id}", web::put().to(dashboard_update))
-            .route("/dashboard/news_playlists/{id}", web::delete().to(dashboard_destroy))
-            .route("/dashboard/news_playlists/{id}/add_news", web::post().to(dashboard_add_news))
-            .route("/dashboard/news_playlists/{id}/reorder", web::post().to(dashboard_reorder))
-            .route(
-                "/dashboard/news_playlists/{playlist_id}/remove_news/{news_id}",
-                web::post().to(dashboard_remove_news),
-            ),
-    );
+    cfg.route("/admin/news_playlists", web::get().to(index_admin))
+        .route("/admin/news_playlists/{id}", web::get().to(show_admin))
+        .route("/admin/news_playlists/{id}", web::delete().to(destroy_admin))
+        .route("/dashboard/news_playlists", web::get().to(dashboard_index))
+        .route("/dashboard/news_playlists/{id}", web::get().to(dashboard_show))
+        .route("/dashboard/news_playlists", web::post().to(dashboard_create))
+        .route("/dashboard/news_playlists/{id}", web::put().to(dashboard_update))
+        .route("/dashboard/news_playlists/{id}", web::delete().to(dashboard_destroy))
+        .route("/dashboard/news_playlists/{id}/add_news", web::post().to(dashboard_add_news))
+        .route("/dashboard/news_playlists/{id}/reorder", web::post().to(dashboard_reorder))
+        .route("/dashboard/news_playlists/{playlist_id}/remove_news/{news_id}", web::post().to(dashboard_remove_news));
 }
 
 #[cfg(test)]
@@ -670,7 +664,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::get()
-            .uri("/v1/admin/news_playlists")
+            .uri("/admin/news_playlists")
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -695,7 +689,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::get()
-            .uri(&format!("/v1/admin/news_playlists/{}", playlist_id))
+            .uri(&format!("/admin/news_playlists/{}", playlist_id))
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -728,7 +722,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::get()
-            .uri(&format!("/v1/admin/news_playlists/{}", max_id + 9999))
+            .uri(&format!("/admin/news_playlists/{}", max_id + 9999))
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -753,7 +747,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::delete()
-            .uri(&format!("/v1/admin/news_playlists/{}", playlist_id))
+            .uri(&format!("/admin/news_playlists/{}", playlist_id))
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -785,7 +779,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::get()
-            .uri("/v1/dashboard/news_playlists")
+            .uri("/dashboard/news_playlists")
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -814,7 +808,7 @@ mod tests {
 
         let s = suffix();
         let req = test::TestRequest::post()
-            .uri("/v1/dashboard/news_playlists")
+            .uri("/dashboard/news_playlists")
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .set_json(serde_json::json!({
                 "name": format!("New Playlist {}", s),
@@ -846,7 +840,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/dashboard/news_playlists")
+            .uri("/dashboard/news_playlists")
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .set_json(serde_json::json!({
                 "name": ""
@@ -874,7 +868,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::put()
-            .uri(&format!("/v1/dashboard/news_playlists/{}", playlist_id))
+            .uri(&format!("/dashboard/news_playlists/{}", playlist_id))
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .set_json(serde_json::json!({
                 "name": format!("Updated {}", s),
@@ -918,7 +912,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::put()
-            .uri(&format!("/v1/dashboard/news_playlists/{}", playlist_id))
+            .uri(&format!("/dashboard/news_playlists/{}", playlist_id))
             .insert_header(("Authorization", format!("Bearer {}", user_token(9999))))
             .set_json(serde_json::json!({
                 "name": "Hacked"
@@ -948,7 +942,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::delete()
-            .uri(&format!("/v1/dashboard/news_playlists/{}", playlist_id))
+            .uri(&format!("/dashboard/news_playlists/{}", playlist_id))
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -980,7 +974,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::delete()
-            .uri(&format!("/v1/dashboard/news_playlists/{}", playlist_id))
+            .uri(&format!("/dashboard/news_playlists/{}", playlist_id))
             .insert_header(("Authorization", format!("Bearer {}", user_token(9999))))
             .to_request();
         let resp = test::call_service(&app, req).await;

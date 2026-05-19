@@ -175,13 +175,10 @@ pub async fn shop_redact() -> Result<HttpResponse, AppError> {
 }
 
 pub fn config_routes(cfg: &mut web::ServiceConfig) {
-    cfg.service(
-        web::scope("/v1")
-            .route("/webhook/update_progress", web::post().to(update_progress))
-            .route("/webhook/customers_data_request", web::post().to(customers_data_request))
-            .route("/webhook/customers_redact", web::post().to(customers_redact))
-            .route("/webhook/shop_redact", web::post().to(shop_redact)),
-    );
+    cfg.route("/webhook/update_progress", web::post().to(update_progress))
+        .route("/webhook/customers_data_request", web::post().to(customers_data_request))
+        .route("/webhook/customers_redact", web::post().to(customers_redact))
+        .route("/webhook/shop_redact", web::post().to(shop_redact));
 }
 
 #[cfg(test)]
@@ -289,7 +286,7 @@ async fn get_state() -> AppState {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/webhook/update_progress")
+            .uri("/webhook/update_progress")
             .set_json(serde_json::json!({
                 "webhook": {
                     "inventory_item_id": inventory_item_id,
@@ -328,7 +325,7 @@ async fn get_state() -> AppState {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/webhook/update_progress")
+            .uri("/webhook/update_progress")
             .set_json(serde_json::json!({
                 "webhook": {
                     "inventory_item_id": "nonexistent-item-id",
@@ -358,7 +355,7 @@ async fn get_state() -> AppState {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/webhook/update_progress")
+            .uri("/webhook/update_progress")
             .set_json(serde_json::json!({
                 "webhook": {
                     "inventory_item_id": inventory_item_id,
@@ -394,7 +391,7 @@ async fn get_state() -> AppState {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/webhook/customers_data_request")
+            .uri("/webhook/customers_data_request")
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
@@ -416,7 +413,7 @@ async fn get_state() -> AppState {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/webhook/customers_redact")
+            .uri("/webhook/customers_redact")
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
@@ -438,7 +435,7 @@ async fn get_state() -> AppState {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/webhook/shop_redact")
+            .uri("/webhook/shop_redact")
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);

@@ -330,13 +330,10 @@ pub async fn update(
 }
 
 pub fn config_routes(cfg: &mut web::ServiceConfig) {
-    cfg.service(
-        web::scope("/v1")
-            .route("/users", web::get().to(index))
-            .route("/user/{id}", web::get().to(show))
-            .route("/users", web::post().to(create))
-            .route("/user/{id}", web::put().to(update)),
-    );
+    cfg.route("/users", web::get().to(index))
+        .route("/user/{id}", web::get().to(show))
+        .route("/users", web::post().to(create))
+        .route("/user/{id}", web::put().to(update));
 }
 
 #[cfg(test)]
@@ -435,7 +432,7 @@ mod tests {
         let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::get()
-            .uri("/v1/users")
+            .uri("/users")
             .insert_header(("Authorization", format!("Bearer {}", user_token(2))))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -462,7 +459,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::get()
-            .uri(&format!("/v1/user/{}", user_id))
+            .uri(&format!("/user/{}", user_id))
             .insert_header(("Authorization", format!("Bearer {}", token)))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -491,7 +488,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::get()
-            .uri(&format!("/v1/user/{}", other_id))
+            .uri(&format!("/user/{}", other_id))
             .insert_header(("Authorization", format!("Bearer {}", viewer_token)))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -517,7 +514,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::get()
-            .uri(&format!("/v1/user/{}", user_id))
+            .uri(&format!("/user/{}", user_id))
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -539,7 +536,7 @@ mod tests {
             .expect("Failed to get max id");
 
         let req = test::TestRequest::get()
-            .uri(&format!("/v1/user/{}", max_id + 9999))
+            .uri(&format!("/user/{}", max_id + 9999))
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -563,7 +560,7 @@ mod tests {
             test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/users")
+            .uri("/users")
             .set_json(serde_json::json!({
                 "email": email,
                 "password": "Password123",
@@ -595,7 +592,7 @@ mod tests {
             test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/users")
+            .uri("/users")
             .set_json(serde_json::json!({
                 "email": email,
                 "password": "Password123",
@@ -641,7 +638,7 @@ mod tests {
             test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/users")
+            .uri("/users")
             .set_json(serde_json::json!({
                 "email": email,
                 "password": "Password123",
@@ -671,7 +668,7 @@ mod tests {
             test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/users")
+            .uri("/users")
             .set_json(serde_json::json!({
                 "email": request_email,
                 "password": "Password123",
@@ -694,7 +691,7 @@ mod tests {
         let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/users")
+            .uri("/users")
             .set_json(serde_json::json!({
                 "email": "notoken@example.com",
                 "password": "Password123"
@@ -722,7 +719,7 @@ mod tests {
             test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/users")
+            .uri("/users")
             .set_json(serde_json::json!({
                 "email": email.clone(),
                 "password": "Password456",
@@ -754,7 +751,7 @@ mod tests {
 
         // Creation with mixed-case email succeeds and returns normalized lowercase
         let req = test::TestRequest::post()
-            .uri("/v1/users")
+            .uri("/users")
             .set_json(serde_json::json!({
                 "email": email_upper,
                 "password": "Password123",
@@ -790,7 +787,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::put()
-            .uri(&format!("/v1/user/{}", user_id))
+            .uri(&format!("/user/{}", user_id))
             .insert_header(("Authorization", format!("Bearer {}", token)))
             .set_json(serde_json::json!({
                 "username": "updateduser"
@@ -824,7 +821,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::put()
-            .uri(&format!("/v1/user/{}", other_id))
+            .uri(&format!("/user/{}", other_id))
             .insert_header(("Authorization", format!("Bearer {}", viewer_token)))
             .set_json(serde_json::json!({
                 "username": "hacked"
@@ -853,7 +850,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::put()
-            .uri(&format!("/v1/user/{}", user_id))
+            .uri(&format!("/user/{}", user_id))
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .set_json(serde_json::json!({
                 "username": "adminupdated"
@@ -885,7 +882,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::put()
-            .uri(&format!("/v1/user/{}", user_id))
+            .uri(&format!("/user/{}", user_id))
             .insert_header(("Authorization", format!("Bearer {}", token)))
             .set_json(serde_json::json!({
                 "role": "admin"
@@ -920,7 +917,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::put()
-            .uri(&format!("/v1/user/{}", user_id))
+            .uri(&format!("/user/{}", user_id))
             .insert_header(("Authorization", format!("Bearer {}", old_token)))
             .set_json(serde_json::json!({
                 "password": "NewPassword123"
@@ -930,7 +927,7 @@ mod tests {
         assert_eq!(resp.status(), 200);
 
         let req = test::TestRequest::get()
-            .uri("/v1/auth/session")
+            .uri("/session")
             .insert_header(("Authorization", format!("Bearer {}", old_token)))
             .to_request();
         let resp = test::call_service(&app, req).await;

@@ -436,15 +436,12 @@ pub async fn add_to_playlist(
 }
 
 pub fn config_routes(cfg: &mut web::ServiceConfig) {
-    cfg.service(
-        web::scope("/v1")
-            .route("/news", web::get().to(index))
-            .route("/news/{id}", web::get().to(show))
-            .route("/news", web::post().to(create))
-            .route("/news/{id}", web::put().to(update))
-            .route("/news/{id}/toggle_comments", web::post().to(toggle_comments))
-            .route("/news/add_to_playlist", web::post().to(add_to_playlist)),
-    );
+    cfg.route("/news", web::get().to(index))
+        .route("/news/{id}", web::get().to(show))
+        .route("/news", web::post().to(create))
+        .route("/news/{id}", web::put().to(update))
+        .route("/news/{id}/toggle_comments", web::post().to(toggle_comments))
+        .route("/news/add_to_playlist", web::post().to(add_to_playlist));
 }
 
 #[cfg(test)]
@@ -539,7 +536,7 @@ mod tests {
         )
         .await;
 
-        let req = test::TestRequest::get().uri("/v1/news").to_request();
+        let req = test::TestRequest::get().uri("/news").to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
     }
@@ -560,7 +557,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::get()
-            .uri(&format!("/v1/news/{}", news_id))
+            .uri(&format!("/news/{}", news_id))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
@@ -589,7 +586,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::get()
-            .uri(&format!("/v1/news/{}", max_id + 9999))
+            .uri(&format!("/news/{}", max_id + 9999))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
@@ -612,7 +609,7 @@ mod tests {
 
         let suffix = format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos());
         let req = test::TestRequest::post()
-            .uri("/v1/news")
+            .uri("/news")
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .set_json(serde_json::json!({
                 "url": format!("https://example.com/article-{}", suffix),
@@ -644,7 +641,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/news")
+            .uri("/news")
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .set_json(serde_json::json!({
                 "url": "http://localhost/admin"
@@ -674,7 +671,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::put()
-            .uri(&format!("/v1/news/{}", news_id))
+            .uri(&format!("/news/{}", news_id))
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .set_json(serde_json::json!({
                 "active": false
@@ -709,7 +706,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::put()
-            .uri(&format!("/v1/news/{}", news_id))
+            .uri(&format!("/news/{}", news_id))
             .insert_header(("Authorization", format!("Bearer {}", user_token(9999))))
             .set_json(serde_json::json!({
                 "active": false
@@ -741,7 +738,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::post()
-            .uri(&format!("/v1/news/{}/toggle_comments", news_id))
+            .uri(&format!("/news/{}/toggle_comments", news_id))
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -775,7 +772,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/news/add_to_playlist")
+            .uri("/news/add_to_playlist")
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .set_json(serde_json::json!({
                 "news_id": news_id,
@@ -812,7 +809,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/news")
+            .uri("/news")
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .set_json(serde_json::json!({
                 "url": url.clone(),
@@ -823,7 +820,7 @@ mod tests {
         assert_eq!(resp.status(), 201);
 
         let req = test::TestRequest::post()
-            .uri("/v1/news")
+            .uri("/news")
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .set_json(serde_json::json!({
                 "url": url.clone(),
@@ -862,7 +859,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/news/add_to_playlist")
+            .uri("/news/add_to_playlist")
             .insert_header(("Authorization", format!("Bearer {}", user_token(9999))))
             .set_json(serde_json::json!({
                 "news_id": news_id,
@@ -893,7 +890,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/news/add_to_playlist")
+            .uri("/news/add_to_playlist")
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .set_json(serde_json::json!({
                 "news_id": 99999999,
@@ -926,7 +923,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/news/add_to_playlist")
+            .uri("/news/add_to_playlist")
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .set_json(serde_json::json!({
                 "news_id": news_id,
@@ -937,7 +934,7 @@ mod tests {
         assert_eq!(resp.status(), 200);
 
         let req = test::TestRequest::post()
-            .uri("/v1/news/add_to_playlist")
+            .uri("/news/add_to_playlist")
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .set_json(serde_json::json!({
                 "news_id": news_id,

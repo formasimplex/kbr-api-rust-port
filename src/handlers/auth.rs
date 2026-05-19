@@ -279,14 +279,11 @@ pub async fn logout(
         .finish()
         .expect("valid governor config");
 
-    cfg.service(
-        web::scope("/v1/auth")
-            .route("/login", web::post()
-                .wrap(actix_governor::Governor::new(&login_governor))
-                .to(login))
-            .route("/session", web::get().to(session))
-            .route("/logout", web::post().to(logout)),
-    );
+    cfg.route("/login", web::post()
+        .wrap(actix_governor::Governor::new(&login_governor))
+        .to(login));
+    cfg.route("/session", web::get().to(session));
+    cfg.route("/logout", web::post().to(logout));
 }
 
 #[cfg(test)]
@@ -390,7 +387,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/auth/login")
+            .uri("/login")
             .set_json(serde_json::json!({
                 "email": email,
                 "password": "correctpassword"
@@ -420,7 +417,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/auth/login")
+            .uri("/login")
             .set_json(serde_json::json!({
                 "email": "nonexistent@example.com",
                 "password": "anypassword"
@@ -454,7 +451,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/auth/login")
+            .uri("/login")
             .set_json(serde_json::json!({
                 "email": email,
                 "password": "wrongpassword"
@@ -494,7 +491,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::get()
-            .uri("/v1/auth/session")
+            .uri("/session")
             .insert_header(("Authorization", format!("Bearer {}", token)))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -522,7 +519,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::get()
-            .uri("/v1/auth/session")
+            .uri("/session")
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 401);
@@ -571,7 +568,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/auth/logout")
+            .uri("/logout")
             .insert_header(("Authorization", format!("Bearer {}", token)))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -597,7 +594,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/auth/logout")
+            .uri("/logout")
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 401);
@@ -630,7 +627,7 @@ mod tests {
 
         // Logout first
         let req = test::TestRequest::post()
-            .uri("/v1/auth/logout")
+            .uri("/logout")
             .insert_header(("Authorization", format!("Bearer {}", token)))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -638,7 +635,7 @@ mod tests {
 
         // Same token should now be rejected
         let req = test::TestRequest::get()
-            .uri("/v1/auth/session")
+            .uri("/session")
             .insert_header(("Authorization", format!("Bearer {}", token)))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -674,7 +671,7 @@ mod tests {
 
         // First logout
         let req = test::TestRequest::post()
-            .uri("/v1/auth/logout")
+            .uri("/logout")
             .insert_header(("Authorization", format!("Bearer {}", token)))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -683,7 +680,7 @@ mod tests {
         // Second logout with same token - middleware will reject since token is revoked
         // This is expected behavior: once revoked, the token can't be used again
         let req = test::TestRequest::post()
-            .uri("/v1/auth/logout")
+            .uri("/logout")
             .insert_header(("Authorization", format!("Bearer {}", token)))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -720,7 +717,7 @@ mod tests {
 
         // Logout with token1
         let req = test::TestRequest::post()
-            .uri("/v1/auth/logout")
+            .uri("/logout")
             .insert_header(("Authorization", format!("Bearer {}", token1)))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -728,7 +725,7 @@ mod tests {
 
         // token2 should also be rejected due to token_version increment
         let req = test::TestRequest::get()
-            .uri("/v1/auth/session")
+            .uri("/session")
             .insert_header(("Authorization", format!("Bearer {}", token2)))
             .to_request();
         let resp = test::call_service(&app, req).await;

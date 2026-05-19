@@ -83,10 +83,7 @@ pub async fn subscribed_artists(
 }
 
 pub fn config_routes(cfg: &mut web::ServiceConfig) {
-    cfg.service(
-        web::scope("/v1")
-            .route("/dashboard/subscribed_artists", web::get().to(subscribed_artists)),
-    );
+    cfg.route("/dashboard/subscribed_artists", web::get().to(subscribed_artists));
 }
 
 #[cfg(test)]
@@ -188,7 +185,7 @@ async fn get_state() -> AppState {
         .await;
 
         let req = test::TestRequest::get()
-            .uri("/v1/dashboard/subscribed_artists")
+            .uri("/dashboard/subscribed_artists")
             .insert_header(("Authorization", format!("Bearer {}", user_token(user_id))))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -228,7 +225,7 @@ async fn get_state() -> AppState {
         .await;
 
         let req = test::TestRequest::get()
-            .uri("/v1/dashboard/subscribed_artists")
+            .uri("/dashboard/subscribed_artists")
             .insert_header(("Authorization", format!("Bearer {}", user_token(user_id))))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -259,7 +256,7 @@ async fn get_state() -> AppState {
         .await;
 
         let req = test::TestRequest::get()
-            .uri("/v1/dashboard/subscribed_artists")
+            .uri("/dashboard/subscribed_artists")
             .insert_header(("Authorization", format!("Bearer {}", user_token(user_id))))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -287,7 +284,7 @@ async fn get_state() -> AppState {
         .await;
 
         let req = test::TestRequest::get()
-            .uri("/v1/dashboard/subscribed_artists")
+            .uri("/dashboard/subscribed_artists")
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_ne!(resp.status(), 200);

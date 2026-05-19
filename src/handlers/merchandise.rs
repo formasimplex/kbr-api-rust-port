@@ -321,17 +321,14 @@ pub async fn cache_update(
 }
 
 pub fn config_routes(cfg: &mut web::ServiceConfig) {
-    cfg.service(
-        web::scope("/v1")
-            .route("/merchandise", web::get().to(index))
-            .route("/merchandise/cache_update", web::get().to(cache_update))
-            .route("/artist_merchandise", web::get().to(index))
-            .route("/artist_merchandise/{id}", web::get().to(show))
-            .route("/artist_merchandise/by_artist/{artist_id}", web::get().to(by_artist))
-            .route("/artist_merchandise", web::post().to(create))
-            .route("/artist_merchandise/{id}", web::put().to(update))
-            .route("/artist_merchandise/{id}", web::delete().to(destroy)),
-    );
+    cfg.route("/merchandise", web::get().to(index))
+        .route("/merchandise/cache_update", web::get().to(cache_update))
+        .route("/artist_merchandise", web::get().to(index))
+        .route("/artist_merchandise/{id}", web::get().to(show))
+        .route("/artist_merchandise/by_artist/{artist_id}", web::get().to(by_artist))
+        .route("/artist_merchandise", web::post().to(create))
+        .route("/artist_merchandise/{id}", web::put().to(update))
+        .route("/artist_merchandise/{id}", web::delete().to(destroy));
 }
 
 #[cfg(test)]
@@ -411,7 +408,7 @@ async fn get_state() -> AppState {
         .await;
 
         let req = test::TestRequest::get()
-            .uri("/v1/artist_merchandise")
+            .uri("/artist_merchandise")
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -451,7 +448,7 @@ async fn get_state() -> AppState {
 
         let id = seed.id;
         let req = test::TestRequest::get()
-            .uri(&format!("/v1/artist_merchandise/{}", id))
+            .uri(&format!("/artist_merchandise/{}", id))
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -489,7 +486,7 @@ async fn get_state() -> AppState {
         .await;
 
         let req = test::TestRequest::get()
-            .uri(&format!("/v1/artist_merchandise/{}", max_id + 9999))
+            .uri(&format!("/artist_merchandise/{}", max_id + 9999))
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -522,7 +519,7 @@ async fn get_state() -> AppState {
         .await;
 
         let req = test::TestRequest::get()
-            .uri(&format!("/v1/artist_merchandise/by_artist/{}", artist_id))
+            .uri(&format!("/artist_merchandise/by_artist/{}", artist_id))
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -561,7 +558,7 @@ async fn get_state() -> AppState {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/artist_merchandise")
+            .uri("/artist_merchandise")
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .set_json(serde_json::json!({
                 "artist_id": artist_id,
@@ -600,7 +597,7 @@ async fn get_state() -> AppState {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/artist_merchandise")
+            .uri("/artist_merchandise")
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .set_json(serde_json::json!({
                 "artist_id": 1,
@@ -648,7 +645,7 @@ async fn get_state() -> AppState {
         .await;
 
         let req = test::TestRequest::put()
-            .uri(&format!("/v1/artist_merchandise/{}", id))
+            .uri(&format!("/artist_merchandise/{}", id))
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .set_json(serde_json::json!({
                 "merch_title": new_title,
@@ -693,7 +690,7 @@ async fn get_state() -> AppState {
         .await;
 
         let req = test::TestRequest::put()
-            .uri(&format!("/v1/artist_merchandise/{}", max_id + 9999))
+            .uri(&format!("/artist_merchandise/{}", max_id + 9999))
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .set_json(serde_json::json!({
                 "merch_title": "Updated"
@@ -738,7 +735,7 @@ async fn get_state() -> AppState {
         .await;
 
         let req = test::TestRequest::delete()
-            .uri(&format!("/v1/artist_merchandise/{}", id))
+            .uri(&format!("/artist_merchandise/{}", id))
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -772,7 +769,7 @@ async fn get_state() -> AppState {
         .await;
 
         let req = test::TestRequest::delete()
-            .uri(&format!("/v1/artist_merchandise/{}", max_id + 9999))
+            .uri(&format!("/artist_merchandise/{}", max_id + 9999))
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -794,7 +791,7 @@ async fn get_state() -> AppState {
         .await;
 
         let req = test::TestRequest::get()
-            .uri("/v1/merchandise/cache_update")
+            .uri("/merchandise/cache_update")
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -821,7 +818,7 @@ async fn get_state() -> AppState {
         .await;
 
         let req = test::TestRequest::get()
-            .uri(&format!("/v1/artist_merchandise/by_artist/{}", artist_id))
+            .uri(&format!("/artist_merchandise/by_artist/{}", artist_id))
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -848,7 +845,7 @@ async fn get_state() -> AppState {
         .await;
 
         let req = test::TestRequest::get()
-            .uri("/v1/artist_merchandise")
+            .uri("/artist_merchandise")
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 401);
@@ -889,7 +886,7 @@ async fn get_state() -> AppState {
         .await;
 
         let req = test::TestRequest::put()
-            .uri(&format!("/v1/artist_merchandise/{}", id))
+            .uri(&format!("/artist_merchandise/{}", id))
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .set_json(serde_json::json!({
                 "description": "Updated desc only"
@@ -933,7 +930,7 @@ async fn get_state() -> AppState {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/artist_merchandise")
+            .uri("/artist_merchandise")
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .set_json(serde_json::json!({
                 "artist_id": artist_id,

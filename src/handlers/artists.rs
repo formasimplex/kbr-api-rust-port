@@ -480,20 +480,14 @@ pub async fn available_link_types() -> Result<HttpResponse, AppError> {
 }
 
 pub fn config_routes(cfg: &mut web::ServiceConfig) {
-    cfg.service(
-        web::scope("/v1")
-            .route("/artists", web::get().to(index))
-            .route("/artist/{id}", web::get().to(show))
-            .route("/artist", web::post().to(create))
-            .route("/artist/sign_up", web::post().to(sign_up))
-            .route("/artist/{id}", web::put().to(update))
-            .route("/artist/add_artist_links", web::post().to(add_artist_links))
-            .route(
-                "/artist/delete_artist_links",
-                web::post().to(delete_artist_links),
-            )
-            .route("/available_link_types", web::get().to(available_link_types)),
-    );
+    cfg.route("/artists", web::get().to(index))
+        .route("/artist/{id}", web::get().to(show))
+        .route("/artist", web::post().to(create))
+        .route("/artist/sign_up", web::post().to(sign_up))
+        .route("/artist/{id}", web::put().to(update))
+        .route("/artist/add_artist_links", web::post().to(add_artist_links))
+        .route("/artist/delete_artist_links", web::post().to(delete_artist_links))
+        .route("/available_link_types", web::get().to(available_link_types));
 }
 
 #[cfg(test)]
@@ -582,7 +576,7 @@ mod tests {
         let state = web::Data::new(get_state().await);
         let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
-        let req = test::TestRequest::get().uri("/v1/artists").to_request();
+        let req = test::TestRequest::get().uri("/artists").to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
     }
@@ -600,7 +594,7 @@ mod tests {
         let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::get()
-            .uri(&format!("/v1/artist/{}", artist_id))
+            .uri(&format!("/artist/{}", artist_id))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
@@ -627,7 +621,7 @@ mod tests {
         let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::get()
-            .uri(&format!("/v1/artist/{}", max_id + 9999))
+            .uri(&format!("/artist/{}", max_id + 9999))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
@@ -648,7 +642,7 @@ mod tests {
         let name = format!("New Artist {}", ts);
 
         let req = test::TestRequest::post()
-            .uri("/v1/artist")
+            .uri("/artist")
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .set_json(serde_json::json!({
                 "name": name,
@@ -680,7 +674,7 @@ mod tests {
         let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/artist")
+            .uri("/artist")
             .insert_header(("Authorization", format!("Bearer {}", token)))
             .set_json(serde_json::json!({
                 "name": "Should Fail"
@@ -706,7 +700,7 @@ mod tests {
             test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
 
         let req = test::TestRequest::put()
-            .uri(&format!("/v1/artist/{}", artist_id))
+            .uri(&format!("/artist/{}", artist_id))
             .insert_header(("Authorization", format!("Bearer {}", artist_token())))
             .set_json(serde_json::json!({
                 "name": "Updated Artist Name"
@@ -739,7 +733,7 @@ mod tests {
         let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::put()
-            .uri(&format!("/v1/artist/{}", max_id + 9999))
+            .uri(&format!("/artist/{}", max_id + 9999))
             .insert_header(("Authorization", format!("Bearer {}", artist_token())))
             .set_json(serde_json::json!({
                 "name": "Updated"
@@ -765,7 +759,7 @@ mod tests {
             test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/artist/add_artist_links")
+            .uri("/artist/add_artist_links")
             .insert_header(("Authorization", format!("Bearer {}", artist_token())))
             .set_json(serde_json::json!({
                 "artist_id": artist_id,
@@ -796,7 +790,7 @@ mod tests {
         let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/artist/add_artist_links")
+            .uri("/artist/add_artist_links")
             .insert_header(("Authorization", format!("Bearer {}", artist_token())))
             .set_json(serde_json::json!({
                 "artist_id": 1,
@@ -839,7 +833,7 @@ mod tests {
             test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/artist/delete_artist_links")
+            .uri("/artist/delete_artist_links")
             .insert_header(("Authorization", format!("Bearer {}", artist_token())))
             .set_json(serde_json::json!({
                 "id": link_id
@@ -871,7 +865,7 @@ mod tests {
         let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/artist/delete_artist_links")
+            .uri("/artist/delete_artist_links")
             .insert_header(("Authorization", format!("Bearer {}", artist_token())))
             .set_json(serde_json::json!({
                 "id": 99999999
@@ -890,7 +884,7 @@ mod tests {
         let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::get()
-            .uri("/v1/available_link_types")
+            .uri("/available_link_types")
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
@@ -927,7 +921,7 @@ mod tests {
             test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/artist/sign_up")
+            .uri("/artist/sign_up")
             .set_json(serde_json::json!({
                 "token": token,
                 "name": "New Artist Band",
@@ -984,7 +978,7 @@ mod tests {
         let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/artist/sign_up")
+            .uri("/artist/sign_up")
             .set_json(serde_json::json!({
                 "token": "nonexistent_token",
                 "name": "New Artist Band",
@@ -1036,7 +1030,7 @@ mod tests {
             test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/artist/sign_up")
+            .uri("/artist/sign_up")
             .set_json(serde_json::json!({
                 "token": token,
                 "name": "Duplicate Artist",
@@ -1085,7 +1079,7 @@ mod tests {
             test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/artist/sign_up")
+            .uri("/artist/sign_up")
             .set_json(serde_json::json!({
                 "token": token,
                 "name": "Prospect Artist",
@@ -1149,7 +1143,7 @@ mod tests {
             test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/artist/sign_up")
+            .uri("/artist/sign_up")
             .set_json(serde_json::json!({
                 "token": token,
                 "name": "Expired Artist Band",
@@ -1176,7 +1170,7 @@ mod tests {
         let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/artist/sign_up")
+            .uri("/artist/sign_up")
             .set_json(serde_json::json!({
                 "token": "any_token",
                 "name": "Test Artist",
@@ -1216,7 +1210,7 @@ mod tests {
             test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/artist/sign_up")
+            .uri("/artist/sign_up")
             .set_json(serde_json::json!({
                 "token": token,
                 "name": "Weak Artist",

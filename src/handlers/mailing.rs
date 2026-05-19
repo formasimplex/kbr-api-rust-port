@@ -474,20 +474,14 @@ pub async fn process_unsubscribe(
 }
 
 pub fn config_routes(cfg: &mut web::ServiceConfig) {
-    cfg.service(
-        web::scope("/v1")
-            .route("/mail_subscribers", web::get().to(index))
-            .route("/artist_mailing_list", web::get().to(index_artist_subscribers))
-            .route("/artistmailsubscriber", web::post().to(artist_mail_subscriber))
-            .route("/addmailsubscriber", web::post().to(add_mail_subscriber))
-            .route(
-                "/addmailsubscriber_with_user",
-                web::post().to(add_mail_subscriber_with_user),
-            )
-            .route("/mail_subscribers/unsubscribe", web::post().to(unsubscribe))
-            .route("/unsubscribe", web::post().to(request_unsubscribe))
-            .route("/unsubscribe/{token}", web::get().to(process_unsubscribe)),
-    );
+    cfg.route("/mail_subscribers", web::get().to(index))
+        .route("/artist_mailing_list", web::get().to(index_artist_subscribers))
+        .route("/artistmailsubscriber", web::post().to(artist_mail_subscriber))
+        .route("/addmailsubscriber", web::post().to(add_mail_subscriber))
+        .route("/addmailsubscriber_with_user", web::post().to(add_mail_subscriber_with_user))
+        .route("/mail_subscribers/unsubscribe", web::post().to(unsubscribe))
+        .route("/unsubscribe", web::post().to(request_unsubscribe))
+        .route("/unsubscribe/{token}", web::get().to(process_unsubscribe));
 }
 
 #[cfg(test)]
@@ -632,7 +626,7 @@ async fn get_state() -> AppState {
         .await;
 
         let req = test::TestRequest::get()
-            .uri("/v1/mail_subscribers")
+            .uri("/mail_subscribers")
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -655,7 +649,7 @@ async fn get_state() -> AppState {
         .await;
 
         let req = test::TestRequest::get()
-            .uri("/v1/mail_subscribers")
+            .uri("/mail_subscribers")
             .insert_header(("Authorization", format!("Bearer {}", user_token)))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -681,7 +675,7 @@ async fn get_state() -> AppState {
         .await;
 
         let req = test::TestRequest::get()
-            .uri(&format!("/v1/artist_mailing_list?artist_id={}", artist_id))
+            .uri(&format!("/artist_mailing_list?artist_id={}", artist_id))
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -714,7 +708,7 @@ async fn get_state() -> AppState {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/addmailsubscriber")
+            .uri("/addmailsubscriber")
             .set_json(serde_json::json!({
                 "full_name": "Jane Doe",
                 "email": email.clone()
@@ -744,7 +738,7 @@ async fn get_state() -> AppState {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/addmailsubscriber")
+            .uri("/addmailsubscriber")
             .set_json(serde_json::json!({
                 "full_name": "Jane Doe",
                 "email": "invalid"
@@ -777,7 +771,7 @@ async fn get_state() -> AppState {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/addmailsubscriber_with_user")
+            .uri("/addmailsubscriber_with_user")
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .set_json(serde_json::json!({
                 "full_name": "Jane Doe",
@@ -834,7 +828,7 @@ async fn get_state() -> AppState {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/artistmailsubscriber")
+            .uri("/artistmailsubscriber")
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .set_json(serde_json::json!({
                 "full_name": "Jane Doe",
@@ -874,7 +868,7 @@ async fn get_state() -> AppState {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/mail_subscribers/unsubscribe")
+            .uri("/mail_subscribers/unsubscribe")
             .insert_header(("Authorization", format!("Bearer {}", user_token)))
             .set_json(serde_json::json!({
                 "artist_id": artist_id
@@ -921,7 +915,7 @@ async fn get_state() -> AppState {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/mail_subscribers/unsubscribe")
+            .uri("/mail_subscribers/unsubscribe")
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .set_json(serde_json::json!({
                 "artist_id": 99999
@@ -959,7 +953,7 @@ async fn get_state() -> AppState {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/unsubscribe")
+            .uri("/unsubscribe")
             .set_json(serde_json::json!({
                 "email": email.clone()
             }))
@@ -989,7 +983,7 @@ async fn get_state() -> AppState {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/unsubscribe")
+            .uri("/unsubscribe")
             .set_json(serde_json::json!({
                 "email": "nonexistent@test.com"
             }))
@@ -1032,7 +1026,7 @@ async fn get_state() -> AppState {
         .await;
 
         let req = test::TestRequest::get()
-            .uri(&format!("/v1/unsubscribe/{}", token))
+            .uri(&format!("/unsubscribe/{}", token))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
@@ -1061,7 +1055,7 @@ async fn get_state() -> AppState {
         .await;
 
         let req = test::TestRequest::get()
-            .uri("/v1/unsubscribe/invalidtoken123")
+            .uri("/unsubscribe/invalidtoken123")
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);

@@ -16,6 +16,7 @@ use serde::Serialize;
 use sqlx::FromRow;
 
 use crate::app::AppState;
+use crate::auth::middleware::CurrentUser;
 use crate::error::AppError;
 
 #[derive(Debug, FromRow)]
@@ -60,7 +61,13 @@ struct LastLoginByIdResponse {
 /// # Response
 ///
 /// `200 OK` — JSON array of `LastLoginResponse`
-pub async fn last_logins(state: web::Data<AppState>) -> Result<HttpResponse, AppError> {
+pub async fn last_logins(
+    state: web::Data<AppState>,
+    user: CurrentUser,
+) -> Result<HttpResponse, AppError> {
+    if !user.is_admin() {
+        return Err(AppError::Forbidden("must be admin".into()));
+    }
     let rows = sqlx::query_as::<_, LastLoginRow>(
         r#"SELECT username, updated_at FROM users ORDER BY updated_at DESC LIMIT 10"#
     )
@@ -90,7 +97,11 @@ pub async fn last_logins(state: web::Data<AppState>) -> Result<HttpResponse, App
 pub async fn last_login_by_id(
     state: web::Data<AppState>,
     path: web::Path<i64>,
+    user: CurrentUser,
 ) -> Result<HttpResponse, AppError> {
+    if !user.is_admin() {
+        return Err(AppError::Forbidden("must be admin".into()));
+    }
     let id = path.into_inner();
 
     match sqlx::query_as::<_, LastLoginByIdRow>(
@@ -120,7 +131,11 @@ pub async fn last_login_by_id(
 pub async fn event_attendees_present(
     state: web::Data<AppState>,
     path: web::Path<i64>,
+    user: CurrentUser,
 ) -> Result<HttpResponse, AppError> {
+    if !user.is_admin() {
+        return Err(AppError::Forbidden("must be admin".into()));
+    }
     let event_id = path.into_inner();
 
     let event_exists = sqlx::query_scalar::<_, i64>(
@@ -155,20 +170,19 @@ pub async fn event_attendees_present(
 }
 
 pub fn config_routes(cfg: &mut web::ServiceConfig) {
-    cfg.service(
-        web::scope("/v1")
-            .route("/data/last_logins", web::get().to(last_logins))
-            .route("/data/last_logins/{id}", web::get().to(last_login_by_id))
-            .route("/data/event_attendees_present/{id}", web::get().to(event_attendees_present)),
-    );
+    cfg.route("/data/last_logins", web::get().to(last_logins))
+        .route("/data/last_logins/{id}", web::get().to(last_login_by_id))
+        .route("/data/event_attendees_present/{id}", web::get().to(event_attendees_present));
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+   use super::*;
+    use crate::auth::jwt::encode_token_with_role;
     use actix_web::{test, App};
 
     const TEST_DB_URL: &str = "postgresql://ws@localhost:5432/kbr_test";
+    const TEST_SECRET: &str = "test-secret-key";
 
     use std::sync::atomic::{AtomicI64, Ordering};
     static TEST_COUNTER: AtomicI64 = AtomicI64::new(0);
@@ -177,6 +191,10 @@ mod tests {
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
         let count = TEST_COUNTER.fetch_add(1, Ordering::Relaxed);
         format!("{}_{}", ts, count)
+    }
+
+    fn admin_token() -> String {
+        encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap()
     }
 
 async fn get_state() -> AppState {
@@ -280,7 +298,13 @@ async fn get_state() -> AppState {
         )
         .await;
 
-        let req = test::TestRequest::get().uri("/v1/data/last_logins").to_request();
+        let req = test::TestRequest::get()
+            .uri("/data/last_logins")
+            .insert_header((
+                actix_web::http::header::AUTHORIZATION,
+                format!("Bearer {}", admin_token()),
+            ))
+            .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
 
@@ -307,7 +331,11 @@ async fn get_state() -> AppState {
         .await;
 
         let req = test::TestRequest::get()
-            .uri(&format!("/v1/data/last_logins/{}", user_id))
+            .uri(&format!("/data/last_logins/{}", user_id))
+            .insert_header((
+                actix_web::http::header::AUTHORIZATION,
+                format!("Bearer {}", admin_token()),
+            ))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
@@ -337,7 +365,11 @@ async fn get_state() -> AppState {
         .await;
 
         let req = test::TestRequest::get()
-            .uri(&format!("/v1/data/last_logins/{}", max_id + 9999))
+            .uri(&format!("/data/last_logins/{}", max_id + 9999))
+            .insert_header((
+                actix_web::http::header::AUTHORIZATION,
+                format!("Bearer {}", admin_token()),
+            ))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
@@ -365,7 +397,11 @@ async fn get_state() -> AppState {
         .await;
 
         let req = test::TestRequest::get()
-            .uri(&format!("/v1/data/event_attendees_present/{}", event_id))
+            .uri(&format!("/data/event_attendees_present/{}", event_id))
+            .insert_header((
+                actix_web::http::header::AUTHORIZATION,
+                format!("Bearer {}", admin_token()),
+            ))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
@@ -401,8 +437,12 @@ async fn get_state() -> AppState {
 
         let req = test::TestRequest::get()
             .uri(&format!(
-                "/v1/data/event_attendees_present/{}",
+                "/data/event_attendees_present/{}",
                 max_id + 9999
+            ))
+            .insert_header((
+                actix_web::http::header::AUTHORIZATION,
+                format!("Bearer {}", admin_token()),
             ))
             .to_request();
         let resp = test::call_service(&app, req).await;

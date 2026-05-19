@@ -167,11 +167,8 @@ pub async fn show(
 }
 
 pub fn config_routes(cfg: &mut web::ServiceConfig) {
-    cfg.service(
-        web::scope("/v1")
-            .route("/sign_up_trigger", web::post().to(create))
-            .route("/sign_up_trigger/{token}", web::get().to(show)),
-    );
+    cfg.route("/sign_up_trigger", web::post().to(create))
+        .route("/sign_up_trigger/{token}", web::get().to(show));
 }
 
 #[cfg(test)]
@@ -200,7 +197,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/sign_up_trigger")
+            .uri("/sign_up_trigger")
             .set_json(serde_json::json!({
                 "email": "invited@example.com",
                 "role": "user"
@@ -228,7 +225,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/sign_up_trigger")
+            .uri("/sign_up_trigger")
             .set_json(serde_json::json!({
                 "email": "bad-email"
             }))
@@ -277,7 +274,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/sign_up_trigger")
+            .uri("/sign_up_trigger")
             .set_json(serde_json::json!({
                 "email": email,
                 "role": "user"
@@ -326,7 +323,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::post()
-            .uri("/v1/sign_up_trigger")
+            .uri("/sign_up_trigger")
             .set_json(serde_json::json!({
                 "email": email,
                 "role": "user"
@@ -380,7 +377,7 @@ mod tests {
 
         if let Ok(_row) = seed {
             let req = test::TestRequest::get()
-                .uri(&format!("/v1/sign_up_trigger/{}", token))
+                .uri(&format!("/sign_up_trigger/{}", token))
                 .to_request();
             let resp = test::call_service(&app, req).await;
             assert_eq!(resp.status(), 200);
@@ -406,7 +403,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::get()
-            .uri("/v1/sign_up_trigger/nonexistent-token-xyz")
+            .uri("/sign_up_trigger/nonexistent-token-xyz")
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
@@ -437,7 +434,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::get()
-            .uri(&format!("/v1/sign_up_trigger/{}", token))
+            .uri(&format!("/sign_up_trigger/{}", token))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
