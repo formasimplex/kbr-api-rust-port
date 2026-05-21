@@ -35,15 +35,17 @@ pub struct CommentResponse {
     pub content: Option<String>,
     pub created_at: DateTime<Utc>,
     pub user: Option<CommentUser>,
+    pub replies: Vec<CommentResponse>,
 }
 
 impl Comment {
-    pub fn to_response(&self, username: Option<String>) -> CommentResponse {
+    pub fn to_response(&self, username: Option<String>, replies: Vec<CommentResponse>) -> CommentResponse {
         CommentResponse {
             id: self.id,
             content: self.content.clone(),
             created_at: self.created_at,
             user: username.map(|u| CommentUser { username: Some(u) }),
+            replies,
         }
     }
 

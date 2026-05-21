@@ -95,6 +95,7 @@ async fn fetch_event_comments_batch(
                 content,
                 created_at: created_at.and_utc(),
                 user: username.map(|u| CommentUser { username: Some(u) }),
+                replies: Vec::new(),
             });
     }
     map
@@ -464,6 +465,12 @@ mod tests {
         let req = test::TestRequest::get().uri("/kbrevents").to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
+
+        let body: serde_json::Value = test::read_body_json(resp).await;
+        assert!(body.is_array());
+        if body.as_array().unwrap().len() > 0 {
+            assert!(body[0]["comments"].is_array());
+        }
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -487,6 +494,9 @@ mod tests {
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert_eq!(body["id"], event_id);
         assert!(body["comments"].is_array());
+        if body["comments"].as_array().unwrap().len() > 0 {
+            assert!(body["comments"][0]["replies"].is_array());
+        }
 
         cleanup_event(event_id).await;
         cleanup_user(user_id, &user_email).await;
@@ -597,6 +607,12 @@ mod tests {
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
 
+        let body: serde_json::Value = test::read_body_json(resp).await;
+        assert!(body.is_array());
+        if body.as_array().unwrap().len() > 0 {
+            assert!(body[0]["comments"].is_array());
+        }
+
         cleanup_event(event_id).await;
         cleanup_user(user_id, &user_email).await;
     }
@@ -621,6 +637,12 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
+
+        let body: serde_json::Value = test::read_body_json(resp).await;
+        assert!(body.is_array());
+        if body.as_array().unwrap().len() > 0 {
+            assert!(body[0]["comments"].is_array());
+        }
 
         cleanup_event(event_id).await;
         cleanup_user(user_id, &user_email).await;

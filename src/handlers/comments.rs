@@ -34,6 +34,7 @@ struct CommentRow {
     parent_id: Option<i32>,
     created_at: chrono::NaiveDateTime,
     updated_at: chrono::NaiveDateTime,
+    username: Option<String>,
 }
 
 impl From<CommentRow> for Comment {
@@ -67,9 +68,9 @@ pub async fn show(
 ) -> Result<HttpResponse, AppError> {
     let id = path.into_inner();
     let row = sqlx::query_as::<_, CommentRow>(
-        r"SELECT id, content, flagged, flagged_at, commentable_type, commentable_id,
-                  user_id, parent_id, created_at, updated_at
-           FROM comments WHERE id = $1"
+        r"SELECT c.id, c.content, c.flagged, c.flagged_at, c.commentable_type, c.commentable_id,
+                  c.user_id, c.parent_id, c.created_at, c.updated_at, u.username
+           FROM comments c LEFT JOIN users u ON u.id = c.user_id WHERE c.id = $1"
     )
     .bind(id)
     .fetch_optional(&state.db)
@@ -77,8 +78,9 @@ pub async fn show(
 
     match row {
         Some(r) => {
+            let username = r.username.clone();
             let comment: Comment = r.into();
-            Ok(HttpResponse::Ok().json(comment.to_response(None)))
+            Ok(HttpResponse::Ok().json(comment.to_response(username, Vec::new())))
         }
         None => Err(AppError::NotFound(format!("Comment #{}", id))),
     }
@@ -104,25 +106,31 @@ pub async fn index(
 
     let rows = if let Some(cid) = commentable_id {
         sqlx::query_as::<_, CommentRow>(
-            r"SELECT id, content, flagged, flagged_at, commentable_type, commentable_id,
-                      user_id, parent_id, created_at, updated_at
-               FROM comments WHERE commentable_id = $1 ORDER BY created_at"
+            r"SELECT c.id, c.content, c.flagged, c.flagged_at, c.commentable_type, c.commentable_id,
+                      c.user_id, c.parent_id, c.created_at, c.updated_at, u.username
+               FROM comments c LEFT JOIN users u ON u.id = c.user_id WHERE c.commentable_id = $1 ORDER BY c.created_at"
         )
         .bind(cid)
         .fetch_all(&state.db)
         .await?
     } else {
         sqlx::query_as::<_, CommentRow>(
-            r"SELECT id, content, flagged, flagged_at, commentable_type, commentable_id,
-                      user_id, parent_id, created_at, updated_at
-               FROM comments ORDER BY created_at"
+            r"SELECT c.id, c.content, c.flagged, c.flagged_at, c.commentable_type, c.commentable_id,
+                      c.user_id, c.parent_id, c.created_at, c.updated_at, u.username
+               FROM comments c LEFT JOIN users u ON u.id = c.user_id ORDER BY c.created_at"
         )
         .fetch_all(&state.db)
         .await?
     };
 
-    let comments: Vec<Comment> = rows.into_iter().map(|r| r.into()).collect();
-    let responses: Vec<CommentResponse> = comments.iter().map(|c| c.to_response(None)).collect();
+    let responses: Vec<CommentResponse> = rows
+        .into_iter()
+        .map(|r| {
+            let username = r.username.clone();
+            let comment: Comment = r.into();
+            comment.to_response(username, Vec::new())
+        })
+        .collect();
     Ok(HttpResponse::Ok().json(responses))
 }
 
@@ -157,11 +165,16 @@ pub async fn create(
     let now = chrono::Utc::now().naive_utc();
 
     let row = sqlx::query_as::<_, CommentRow>(
-        r"INSERT INTO comments (content, flagged, commentable_type, commentable_id,
-                                user_id, parent_id, created_at, updated_at)
+        r"WITH inserted AS (
+           INSERT INTO comments (content, flagged, commentable_type, commentable_id,
+                                 user_id, parent_id, created_at, updated_at)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
            RETURNING id, content, flagged, flagged_at, commentable_type, commentable_id,
-                     user_id, parent_id, created_at, updated_at"
+                     user_id, parent_id, created_at, updated_at
+       )
+       SELECT i.id, i.content, i.flagged, i.flagged_at, i.commentable_type, i.commentable_id,
+              i.user_id, i.parent_id, i.created_at, i.updated_at, u.username
+       FROM inserted i LEFT JOIN users u ON u.id = i.user_id"
     )
     .bind(&body.content)
     .bind(false)
@@ -174,8 +187,9 @@ pub async fn create(
     .fetch_one(&state.db)
     .await?;
 
+    let username = row.username.clone();
     let comment: Comment = row.into();
-    Ok(HttpResponse::Created().json(comment.to_response(None)))
+    Ok(HttpResponse::Created().json(comment.to_response(username, Vec::new())))
 }
 
 /// Create a reply to an existing comment.
@@ -205,11 +219,16 @@ pub async fn create_reply(
     let now = chrono::Utc::now().naive_utc();
 
     let row = sqlx::query_as::<_, CommentRow>(
-        r"INSERT INTO comments (content, flagged, commentable_type, commentable_id,
-                                user_id, parent_id, created_at, updated_at)
+        r"WITH inserted AS (
+           INSERT INTO comments (content, flagged, commentable_type, commentable_id,
+                                 user_id, parent_id, created_at, updated_at)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
            RETURNING id, content, flagged, flagged_at, commentable_type, commentable_id,
-                     user_id, parent_id, created_at, updated_at"
+                     user_id, parent_id, created_at, updated_at
+       )
+       SELECT i.id, i.content, i.flagged, i.flagged_at, i.commentable_type, i.commentable_id,
+              i.user_id, i.parent_id, i.created_at, i.updated_at, u.username
+       FROM inserted i LEFT JOIN users u ON u.id = i.user_id"
     )
     .bind(&body.content)
     .bind(false)
@@ -222,8 +241,9 @@ pub async fn create_reply(
     .fetch_one(&state.db)
     .await?;
 
+    let username = row.username.clone();
     let comment: Comment = row.into();
-    Ok(HttpResponse::Created().json(comment.to_response(None)))
+    Ok(HttpResponse::Created().json(comment.to_response(username, Vec::new())))
 }
 
 pub fn config_routes(cfg: &mut web::ServiceConfig) {
@@ -261,19 +281,36 @@ mod tests {
         let suffix = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
-            .as_millis();
+            .as_nanos();
         let content = format!("Test comment {}", suffix);
+        let email = format!("commenter_{}@test.com", suffix);
 
-        sqlx::query_scalar::<_, i64>(
+        let _ = sqlx::query(r"DELETE FROM users WHERE email = $1").bind(&email).execute(&state.db).await;
+
+        let user_id: i64 = sqlx::query_scalar(
+            r"INSERT INTO users (email, password_digest, role, username, created_at, updated_at)
+               VALUES ($1, '$2b$12$test', 'customer', $2, NOW(), NOW())
+               RETURNING id"
+        )
+        .bind(&email)
+        .bind(&format!("commenter_{}", suffix))
+        .fetch_one(&state.db)
+        .await
+        .expect("Failed to seed user");
+
+        let comment_id: i64 = sqlx::query_scalar::<_, i64>(
             r"INSERT INTO comments (content, flagged, commentable_type, commentable_id,
                                     user_id, created_at, updated_at)
-               VALUES ($1, false, 'News', 1, 1, NOW(), NOW())
+               VALUES ($1, false, 'News', 1, $2, NOW(), NOW())
                RETURNING id"
         )
         .bind(&content)
+        .bind(user_id)
         .fetch_one(&state.db)
         .await
-        .expect("Failed to seed comment")
+        .expect("Failed to seed comment");
+
+        comment_id
     }
 
     async fn cleanup_comment(state: &AppState, id: i64) {
@@ -303,6 +340,10 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
+
+        let body: serde_json::Value = test::read_body_json(resp).await;
+        assert!(body["user"].is_object());
+        assert!(body["replies"].is_array());
 
         cleanup_comment(&state, comment_id).await;
     }
