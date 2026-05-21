@@ -78,7 +78,7 @@ pub async fn show(
     match row {
         Some(r) => {
             let comment: Comment = r.into();
-            Ok(HttpResponse::Ok().json(comment.to_response()))
+            Ok(HttpResponse::Ok().json(comment.to_response(None)))
         }
         None => Err(AppError::NotFound(format!("Comment #{}", id))),
     }
@@ -122,7 +122,7 @@ pub async fn index(
     };
 
     let comments: Vec<Comment> = rows.into_iter().map(|r| r.into()).collect();
-    let responses: Vec<CommentResponse> = comments.iter().map(|c| c.to_response()).collect();
+    let responses: Vec<CommentResponse> = comments.iter().map(|c| c.to_response(None)).collect();
     Ok(HttpResponse::Ok().json(responses))
 }
 
@@ -175,7 +175,7 @@ pub async fn create(
     .await?;
 
     let comment: Comment = row.into();
-    Ok(HttpResponse::Created().json(comment.to_response()))
+    Ok(HttpResponse::Created().json(comment.to_response(None)))
 }
 
 /// Create a reply to an existing comment.
@@ -223,7 +223,7 @@ pub async fn create_reply(
     .await?;
 
     let comment: Comment = row.into();
-    Ok(HttpResponse::Created().json(comment.to_response()))
+    Ok(HttpResponse::Created().json(comment.to_response(None)))
 }
 
 pub fn config_routes(cfg: &mut web::ServiceConfig) {

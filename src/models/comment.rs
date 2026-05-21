@@ -25,18 +25,25 @@ pub struct CreateCommentRequest {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct CommentUser {
+    pub username: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct CommentResponse {
     pub id: i64,
     pub content: Option<String>,
     pub created_at: DateTime<Utc>,
+    pub user: Option<CommentUser>,
 }
 
 impl Comment {
-    pub fn to_response(&self) -> CommentResponse {
+    pub fn to_response(&self, username: Option<String>) -> CommentResponse {
         CommentResponse {
             id: self.id,
             content: self.content.clone(),
             created_at: self.created_at,
+            user: username.map(|u| CommentUser { username: Some(u) }),
         }
     }
 
