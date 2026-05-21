@@ -23,6 +23,7 @@ use crate::error::AppError;
 use crate::models::kbr_event::{
     CreateKbrEventRequest, KbrEvent, KbrEventResponse, UpdateKbrEventRequest,
 };
+use crate::services::storage_service;
 
 #[derive(Debug, FromRow)]
 struct KbrEventRow {
@@ -78,7 +79,14 @@ pub async fn index(state: web::Data<AppState>) -> Result<HttpResponse, AppError>
     .await?;
 
     let events: Vec<KbrEvent> = rows.into_iter().map(|r| r.into()).collect();
-    let responses: Vec<KbrEventResponse> = events.iter().map(|e| e.to_response()).collect();
+    let mut responses: Vec<KbrEventResponse> = Vec::new();
+    for event in &events {
+        let (image_urls, thumbnail_urls) =
+            storage_service::get_image_urls(&state.s3, &state.db, "KbrEvent", event.id)
+                .await
+                .unwrap_or_else(|_| (Vec::new(), Vec::new()));
+        responses.push(event.to_response(image_urls, thumbnail_urls));
+    }
     Ok(HttpResponse::Ok().json(responses))
 }
 
@@ -107,7 +115,11 @@ pub async fn show(
     {
         Some(row) => {
             let event: KbrEvent = row.into();
-            Ok(HttpResponse::Ok().json(event.to_response()))
+            let (image_urls, thumbnail_urls) =
+                storage_service::get_image_urls(&state.s3, &state.db, "KbrEvent", event.id)
+                    .await
+                    .unwrap_or_else(|_| (Vec::new(), Vec::new()));
+            Ok(HttpResponse::Ok().json(event.to_response(image_urls, thumbnail_urls)))
         }
         None => Err(AppError::NotFound(format!("Event #{}", id))),
     }
@@ -150,7 +162,14 @@ pub async fn index_by_user(
     };
 
     let events: Vec<KbrEvent> = rows.into_iter().map(|r| r.into()).collect();
-    let responses: Vec<KbrEventResponse> = events.iter().map(|e| e.to_response()).collect();
+    let mut responses: Vec<KbrEventResponse> = Vec::new();
+    for event in &events {
+        let (image_urls, thumbnail_urls) =
+            storage_service::get_image_urls(&state.s3, &state.db, "KbrEvent", event.id)
+                .await
+                .unwrap_or_else(|_| (Vec::new(), Vec::new()));
+        responses.push(event.to_response(image_urls, thumbnail_urls));
+    }
     Ok(HttpResponse::Ok().json(responses))
 }
 
@@ -220,7 +239,7 @@ pub async fn create(
     .await?;
 
     let event: KbrEvent = row.into();
-    Ok(HttpResponse::Created().json(event.to_response()))
+    Ok(HttpResponse::Created().json(event.to_response(Vec::new(), Vec::new())))
 }
 
 /// Update an existing event.
@@ -288,7 +307,7 @@ pub async fn update(
     .ok_or_else(|| AppError::NotFound(format!("Event #{}", id)))?;
 
     let event: KbrEvent = row.into();
-    Ok(HttpResponse::Ok().json(event.to_response()))
+    Ok(HttpResponse::Ok().json(event.to_response(Vec::new(), Vec::new())))
 }
 
 pub fn config_routes(cfg: &mut web::ServiceConfig) {

@@ -11,7 +11,7 @@
 //! | `show` | GET | `/v1/album/{id}` | public | Retrieve a single album by ID |
 //! | `create` | POST | `/v1/albums` | admin | Create a new album |
 
-use actix_web::{web, HttpResponse};
+use actix_web::{HttpResponse, web};
 use chrono::NaiveDate;
 use sqlx::FromRow;
 
@@ -50,7 +50,7 @@ impl From<AlbumRow> for Album {
 /// `200 OK` — JSON array of `AlbumResponse`
 pub async fn index(state: web::Data<AppState>) -> Result<HttpResponse, AppError> {
     let rows = sqlx::query_as::<_, AlbumRow>(
-        r"SELECT id, name, release_date, created_at, updated_at FROM albums ORDER BY id"
+        r"SELECT id, name, release_date, created_at, updated_at FROM albums ORDER BY id",
     )
     .fetch_all(&state.db)
     .await?;
@@ -75,7 +75,7 @@ pub async fn show(
     let id = path.into_inner();
 
     match sqlx::query_as::<_, AlbumRow>(
-        r"SELECT id, name, release_date, created_at, updated_at FROM albums WHERE id = $1"
+        r"SELECT id, name, release_date, created_at, updated_at FROM albums WHERE id = $1",
     )
     .bind(id)
     .fetch_optional(&state.db)
@@ -107,18 +107,21 @@ pub async fn create(
         return Err(AppError::Forbidden("Not authorized".to_string()));
     }
 
-    let release_date = body.release_date.as_ref().map(|s| {
-        NaiveDate::parse_from_str(s, "%Y-%m-%d").map_err(|e| {
-            AppError::BadRequest(format!("Invalid release_date format: {}", e))
+    let release_date = body
+        .release_date
+        .as_ref()
+        .map(|s| {
+            NaiveDate::parse_from_str(s, "%Y-%m-%d")
+                .map_err(|e| AppError::BadRequest(format!("Invalid release_date format: {}", e)))
         })
-    }).transpose()?;
+        .transpose()?;
 
     let now = chrono::Utc::now().naive_utc();
 
     let row = sqlx::query_as::<_, AlbumRow>(
         r"INSERT INTO albums (name, release_date, created_at, updated_at)
            VALUES ($1, $2, $3, $4)
-           RETURNING id, name, release_date, created_at, updated_at"
+           RETURNING id, name, release_date, created_at, updated_at",
     )
     .bind(&body.name)
     .bind(release_date)
@@ -141,32 +144,25 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 mod tests {
     use super::*;
     use crate::auth::jwt::encode_token_with_role;
-    use actix_web::{test, App};
+    use actix_web::{App, test};
 
     const TEST_SECRET: &str = "test-secret-key";
     const TEST_DB_URL: &str = "postgresql://ws@localhost:5432/kbr_test";
 
-async fn get_state() -> AppState {
+    async fn get_state() -> AppState {
         let pool = sqlx::PgPool::connect(TEST_DB_URL)
             .await
             .expect("Failed to connect to test database");
         crate::test_utils::build_test_state(pool).await
     }
 
-    async fn connect_with_url(url: &str) -> sqlx::PgPool {
-        sqlx::PgPool::connect(url).await.expect("Failed to connect to test database")
-    }
-
     #[tokio::test(flavor = "current_thread")]
     async fn albums_index_returns_ok() {
-        unsafe { std::env::set_var("DATABASE_URL", TEST_DB_URL); }
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+        }
         let state = web::Data::new(get_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::get().uri("/albums").to_request();
         let resp = test::call_service(&app, req).await;
@@ -175,13 +171,15 @@ async fn get_state() -> AppState {
 
     #[tokio::test(flavor = "current_thread")]
     async fn album_show_found() {
-        unsafe { std::env::set_var("DATABASE_URL", TEST_DB_URL); }
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+        }
         let state = web::Data::new(get_state().await);
 
         let seed = sqlx::query_as::<_, AlbumRow>(
             r"INSERT INTO albums (name, release_date, created_at, updated_at)
               VALUES ('Test Album SQLx', '2024-01-15', NOW(), NOW())
-              RETURNING id, name, release_date, created_at, updated_at"
+              RETURNING id, name, release_date, created_at, updated_at",
         )
         .fetch_one(&state.db)
         .await;
@@ -212,21 +210,17 @@ async fn get_state() -> AppState {
 
     #[tokio::test(flavor = "current_thread")]
     async fn album_show_not_found() {
-        unsafe { std::env::set_var("DATABASE_URL", TEST_DB_URL); }
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+        }
         let state = web::Data::new(get_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
+        let app =
+            test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
 
-        let max_id: i64 = sqlx::query_scalar(
-            r"SELECT COALESCE(MAX(id), 0) FROM albums"
-        )
-        .fetch_one(&state.db)
-        .await
-        .expect("Failed to get max id");
+        let max_id: i64 = sqlx::query_scalar(r"SELECT COALESCE(MAX(id), 0) FROM albums")
+            .fetch_one(&state.db)
+            .await
+            .expect("Failed to get max id");
 
         let req = test::TestRequest::get()
             .uri(&format!("/album/{}", max_id + 9999))
@@ -242,15 +236,12 @@ async fn get_state() -> AppState {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let token = encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap();
+        let token =
+            encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap();
         let state = web::Data::new(get_state().await);
 
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
+        let app =
+            test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
 
         let req = test::TestRequest::post()
             .uri("/albums")
@@ -267,11 +258,9 @@ async fn get_state() -> AppState {
         assert_eq!(body["name"], "Rust Test Album");
         assert_eq!(body["release_date"], "2025-06-01");
 
-        let _ = sqlx::query(
-            r"DELETE FROM albums WHERE name = 'Rust Test Album'"
-        )
-        .execute(&state.db)
-        .await;
+        let _ = sqlx::query(r"DELETE FROM albums WHERE name = 'Rust Test Album'")
+            .execute(&state.db)
+            .await;
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -284,12 +273,7 @@ async fn get_state() -> AppState {
         let token = encode_token_with_role(2, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
         let state = web::Data::new(get_state().await);
 
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::post()
             .uri("/albums")
