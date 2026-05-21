@@ -25,7 +25,7 @@ use crate::auth::middleware::CurrentUser;
 use crate::auth::roles::is_artist_or_above;
 use crate::error::AppError;
 use crate::models::artist::{Artist, ArtistResponse, CreateArtistRequest, UpdateArtistRequest};
-use crate::models::artist_link::{ArtistLink, CreateArtistLinkRequest};
+use crate::models::artist_link::{ArtistLink, ArtistLinkResponse, CreateArtistLinkRequest};
 use crate::models::sign_up_trigger::SignUpTrigger;
 use crate::models::user::User;
 use crate::services::storage_service;
@@ -74,6 +74,34 @@ impl From<ArtistRow> for Artist {
     }
 }
 
+/// Fetch artist links for a set of artist IDs in a single query.
+///
+/// Returns a HashMap mapping artist_id -> Vec<ArtistLinkResponse>.
+async fn fetch_artist_links_batch(
+    pool: &sqlx::PgPool,
+    artist_ids: &[i64],
+) -> std::collections::HashMap<i64, Vec<ArtistLinkResponse>> {
+    if artist_ids.is_empty() {
+        return std::collections::HashMap::new();
+    }
+    let rows = sqlx::query_as::<_, ArtistLink>(
+        r"SELECT id, artist_id, link_type, url, created_at AT TIME ZONE 'UTC' AS created_at, updated_at AT TIME ZONE 'UTC' AS updated_at
+           FROM artist_links WHERE artist_id = ANY($1) ORDER BY artist_id, id",
+    )
+    .bind(artist_ids)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+
+    let mut map = std::collections::HashMap::new();
+    for row in rows {
+        map.entry(row.artist_id)
+            .or_insert_with(Vec::new)
+            .push(row.to_response());
+    }
+    map
+}
+
 /// List all artists.
 ///
 /// Returns all artists ordered by ID, including associated image and thumbnail
@@ -92,13 +120,16 @@ pub async fn index(state: web::Data<AppState>) -> Result<HttpResponse, AppError>
     .await?;
 
     let artists: Vec<Artist> = rows.into_iter().map(|r| r.into()).collect();
+    let artist_ids: Vec<i64> = artists.iter().map(|a| a.id).collect();
+    let links_map = fetch_artist_links_batch(&state.db, &artist_ids).await;
     let mut responses: Vec<ArtistResponse> = Vec::new();
     for artist in &artists {
         let (image_urls, thumbnail_urls) =
             storage_service::get_image_urls(&state.s3, &state.db, "Artist", artist.id)
                 .await
                 .unwrap_or_else(|_| (Vec::new(), Vec::new()));
-        responses.push(artist.to_response(image_urls, thumbnail_urls));
+        let links = links_map.get(&artist.id).cloned().unwrap_or_default();
+        responses.push(artist.to_response(image_urls, thumbnail_urls, links));
     }
     Ok(HttpResponse::Ok().json(responses))
 }
@@ -133,7 +164,9 @@ pub async fn show(
                 storage_service::get_image_urls(&state.s3, &state.db, "Artist", artist.id)
                     .await
                     .unwrap_or_else(|_| (Vec::new(), Vec::new()));
-            Ok(HttpResponse::Ok().json(artist.to_response(image_urls, thumbnail_urls)))
+            let links_map = fetch_artist_links_batch(&state.db, &[artist.id]).await;
+            let links = links_map.get(&artist.id).cloned().unwrap_or_default();
+            Ok(HttpResponse::Ok().json(artist.to_response(image_urls, thumbnail_urls, links)))
         }
         None => Err(AppError::NotFound(format!("Artist #{}", id))),
     }
@@ -191,7 +224,7 @@ pub async fn create(
     .await?;
 
     let artist: Artist = row.into();
-    Ok(HttpResponse::Created().json(artist.to_response(Vec::new(), Vec::new())))
+    Ok(HttpResponse::Created().json(artist.to_response(Vec::new(), Vec::new(), Vec::new())))
 }
 
 /// Create a new artist account via sign-up trigger token.
@@ -317,7 +350,7 @@ pub(crate) async fn sign_up(
             }
 
             let artist: Artist = artist_row.into();
-            Ok(HttpResponse::Created().json(artist.to_response(Vec::new(), Vec::new())))
+            Ok(HttpResponse::Created().json(artist.to_response(Vec::new(), Vec::new(), Vec::new())))
         }
         _ => Err(AppError::Validation("Invalid sign-up token".to_string())),
     }
@@ -387,7 +420,7 @@ pub async fn update(
     .ok_or_else(|| AppError::NotFound(format!("Artist #{}", id)))?;
 
     let artist: Artist = row.into();
-    Ok(HttpResponse::Ok().json(artist.to_response(Vec::new(), Vec::new())))
+    Ok(HttpResponse::Ok().json(artist.to_response(Vec::new(), Vec::new(), Vec::new())))
 }
 
 /// Add a social/streaming link for an artist.
@@ -601,6 +634,7 @@ mod tests {
 
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert_eq!(body["id"], artist_id);
+        assert!(body["artist_links"].is_array());
 
         cleanup_artist(artist_id).await;
         cleanup_user(user_id).await;

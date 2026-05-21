@@ -2,6 +2,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
+use crate::models::artist_link::ArtistLinkResponse;
+
 #[derive(Debug, Clone, FromRow, PartialEq, Eq)]
 pub struct Artist {
     pub id: i64,
@@ -49,10 +51,16 @@ pub struct ArtistResponse {
     pub intro: Option<String>,
     pub image_urls: Vec<String>,
     pub image_thumbnail_urls: Vec<String>,
+    pub artist_links: Vec<ArtistLinkResponse>,
 }
 
 impl Artist {
-    pub fn to_response(&self, image_urls: Vec<String>, image_thumbnail_urls: Vec<String>) -> ArtistResponse {
+    pub fn to_response(
+        &self,
+        image_urls: Vec<String>,
+        image_thumbnail_urls: Vec<String>,
+        artist_links: Vec<ArtistLinkResponse>,
+    ) -> ArtistResponse {
         ArtistResponse {
             id: self.id,
             name: self.name.clone(),
@@ -63,6 +71,7 @@ impl Artist {
             intro: self.intro.clone(),
             image_urls,
             image_thumbnail_urls,
+            artist_links,
         }
     }
 

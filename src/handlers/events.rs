@@ -20,9 +20,11 @@ use crate::app::AppState;
 use crate::auth::middleware::CurrentUser;
 use crate::auth::roles::is_artist_or_above;
 use crate::error::AppError;
+use crate::models::comment::{CommentResponse, CommentUser};
 use crate::models::kbr_event::{
     CreateKbrEventRequest, KbrEvent, KbrEventResponse, UpdateKbrEventRequest,
 };
+use crate::services::storage_service;
 
 #[derive(Debug, FromRow)]
 struct KbrEventRow {
@@ -61,6 +63,44 @@ impl From<KbrEventRow> for KbrEvent {
     }
 }
 
+/// Fetch comments for a set of event IDs in a single query with user JOIN.
+///
+/// Returns a HashMap mapping event_id -> Vec<CommentResponse>.
+async fn fetch_event_comments_batch(
+    pool: &sqlx::PgPool,
+    event_ids: &[i64],
+) -> std::collections::HashMap<i64, Vec<CommentResponse>> {
+    if event_ids.is_empty() {
+        return std::collections::HashMap::new();
+    }
+    let rows = sqlx::query_as::<_, (i64, Option<String>, chrono::NaiveDateTime, Option<String>, i64)>(
+        r"SELECT c.id, c.content, c.created_at AT TIME ZONE 'UTC' AS created_at,
+                 u.username, c.commentable_id
+           FROM comments c
+           LEFT JOIN users u ON u.id = c.user_id
+           WHERE c.commentable_type = 'KBREvent' AND c.commentable_id = ANY($1)
+           ORDER BY c.commentable_id, c.created_at",
+    )
+    .bind(event_ids)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+
+    let mut map = std::collections::HashMap::new();
+    for (id, content, created_at, username, commentable_id) in rows {
+        map.entry(commentable_id)
+            .or_insert_with(Vec::new)
+            .push(CommentResponse {
+                id,
+                content,
+                created_at: created_at.and_utc(),
+                user: username.map(|u| CommentUser { username: Some(u) }),
+                replies: Vec::new(),
+            });
+    }
+    map
+}
+
 /// List all events.
 ///
 /// Returns all events ordered by ID. No authentication required.
@@ -78,7 +118,17 @@ pub async fn index(state: web::Data<AppState>) -> Result<HttpResponse, AppError>
     .await?;
 
     let events: Vec<KbrEvent> = rows.into_iter().map(|r| r.into()).collect();
-    let responses: Vec<KbrEventResponse> = events.iter().map(|e| e.to_response()).collect();
+    let event_ids: Vec<i64> = events.iter().map(|e| e.id).collect();
+    let comments_map = fetch_event_comments_batch(&state.db, &event_ids).await;
+    let mut responses: Vec<KbrEventResponse> = Vec::new();
+    for event in &events {
+        let (image_urls, thumbnail_urls) =
+            storage_service::get_image_urls(&state.s3, &state.db, "KbrEvent", event.id)
+                .await
+                .unwrap_or_else(|_| (Vec::new(), Vec::new()));
+        let comments = comments_map.get(&event.id).cloned().unwrap_or_default();
+        responses.push(event.to_response(image_urls, thumbnail_urls, comments));
+    }
     Ok(HttpResponse::Ok().json(responses))
 }
 
@@ -107,7 +157,13 @@ pub async fn show(
     {
         Some(row) => {
             let event: KbrEvent = row.into();
-            Ok(HttpResponse::Ok().json(event.to_response()))
+            let (image_urls, thumbnail_urls) =
+                storage_service::get_image_urls(&state.s3, &state.db, "KbrEvent", event.id)
+                    .await
+                    .unwrap_or_else(|_| (Vec::new(), Vec::new()));
+            let comments_map = fetch_event_comments_batch(&state.db, &[event.id]).await;
+            let comments = comments_map.get(&event.id).cloned().unwrap_or_default();
+            Ok(HttpResponse::Ok().json(event.to_response(image_urls, thumbnail_urls, comments)))
         }
         None => Err(AppError::NotFound(format!("Event #{}", id))),
     }
@@ -150,7 +206,17 @@ pub async fn index_by_user(
     };
 
     let events: Vec<KbrEvent> = rows.into_iter().map(|r| r.into()).collect();
-    let responses: Vec<KbrEventResponse> = events.iter().map(|e| e.to_response()).collect();
+    let event_ids: Vec<i64> = events.iter().map(|e| e.id).collect();
+    let comments_map = fetch_event_comments_batch(&state.db, &event_ids).await;
+    let mut responses: Vec<KbrEventResponse> = Vec::new();
+    for event in &events {
+        let (image_urls, thumbnail_urls) =
+            storage_service::get_image_urls(&state.s3, &state.db, "KbrEvent", event.id)
+                .await
+                .unwrap_or_else(|_| (Vec::new(), Vec::new()));
+        let comments = comments_map.get(&event.id).cloned().unwrap_or_default();
+        responses.push(event.to_response(image_urls, thumbnail_urls, comments));
+    }
     Ok(HttpResponse::Ok().json(responses))
 }
 
@@ -220,7 +286,7 @@ pub async fn create(
     .await?;
 
     let event: KbrEvent = row.into();
-    Ok(HttpResponse::Created().json(event.to_response()))
+    Ok(HttpResponse::Created().json(event.to_response(Vec::new(), Vec::new(), Vec::new())))
 }
 
 /// Update an existing event.
@@ -288,7 +354,7 @@ pub async fn update(
     .ok_or_else(|| AppError::NotFound(format!("Event #{}", id)))?;
 
     let event: KbrEvent = row.into();
-    Ok(HttpResponse::Ok().json(event.to_response()))
+    Ok(HttpResponse::Ok().json(event.to_response(Vec::new(), Vec::new(), Vec::new())))
 }
 
 pub fn config_routes(cfg: &mut web::ServiceConfig) {
@@ -399,6 +465,12 @@ mod tests {
         let req = test::TestRequest::get().uri("/kbrevents").to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
+
+        let body: serde_json::Value = test::read_body_json(resp).await;
+        assert!(body.is_array());
+        if body.as_array().unwrap().len() > 0 {
+            assert!(body[0]["comments"].is_array());
+        }
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -421,6 +493,10 @@ mod tests {
 
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert_eq!(body["id"], event_id);
+        assert!(body["comments"].is_array());
+        if body["comments"].as_array().unwrap().len() > 0 {
+            assert!(body["comments"][0]["replies"].is_array());
+        }
 
         cleanup_event(event_id).await;
         cleanup_user(user_id, &user_email).await;
@@ -531,6 +607,12 @@ mod tests {
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
 
+        let body: serde_json::Value = test::read_body_json(resp).await;
+        assert!(body.is_array());
+        if body.as_array().unwrap().len() > 0 {
+            assert!(body[0]["comments"].is_array());
+        }
+
         cleanup_event(event_id).await;
         cleanup_user(user_id, &user_email).await;
     }
@@ -555,6 +637,12 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
+
+        let body: serde_json::Value = test::read_body_json(resp).await;
+        assert!(body.is_array());
+        if body.as_array().unwrap().len() > 0 {
+            assert!(body[0]["comments"].is_array());
+        }
 
         cleanup_event(event_id).await;
         cleanup_user(user_id, &user_email).await;
