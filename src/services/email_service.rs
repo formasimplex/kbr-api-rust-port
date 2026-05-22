@@ -4,13 +4,13 @@
 //! optional — returns `None` if `SMTP_HOST` is not set so the server can
 //! start without email configured.
 
+use crate::error::AppError;
 use lettre::AsyncTransport;
 use lettre::Tokio1Executor;
 use lettre::message::header::ContentType;
 use lettre::message::{Attachment, MultiPart, SinglePart};
 use lettre::transport::smtp::AsyncSmtpTransport;
 use lettre::transport::smtp::authentication::Credentials;
-use crate::error::AppError;
 
 /// SMTP email client.
 #[derive(Clone)]
@@ -121,7 +121,7 @@ impl EmailClient {
                     .map_err(|e| AppError::Email(format!("Invalid to address: {}", e)))?)
                 .subject(subject)
                 .header(ContentType::TEXT_HTML)
-                .body(html.to_string())
+                .body("Test".to_string())
                 .map_err(|e| AppError::Email(format!("Failed to build email: {}", e)))?
         };
 
@@ -145,8 +145,7 @@ mod tests {
 
     #[test]
     fn client_is_clone() {
-        let client =
-            EmailClient::new("smtp.example.com", "u", "p", "from@example.com").unwrap();
+        let client = EmailClient::new("smtp.example.com", "u", "p", "from@example.com").unwrap();
         let _clone = client.clone();
     }
 }
