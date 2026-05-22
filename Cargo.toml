@@ -53,7 +53,7 @@ sha2 = "0.10"
 hex = "0.4"
 
 # Email
-lettre = { version = "0.11", default-features = false, features = ["tokio1-rustls-tls", "builder", "smtp-transport"] }
+lettre = { version = "0.11", default-features = false, features = ["tokio1-native-tls", "builder", "smtp-transport"] }
 ammonia = "4.1.2"
 percent-encoding = "2.3"
 email_address = "0.2.4"
