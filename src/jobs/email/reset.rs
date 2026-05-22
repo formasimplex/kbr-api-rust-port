@@ -9,6 +9,7 @@ use super::{escape_html, send_email};
 
 #[derive(Debug, FromRow)]
 struct ResetTriggerEmailRow {
+    #[sqlx(rename = "id")]
     _id: i64,
     user_id: Option<i32>,
     email: Option<String>,

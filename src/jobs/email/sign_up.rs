@@ -56,6 +56,7 @@ pub async fn send_prospect_welcome_email(
 
 #[derive(Debug, FromRow)]
 struct SignUpTriggerEmailRow {
+    #[sqlx(rename = "id")]
     _id: i64,
     email: String,
     token: String,
