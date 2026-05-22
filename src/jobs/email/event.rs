@@ -17,6 +17,7 @@ struct AttendeeEmailRow {
     event_qr_encode_string: Option<String>,
     event_ticket_url: Option<String>,
     event_external_url: Option<String>,
+    #[sqlx(rename = "event_id")]
     _event_id: i64,
 }
 
