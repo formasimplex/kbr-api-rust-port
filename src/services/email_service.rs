@@ -56,6 +56,7 @@ impl EmailClient {
 
         let transport = AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(host)
             .ok()?
+            .port(587)
             .credentials(creds)
             .build();
 
@@ -110,6 +111,8 @@ impl EmailClient {
                 .multipart(multipart)
                 .map_err(|e| AppError::Email(format!("Failed to build email: {}", e)))?
         } else {
+            let html_part = SinglePart::html(html.to_string());
+
             lettre::Message::builder()
                 .from(
                     self.from
@@ -120,8 +123,7 @@ impl EmailClient {
                     .parse()
                     .map_err(|e| AppError::Email(format!("Invalid to address: {}", e)))?)
                 .subject(subject)
-                .header(ContentType::TEXT_HTML)
-                .body("Test".to_string())
+                .singlepart(html_part)
                 .map_err(|e| AppError::Email(format!("Failed to build email: {}", e)))?
         };
 
