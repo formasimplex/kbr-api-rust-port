@@ -40,7 +40,7 @@ pub async fn send_reset_trigger_email(
     };
 
     if row.user_id.is_none() {
-        tracing::info!(reset_trigger_id, "Reset trigger has no associated user, skipping email");
+        tracing::warn!(reset_trigger_id, "Reset trigger has no associated user, skipping email");
         return Ok(());
     }
 
@@ -61,6 +61,14 @@ pub async fn send_reset_trigger_email(
         ("full_name", &full_name),
         ("confirmation_url", &confirmation_url),
     ]);
+
+    tracing::info!(
+        reset_trigger_id,
+        to,
+        subject,
+        confirmation_url,
+        "Sending password reset email"
+    );
 
     send_email(state, to, &subject, &html).await?;
 

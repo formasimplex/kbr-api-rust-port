@@ -264,6 +264,13 @@ pub fn spawn_worker(handle: mpsc::Receiver<Job>, state: Arc<AppState>) {
             let job_type = job.job_type();
             let payload = job.to_payload();
 
+            tracing::info!(
+                job_id = %job_id,
+                job_type,
+                payload = %payload,
+                "Job received by worker"
+            );
+
             let mut last_err: Option<String> = None;
             let mut succeeded = false;
 
