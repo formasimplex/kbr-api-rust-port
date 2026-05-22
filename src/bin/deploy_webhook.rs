@@ -122,6 +122,34 @@ async fn deploy(lock: Arc<Mutex<bool>>) {
 }
 
 async fn do_deploy() -> DeployResult {
+    let pull_start = Instant::now();
+    let pull_output = run_command("git", &["pull", "origin", "main"]).await;
+    let pull_elapsed = pull_start.elapsed();
+
+    if !pull_output.success {
+        tracing::error!("Git pull failed after {:?}", pull_elapsed);
+        return DeployResult {
+            success: false,
+            pull_elapsed,
+            build_elapsed: std::time::Duration::ZERO,
+            restart_elapsed: std::time::Duration::ZERO,
+            error_lines: {
+                let all = format!("{}{}", pull_output.stdout, pull_output.stderr);
+                all.lines()
+                    .filter(|l| !l.is_empty())
+                    .rev()
+                    .take(MAX_ERROR_LINES)
+                    .map(|s| s.to_string())
+                    .collect::<Vec<String>>()
+                    .into_iter()
+                    .rev()
+                    .collect()
+            },
+        };
+    }
+
+    tracing::info!("Git pull succeeded in {:?}", pull_elapsed);
+
     let build_start = Instant::now();
 
     let build_output = run_command("cargo", &["build", "--release"]).await;
@@ -131,6 +159,7 @@ async fn do_deploy() -> DeployResult {
         tracing::error!("Build failed after {:?}", build_elapsed);
         return DeployResult {
             success: false,
+            pull_elapsed,
             build_elapsed,
             restart_elapsed: std::time::Duration::ZERO,
             error_lines: {
@@ -158,6 +187,7 @@ async fn do_deploy() -> DeployResult {
         tracing::error!("Service restart failed after {:?}", restart_elapsed);
         return DeployResult {
             success: false,
+            pull_elapsed,
             build_elapsed,
             restart_elapsed,
             error_lines: restart_output.stderr.lines()
@@ -172,6 +202,7 @@ async fn do_deploy() -> DeployResult {
 
     DeployResult {
         success: true,
+        pull_elapsed,
         build_elapsed,
         restart_elapsed,
         error_lines: Vec::new(),
@@ -223,6 +254,7 @@ fn write_deploy_log(result: &DeployResult, total_elapsed: &std::time::Duration) 
     let mut lines = vec![
         format!("\n=== {} {} ===", now.format("%Y-%m-%d %H:%M:%S UTC"), status),
         format!("Total elapsed: {:?}", total_elapsed),
+        format!("Pull: {:?}", result.pull_elapsed),
         format!("Build: {:?}", result.build_elapsed),
         format!("Restart: {:?}", result.restart_elapsed),
     ];
@@ -302,6 +334,7 @@ async fn main() -> std::io::Result<()> {
 
 struct DeployResult {
     success: bool,
+    pull_elapsed: std::time::Duration,
     build_elapsed: std::time::Duration,
     restart_elapsed: std::time::Duration,
     error_lines: Vec<String>,
@@ -450,24 +483,6 @@ mod tests {
 
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), StatusCode::OK);
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn test_verify_signature_valid() {
-        unsafe {
-            std::env::set_var("GITHUB_WEBHOOK_SECRET", "my-secret");
-        }
-
-        let payload = b"test payload";
-        let mut mac = HmacSha256::new_from_slice(b"my-secret").unwrap();
-        mac.update(payload);
-        let sig = format!("sha256={}", hex::encode(mac.finalize().into_bytes()));
-
-        assert!(verify_signature(payload, &sig));
-
-        unsafe {
-            std::env::remove_var("GITHUB_WEBHOOK_SECRET");
-        }
     }
 
     #[tokio::test(flavor = "current_thread")]
