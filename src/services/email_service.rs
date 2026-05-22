@@ -1,21 +1,21 @@
-//! SMTP email service using lettre.
+//! SMTP email service using mail-send.
 //!
 //! Reads SMTP configuration from environment variables. Construction is
 //! optional — returns `None` if `SMTP_HOST` is not set so the server can
 //! start without email configured.
 
 use crate::error::AppError;
-use lettre::AsyncTransport;
-use lettre::Tokio1Executor;
-use lettre::message::header::ContentType;
-use lettre::message::{Attachment, MultiPart, SinglePart};
-use lettre::transport::smtp::AsyncSmtpTransport;
-use lettre::transport::smtp::authentication::Credentials;
+use mail_send::mail_builder::MessageBuilder;
+use mail_send::SmtpClientBuilder;
 
 /// SMTP email client.
+///
+/// Stores the connection builder (which is `Clone`) and opens a fresh
+/// connection for every send.  This is fine for a background-job queue
+/// that sends emails sequentially.
 #[derive(Clone)]
 pub struct EmailClient {
-    transport: AsyncSmtpTransport<Tokio1Executor>,
+    builder: SmtpClientBuilder<String>,
     from: String,
 }
 
@@ -52,13 +52,10 @@ impl EmailClient {
 
     /// Create with explicit configuration.
     pub fn new(host: &str, user: &str, password: &str, from: &str) -> Option<Self> {
-        let creds = Credentials::new(user.to_string(), password.to_string());
-
-        let transport = AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(host)
+        let builder = SmtpClientBuilder::new(host.to_string(), 587)
             .ok()?
-            .port(587)
-            .credentials(creds)
-            .build();
+            .implicit_tls(false)
+            .credentials((user.to_string(), password.to_string()));
 
         tracing::info!(
             smtp_host = host,
@@ -68,7 +65,7 @@ impl EmailClient {
         );
 
         Some(Self {
-            transport,
+            builder,
             from: from.to_string(),
         })
     }
@@ -88,54 +85,39 @@ impl EmailClient {
         html: &str,
         attachment: Option<(&str, &[u8])>,
     ) -> Result<(), AppError> {
-        let email = if let Some((filename, data)) = attachment {
-            let attach = Attachment::new(filename.to_string()).body(
-                data.to_vec(),
-                ContentType::parse("application/octet-stream").unwrap(),
-            );
+        let mut message = MessageBuilder::new()
+            .from(self.from.as_str())
+            .to(to)
+            .subject(subject)
+            .html_body(html);
 
-            let multipart = MultiPart::related()
-                .singlepart(SinglePart::html(html.to_string()))
-                .singlepart(attach);
+        if let Some((filename, data)) = attachment {
+            message = message.attachment("application/octet-stream", filename, data);
+        }
 
-            lettre::Message::builder()
-                .from(
-                    self.from
-                        .parse()
-                        .map_err(|e| AppError::Email(format!("Invalid from address: {}", e)))?,
-                )
-                .to(to
-                    .parse()
-                    .map_err(|e| AppError::Email(format!("Invalid to address: {}", e)))?)
-                .subject(subject)
-                .multipart(multipart)
-                .map_err(|e| AppError::Email(format!("Failed to build email: {}", e)))?
-        } else {
-            let html_part = SinglePart::html(html.to_string());
-
-            lettre::Message::builder()
-                .from(
-                    self.from
-                        .parse()
-                        .map_err(|e| AppError::Email(format!("Invalid from address: {}", e)))?,
-                )
-                .to(to
-                    .parse()
-                    .map_err(|e| AppError::Email(format!("Invalid to address: {}", e)))?)
-                .subject(subject)
-                .singlepart(html_part)
-                .map_err(|e| AppError::Email(format!("Failed to build email: {}", e)))?
-        };
-
-        self.transport.send(email).await.map_err(|e| {
-            tracing::error!(
-                to = to,
-                subject = subject,
-                from = %self.from,
-                "SMTP send failed: {}", e
-            );
-            AppError::Email(format!("Failed to send email: {}", e))
-        })?;
+        self.builder
+            .connect()
+            .await
+            .map_err(|e| {
+                tracing::error!(
+                    to = to,
+                    subject = subject,
+                    from = %self.from,
+                    "SMTP connect failed: {}", e
+                );
+                AppError::Email(format!("Failed to connect to SMTP server: {}", e))
+            })?
+            .send(message)
+            .await
+            .map_err(|e| {
+                tracing::error!(
+                    to = to,
+                    subject = subject,
+                    from = %self.from,
+                    "SMTP send failed: {}", e
+                );
+                AppError::Email(format!("Failed to send email: {}", e))
+            })?;
 
         Ok(())
     }
