@@ -1,15 +1,15 @@
 //! Merchandise handlers
 //!
 //! Provides CRUD endpoints for artist merchandise management and a Shopify
-//! cache retrieval endpoint. All endpoints require authentication.
+//! cache retrieval endpoint.
 //!
 //! # Endpoints
 //!
 //! | Function | Method | Route | Auth | Description |
 //! |----------|--------|-------|------|-------------|
-//! | `index` | GET | `/v1/merchandise` or `/v1/artist_merchandise` | auth | List all merchandise items |
-//! | `show` | GET | `/v1/artist_merchandise/{id}` | auth | Retrieve a single merchandise item by ID |
-//! | `by_artist` | GET | `/v1/artist_merchandise/by_artist/{artist_id}` | auth | List merchandise for a specific artist |
+//! | `index` | GET | `/v1/merchandise` or `/v1/artist_merchandise` | public | List all merchandise items |
+//! | `show` | GET | `/v1/artist_merchandise/{id}` | public | Retrieve a single merchandise item by ID |
+//! | `by_artist` | GET | `/v1/artist_merchandise/by_artist/{artist_id}` | public | List merchandise for a specific artist |
 //! | `create` | POST | `/v1/artist_merchandise` | auth | Create a new merchandise item |
 //! | `update` | PUT | `/v1/artist_merchandise/{id}` | auth | Update an existing merchandise item |
 //! | `destroy` | DELETE | `/v1/artist_merchandise/{id}` | auth | Delete a merchandise item |
@@ -89,13 +89,12 @@ const MERCH_SELECT: &str = r"SELECT id, artist_id, producer_id, merchandise_id, 
 
 /// List all merchandise items.
 ///
-/// Returns all merchandise ordered by ID. Requires authentication.
+/// Returns all merchandise ordered by ID. Public endpoint (no authentication required).
 ///
 /// # Response
 ///
 /// `200 OK` — JSON array of `ArtistMerchandiseResponse`
 pub async fn index(
-    _user: CurrentUser,
     state: web::Data<AppState>,
 ) -> Result<HttpResponse, AppError> {
     let rows = sqlx::query_as::<_, ArtistMerchandiseRow>(
@@ -111,14 +110,13 @@ pub async fn index(
 
 /// Retrieve a single merchandise item by ID.
 ///
-/// Requires authentication.
+/// Public endpoint (no authentication required).
 ///
 /// # Response
 ///
 /// `200 OK` — `ArtistMerchandiseResponse`
 /// `404 Not Found` — merchandise item does not exist
 pub async fn show(
-    _user: CurrentUser,
     state: web::Data<AppState>,
     path: web::Path<i64>,
 ) -> Result<HttpResponse, AppError> {
@@ -142,13 +140,12 @@ pub async fn show(
 /// List merchandise for a specific artist.
 ///
 /// Returns all merchandise items associated with the given artist ID.
-/// Requires authentication.
+/// Public endpoint (no authentication required).
 ///
 /// # Response
 ///
 /// `200 OK` — JSON array of `ArtistMerchandiseResponse`
 pub async fn by_artist(
-    _user: CurrentUser,
     state: web::Data<AppState>,
     path: web::Path<i64>,
 ) -> Result<HttpResponse, AppError> {
@@ -831,7 +828,7 @@ async fn get_state() -> AppState {
     }
 
     #[tokio::test(flavor = "current_thread")]
-    async fn merchandise_unauthenticated_returns_401() {
+    async fn merchandise_unauthenticated_returns_200() {
         unsafe {
             std::env::set_var("DATABASE_URL", TEST_DB_URL);
             std::env::set_var("JWT_SECRET", TEST_SECRET);
@@ -848,7 +845,7 @@ async fn get_state() -> AppState {
             .uri("/artist_merchandise")
             .to_request();
         let resp = test::call_service(&app, req).await;
-        assert_eq!(resp.status(), 401);
+        assert_eq!(resp.status(), 200);
     }
 
     #[tokio::test(flavor = "current_thread")]
