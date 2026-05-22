@@ -7,6 +7,7 @@
 use lettre::message::header::ContentType;
 use lettre::message::{Attachment, MultiPart, SinglePart};
 use lettre::transport::smtp::authentication::Credentials;
+use lettre::transport::smtp::client::{Tls, TlsParameters};
 use lettre::transport::smtp::AsyncSmtpTransport;
 use lettre::AsyncTransport;
 use lettre::Tokio1Executor;
@@ -27,16 +28,19 @@ impl EmailClient {
     /// `SMTP_PASSWORD`, and `SMTP_FROM`. Returns `None` if `SMTP_HOST`
     /// is not set.
     pub fn new_from_env() -> Option<Self> {
-        let host = std::env::var("SMTP_HOST").ok()?;
+        let host = std::env::var("SMTP_HOST").ok()?.trim_matches('\'').trim().to_string();
         let port: u16 = std::env::var("SMTP_PORT")
             .ok()
             .and_then(|p| p.parse().ok())
             .unwrap_or(587);
-        let user = std::env::var("SMTP_USER").ok()?;
-        let password = std::env::var("SMTP_PASSWORD").ok()?;
+        let user = std::env::var("SMTP_USER").ok()?.trim_matches('\'').trim().to_string();
+        let password = std::env::var("SMTP_PASSWORD").ok()?.trim_matches('\'').trim().to_string();
         let from = std::env::var("SMTP_FROM")
             .ok()
-            .unwrap_or_else(|| "contact@kushtybuckrecords.com".to_string());
+            .unwrap_or_else(|| "contact@kushtybuckrecords.com".to_string())
+            .trim_matches('\'')
+            .trim()
+            .to_string();
 
         Self::new(&host, port, &user, &password, &from)
     }
@@ -50,10 +54,28 @@ impl EmailClient {
         from: &str,
     ) -> Option<Self> {
         let creds = Credentials::new(user.to_string(), password.to_string());
+
+        let tls = TlsParameters::new(host.to_string()).unwrap();
+        let tls_mode = if port == 465 {
+            Tls::Wrapper(tls)
+        } else {
+            Tls::Opportunistic(tls)
+        };
+
         let transport = AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(host)
             .port(port)
             .credentials(creds)
+            .tls(tls_mode)
             .build();
+
+        let tls_desc = if port == 465 { "TLS (port 465)" } else { "STARTTLS" };
+        tracing::info!(
+            smtp_host = host,
+            smtp_port = port,
+            smtp_user = user,
+            tls = tls_desc,
+            "SMTP email client configured"
+        );
 
         Some(Self {
             transport,
@@ -111,7 +133,15 @@ impl EmailClient {
         self.transport
             .send(email)
             .await
-            .map_err(|e| AppError::Email(format!("Failed to send email: {}", e)))?;
+            .map_err(|e| {
+                tracing::error!(
+                    to = to,
+                    subject = subject,
+                    from = %self.from,
+                    "SMTP send failed: {}", e
+                );
+                AppError::Email(format!("Failed to send email: {}", e))
+            })?;
 
         Ok(())
     }
