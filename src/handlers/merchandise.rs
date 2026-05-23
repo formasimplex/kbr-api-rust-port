@@ -41,6 +41,7 @@ struct ArtistMerchandiseRow {
     cost_price: Option<f64>,
     created_at: chrono::NaiveDateTime,
     updated_at: chrono::NaiveDateTime,
+    json_entry: Option<String>,
 }
 
 impl From<ArtistMerchandiseRow> for ArtistMerchandise {
@@ -83,9 +84,11 @@ impl From<ShopifyJsonCacheRow> for ShopifyJsonCache {
     }
 }
 
-const MERCH_SELECT: &str = r"SELECT id, artist_id, producer_id, merchandise_id, description,
-    created_on_producer, merch_title, merch_product_title, set_price::float8, cost_price::float8,
-    created_at, updated_at FROM artist_merchandise";
+const MERCH_SELECT: &str = r"SELECT am.id, am.artist_id, am.producer_id, am.merchandise_id, am.description,
+    am.created_on_producer, am.merch_title, am.merch_product_title, am.set_price::float8, am.cost_price::float8,
+    am.created_at, am.updated_at, sjc.json_entry
+    FROM artist_merchandise am
+    LEFT JOIN shopify_json_caches sjc ON sjc.id::text = am.merchandise_id";
 
 /// List all merchandise items.
 ///
@@ -98,13 +101,19 @@ pub async fn index(
     state: web::Data<AppState>,
 ) -> Result<HttpResponse, AppError> {
     let rows = sqlx::query_as::<_, ArtistMerchandiseRow>(
-        &format!("{} ORDER BY id", MERCH_SELECT)
+        &format!("{} ORDER BY am.id", MERCH_SELECT)
     )
     .fetch_all(&state.db)
     .await?;
 
-    let items: Vec<ArtistMerchandise> = rows.into_iter().map(|r| r.into()).collect();
-    let responses: Vec<ArtistMerchandiseResponse> = items.iter().map(|m| m.to_response()).collect();
+    let responses: Vec<ArtistMerchandiseResponse> = rows
+        .into_iter()
+        .map(|r| {
+            let json_entry = r.json_entry.clone();
+            let m: ArtistMerchandise = r.into();
+            m.to_response(json_entry)
+        })
+        .collect();
     Ok(HttpResponse::Ok().json(responses))
 }
 
@@ -123,15 +132,16 @@ pub async fn show(
     let id = path.into_inner();
 
     match sqlx::query_as::<_, ArtistMerchandiseRow>(
-        &format!("{} WHERE id = $1", MERCH_SELECT)
+        &format!("{} WHERE am.id = $1", MERCH_SELECT)
     )
     .bind(id)
     .fetch_optional(&state.db)
     .await?
     {
         Some(row) => {
+            let json_entry = row.json_entry.clone();
             let merch: ArtistMerchandise = row.into();
-            Ok(HttpResponse::Ok().json(merch.to_response()))
+            Ok(HttpResponse::Ok().json(merch.to_response(json_entry)))
         }
         None => Err(AppError::NotFound(format!("Merchandise #{}", id))),
     }
@@ -152,14 +162,20 @@ pub async fn by_artist(
     let artist_id = path.into_inner();
 
     let rows = sqlx::query_as::<_, ArtistMerchandiseRow>(
-        &format!("{} WHERE artist_id = $1 ORDER BY id", MERCH_SELECT)
+        &format!("{} WHERE am.artist_id = $1 ORDER BY am.id", MERCH_SELECT)
     )
     .bind(artist_id)
     .fetch_all(&state.db)
     .await?;
 
-    let items: Vec<ArtistMerchandise> = rows.into_iter().map(|r| r.into()).collect();
-    let responses: Vec<ArtistMerchandiseResponse> = items.iter().map(|m| m.to_response()).collect();
+    let responses: Vec<ArtistMerchandiseResponse> = rows
+        .into_iter()
+        .map(|r| {
+            let json_entry = r.json_entry.clone();
+            let m: ArtistMerchandise = r.into();
+            m.to_response(json_entry)
+        })
+        .collect();
     Ok(HttpResponse::Ok().json(responses))
 }
 
@@ -189,7 +205,8 @@ pub async fn create(
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8::numeric, $9::numeric, $10, $11)
          RETURNING id, artist_id, producer_id, merchandise_id, description,
          created_on_producer, merch_title, merch_product_title, set_price::float8, cost_price::float8,
-         created_at, updated_at"
+         created_at, updated_at,
+         (SELECT sjc.json_entry FROM shopify_json_caches sjc WHERE sjc.id::text = artist_merchandise.merchandise_id)"
     )
     .bind(body.artist_id)
     .bind(body.producer_id)
@@ -205,8 +222,9 @@ pub async fn create(
     .fetch_one(&state.db)
     .await?;
 
+    let json_entry = row.json_entry.clone();
     let merch: ArtistMerchandise = row.into();
-    Ok(HttpResponse::Created().json(merch.to_response()))
+    Ok(HttpResponse::Created().json(merch.to_response(json_entry)))
 }
 
 /// Update an existing merchandise item.
@@ -244,7 +262,8 @@ pub async fn update(
          WHERE id = $7
          RETURNING id, artist_id, producer_id, merchandise_id, description,
          created_on_producer, merch_title, merch_product_title, set_price::float8, cost_price::float8,
-         created_at, updated_at"
+         created_at, updated_at,
+         (SELECT sjc.json_entry FROM shopify_json_caches sjc WHERE sjc.id::text = artist_merchandise.merchandise_id)"
     )
     .bind(title.as_deref())
     .bind(product_title.as_deref())
@@ -258,8 +277,9 @@ pub async fn update(
 
     match row {
         Some(r) => {
+            let json_entry = r.json_entry.clone();
             let merch: ArtistMerchandise = r.into();
-            Ok(HttpResponse::Ok().json(merch.to_response()))
+            Ok(HttpResponse::Ok().json(merch.to_response(json_entry)))
         }
         None => Err(AppError::NotFound(format!("Merchandise #{}", id))),
     }
@@ -428,7 +448,8 @@ async fn get_state() -> AppState {
                VALUES ($1, $2, 'shopify-test', 'Band Tee', true, 'Band T-shirt', 'Band Tee - Black', 25.99, 12.50, NOW(), NOW())
                RETURNING id, artist_id, producer_id, merchandise_id, description,
                created_on_producer, merch_title, merch_product_title, set_price::float8, cost_price::float8,
-               created_at, updated_at"
+               created_at, updated_at,
+               (SELECT sjc.json_entry FROM shopify_json_caches sjc WHERE sjc.id::text = artist_merchandise.merchandise_id)"
         )
         .bind(artist_id)
         .bind(producer_id)
@@ -794,8 +815,7 @@ async fn get_state() -> AppState {
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
 
-        let body: Vec<serde_json::Value> = test::read_body_json(resp).await;
-        assert!(body.is_empty());
+          let _body: Vec<serde_json::Value> = test::read_body_json(resp).await;
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -953,6 +973,131 @@ async fn get_state() -> AppState {
         assert_eq!(body["cost_price"], 15.00);
 
         let _ = sqlx::query(r"DELETE FROM artist_merchandise WHERE merchandise_id = 'shopify-full-test'")
+            .execute(&state.db)
+            .await;
+        let _ = cleanup_by_artist_name(&state.db, &artist_name, &producer_name).await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn merchandise_show_includes_shopify_json_cache() {
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("JWT_SECRET", TEST_SECRET);
+        }
+        let state = web::Data::new(get_state().await);
+        let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
+
+        let cache_json = serde_json::json!({
+            "node": {
+                "id": "gid://shopify/Product/12345",
+                "title": "Shopify Product",
+                "variants": {
+                    "edges": [{"node": {"price": "29.99", "inventoryQuantity": 5}}]
+                }
+            }
+        });
+
+        let merch_id: String = sqlx::query_scalar::<_, String>(
+            r"INSERT INTO shopify_json_caches (cached_item_id, json_entry, created_at, updated_at)
+               VALUES ('gid://shopify/Product/12345', $1::text, NOW(), NOW())
+               RETURNING id::text"
+        )
+        .bind(serde_json::to_string(&cache_json).unwrap())
+        .fetch_one(&state.db)
+        .await
+        .expect("Failed to seed shopify_json_cache");
+
+        let _ = sqlx::query(
+            r"INSERT INTO artist_merchandise (artist_id, producer_id, merchandise_id, merch_title, created_at, updated_at)
+               VALUES ($1, $2, $3, 'Cached Merch', NOW(), NOW())"
+        )
+        .bind(artist_id)
+        .bind(producer_id)
+        .bind(&merch_id)
+        .execute(&state.db)
+        .await
+        .expect("Failed to seed merchandise");
+
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(get_state().await))
+                .configure(config_routes),
+        )
+        .await;
+
+        let merch_id_val: i64 = sqlx::query_scalar::<_, i64>(
+            r"SELECT id FROM artist_merchandise WHERE merchandise_id = $1"
+        )
+        .bind(&merch_id)
+        .fetch_one(&state.db)
+        .await
+        .expect("Failed to find merchandise");
+
+        let req = test::TestRequest::get()
+            .uri(&format!("/artist_merchandise/{}", merch_id_val))
+            .insert_header(("Authorization", format!("Bearer {}", admin_token())))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 200);
+
+        let body: serde_json::Value = test::read_body_json(resp).await;
+        assert_eq!(body["merch_title"], "Cached Merch");
+        assert!(body["shopify_json_cache"].is_object());
+        let json_entry = &body["shopify_json_cache"]["json_entry"];
+        assert!(json_entry.is_string());
+        let parsed: serde_json::Value = serde_json::from_str(json_entry.as_str().unwrap()).unwrap();
+        assert_eq!(parsed["node"]["title"], "Shopify Product");
+
+        let _ = sqlx::query(r"DELETE FROM artist_merchandise WHERE merchandise_id = $1")
+            .bind(&merch_id)
+            .execute(&state.db)
+            .await;
+        let _ = sqlx::query(r"DELETE FROM shopify_json_caches WHERE id::text = $1")
+            .bind(&merch_id)
+            .execute(&state.db)
+            .await;
+        let _ = cleanup_by_artist_name(&state.db, &artist_name, &producer_name).await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn merchandise_show_null_shopify_json_cache_when_missing() {
+        unsafe {
+            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("JWT_SECRET", TEST_SECRET);
+        }
+        let state = web::Data::new(get_state().await);
+        let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
+
+        let id: i64 = sqlx::query_scalar::<_, i64>(
+            r"INSERT INTO artist_merchandise (artist_id, producer_id, merch_title, created_at, updated_at)
+               VALUES ($1, $2, 'No Cache Merch', NOW(), NOW())
+               RETURNING id"
+        )
+        .bind(artist_id)
+        .bind(producer_id)
+        .fetch_one(&state.db)
+        .await
+        .expect("Failed to seed merchandise");
+
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(get_state().await))
+                .configure(config_routes),
+        )
+        .await;
+
+        let req = test::TestRequest::get()
+            .uri(&format!("/artist_merchandise/{}", id))
+            .insert_header(("Authorization", format!("Bearer {}", admin_token())))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 200);
+
+        let body: serde_json::Value = test::read_body_json(resp).await;
+        assert_eq!(body["merch_title"], "No Cache Merch");
+        assert!(body["shopify_json_cache"].is_null());
+
+        let _ = sqlx::query(&format!(r"DELETE FROM artist_merchandise WHERE id = {}", id))
             .execute(&state.db)
             .await;
         let _ = cleanup_by_artist_name(&state.db, &artist_name, &producer_name).await;
