@@ -41,6 +41,11 @@ pub struct UpdateArtistMerchandiseRequest {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct ShopifyJsonCacheEmbed {
+    pub json_entry: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct ArtistMerchandiseResponse {
     pub id: i64,
     pub merch_title: String,
@@ -50,10 +55,11 @@ pub struct ArtistMerchandiseResponse {
     pub cost_price: Option<f64>,
     pub created_on_producer: Option<bool>,
     pub merchandise_id: Option<String>,
+    pub shopify_json_cache: Option<ShopifyJsonCacheEmbed>,
 }
 
 impl ArtistMerchandise {
-    pub fn to_response(&self) -> ArtistMerchandiseResponse {
+    pub fn to_response(&self, json_entry: Option<String>) -> ArtistMerchandiseResponse {
         ArtistMerchandiseResponse {
             id: self.id,
             merch_title: self.merch_title.clone(),
@@ -63,6 +69,9 @@ impl ArtistMerchandise {
             cost_price: self.cost_price,
             created_on_producer: self.created_on_producer,
             merchandise_id: self.merchandise_id.clone(),
+            shopify_json_cache: json_entry.map(|je| ShopifyJsonCacheEmbed {
+                json_entry: Some(je),
+            }),
         }
     }
 }
