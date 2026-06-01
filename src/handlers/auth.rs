@@ -292,46 +292,6 @@ mod tests {
     use crate::test_utils::TEST_SECRET;
     use actix_web::{test, App};
 
-    async fn get_state() -> AppState {
-        let pool = sqlx::PgPool::connect(crate::test_utils::test_db_url())
-            .await
-            .expect("Failed to connect to test database");
-
-        let config = crate::services::storage_service::S3Config::from_env()
-            .unwrap_or_else(|_| crate::services::storage_service::S3Config {
-                access_key: "test".to_string(),
-                secret_key: "test".to_string(),
-                endpoint: "https://test.test".to_string(),
-                bucket_name: "test".to_string(),
-                region: "us-east-1".to_string(),
-            });
-        let s3 = crate::services::storage_service::create_s3_bucket(&config).unwrap_or_else(|_| {
-            let creds = s3::creds::Credentials::new(Some("test"), Some("test"), None, None, None).unwrap();
-            s3::bucket::Bucket::new("test", s3::region::Region::Custom { region: "us-east-1".to_string(), endpoint: "https://test.test".to_string() }, creds)
-                .unwrap()
-                .with_path_style()
-        });
-
-        let cookie_builder = std::sync::Arc::new(
-            actix_jc::ActixJwtCookie::new()
-                .cookie_name("jwt_cookie")
-                .jwt_key(TEST_SECRET)
-                .expiration(3 * 24 * 60 * 60)
-        );
-
-        AppState {
-            db: pool,
-            s3,
-            shopify: None,
-            mailchimp: None,
-            safe_browsing: None,
-            email: None,
-            job_handle: crate::jobs::JobHandle::inline(),
-            jwt_secret: TEST_SECRET.to_string(),
-            cookie_builder,
-        }
-    }
-
     async fn seed_test_user(state: &AppState, email: &str, password: &str, role: &str) -> i64 {
         let password_digest = auth_service::hash_password(password).unwrap();
         let now = chrono::Utc::now().naive_utc();
@@ -366,7 +326,7 @@ mod tests {
             std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
-        let state = get_state().await;
+        let state = get_test_state().await;
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -376,9 +336,9 @@ mod tests {
 
         let app = test::init_service(
             App::new()
-                .app_data(web::Data::new(get_state().await))
+                .app_data(web::Data::new(get_test_state().await))
                 .app_data(web::Data::new(
-                    get_state().await.cookie_builder.clone()
+                    get_test_state().await.cookie_builder.clone()
                 ))
                 .configure(config_routes),
         )
@@ -406,7 +366,7 @@ mod tests {
             std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
             App::new()
                 .app_data(state)
@@ -433,7 +393,7 @@ mod tests {
             std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
-        let state = get_state().await;
+        let state = get_test_state().await;
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -443,7 +403,7 @@ mod tests {
 
         let app = test::init_service(
             App::new()
-                .app_data(web::Data::new(get_state().await))
+                .app_data(web::Data::new(get_test_state().await))
                 .configure(config_routes),
         )
         .await;
@@ -469,7 +429,7 @@ mod tests {
             std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
-        let state = get_state().await;
+        let state = get_test_state().await;
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -480,9 +440,9 @@ mod tests {
 
         let app = test::init_service(
             App::new()
-                .app_data(web::Data::new(get_state().await))
+                .app_data(web::Data::new(get_test_state().await))
                 .app_data(web::Data::new(
-                    get_state().await.cookie_builder.clone()
+                    get_test_state().await.cookie_builder.clone()
                 ))
                 .configure(config_routes),
         )
@@ -508,7 +468,7 @@ mod tests {
             std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
             App::new()
                 .app_data(state)
@@ -546,7 +506,7 @@ mod tests {
             std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
-        let state = get_state().await;
+        let state = get_test_state().await;
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -557,9 +517,9 @@ mod tests {
 
         let app = test::init_service(
             App::new()
-                .app_data(web::Data::new(get_state().await))
+                .app_data(web::Data::new(get_test_state().await))
                 .app_data(web::Data::new(
-                    get_state().await.cookie_builder.clone()
+                    get_test_state().await.cookie_builder.clone()
                 ))
                 .configure(config_routes),
         )
@@ -583,7 +543,7 @@ mod tests {
             std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
             App::new()
                 .app_data(state)
@@ -604,7 +564,7 @@ mod tests {
             std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
-        let state = get_state().await;
+        let state = get_test_state().await;
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -615,9 +575,9 @@ mod tests {
 
         let app = test::init_service(
             App::new()
-                .app_data(web::Data::new(get_state().await))
+                .app_data(web::Data::new(get_test_state().await))
                 .app_data(web::Data::new(
-                    get_state().await.cookie_builder.clone()
+                    get_test_state().await.cookie_builder.clone()
                 ))
                 .configure(config_routes),
         )
@@ -648,7 +608,7 @@ mod tests {
             std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
-        let state = get_state().await;
+        let state = get_test_state().await;
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -659,9 +619,9 @@ mod tests {
 
         let app = test::init_service(
             App::new()
-                .app_data(web::Data::new(get_state().await))
+                .app_data(web::Data::new(get_test_state().await))
                 .app_data(web::Data::new(
-                    get_state().await.cookie_builder.clone()
+                    get_test_state().await.cookie_builder.clone()
                 ))
                 .configure(config_routes),
         )
@@ -693,7 +653,7 @@ mod tests {
             std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
-        let state = get_state().await;
+        let state = get_test_state().await;
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -705,9 +665,9 @@ mod tests {
 
         let app = test::init_service(
             App::new()
-                .app_data(web::Data::new(get_state().await))
+                .app_data(web::Data::new(get_test_state().await))
                 .app_data(web::Data::new(
-                    get_state().await.cookie_builder.clone()
+                    get_test_state().await.cookie_builder.clone()
                 ))
                 .configure(config_routes),
         )

@@ -195,14 +195,7 @@ mod tests {
         encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap()
     }
 
-async fn get_state() -> AppState {
-        let pool = sqlx::PgPool::connect(crate::test_utils::test_db_url())
-            .await
-            .expect("Failed to connect to test database");
-        crate::test_utils::build_test_state(pool).await
-    }
-
-    async fn seed_user() -> (i64, String) {
+   async fn seed_user() -> (i64, String) {
         let email = format!("dataapi_user_{}@test.com", unique_suffix());
         let username = format!("dataapi_user_{}", unique_suffix());
         let id: i64 = sqlx::query_scalar(
@@ -214,7 +207,7 @@ async fn get_state() -> AppState {
         .bind("hashed_password_test".to_string())
         .bind(Some(username))
         .bind(Some("user".to_string()))
-        .fetch_one(&get_state().await.db)
+        .fetch_one(&get_test_state().await.db)
         .await
         .expect("Failed to seed user");
         (id, email)
@@ -223,7 +216,7 @@ async fn get_state() -> AppState {
     async fn cleanup_user(_user_id: i64, email: &str) {
         let _ = sqlx::query(r#"DELETE FROM users WHERE email = $1"#)
             .bind(email)
-            .execute(&get_state().await.db)
+            .execute(&get_test_state().await.db)
             .await;
     }
 
@@ -241,7 +234,7 @@ async fn get_state() -> AppState {
         .bind(&now)
         .bind(&now)
         .bind(&now)
-        .fetch_one(&get_state().await.db)
+        .fetch_one(&get_test_state().await.db)
         .await
         .expect("Failed to seed event")
     }
@@ -249,11 +242,11 @@ async fn get_state() -> AppState {
     async fn cleanup_event(event_id: i64) {
         let _ = sqlx::query(r#"DELETE FROM kbr_event_attendees WHERE kbr_event_id = $1"#)
             .bind(event_id as i32)
-            .execute(&get_state().await.db)
+            .execute(&get_test_state().await.db)
             .await;
         let _ = sqlx::query(r#"DELETE FROM kbr_events WHERE id = $1"#)
             .bind(event_id)
-            .execute(&get_state().await.db)
+            .execute(&get_test_state().await.db)
             .await;
     }
 
@@ -266,7 +259,7 @@ async fn get_state() -> AppState {
         )
         .bind(format!("Subscriber {}", unique_suffix()))
         .bind(&email)
-        .fetch_one(&get_state().await.db)
+        .fetch_one(&get_test_state().await.db)
         .await
         .expect("Failed to seed mail subscriber")
     }
@@ -280,7 +273,7 @@ async fn get_state() -> AppState {
         .bind(event_id as i32)
         .bind(subscriber_id as i32)
         .bind(scan_count)
-        .fetch_one(&get_state().await.db)
+        .fetch_one(&get_test_state().await.db)
         .await
         .expect("Failed to seed attendee")
     }
@@ -288,7 +281,7 @@ async fn get_state() -> AppState {
     #[tokio::test(flavor = "current_thread")]
     async fn data_last_logins_returns_users() {
         unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
             App::new()
                 .app_data(state)
@@ -317,7 +310,7 @@ async fn get_state() -> AppState {
     #[tokio::test(flavor = "current_thread")]
     async fn data_last_login_by_id_found() {
         unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let (user_id, user_email) = seed_user().await;
 
@@ -348,7 +341,7 @@ async fn get_state() -> AppState {
     #[tokio::test(flavor = "current_thread")]
     async fn data_last_login_by_id_not_found() {
         unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let max_id: i64 = sqlx::query_scalar(r#"SELECT COALESCE(MAX(id), 0) FROM users"#)
             .fetch_one(&state.db)
@@ -376,7 +369,7 @@ async fn get_state() -> AppState {
     #[tokio::test(flavor = "current_thread")]
     async fn data_event_attendees_present_returns_scanned() {
         unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let event_id = seed_event().await;
         let sub1 = seed_mail_subscriber().await;
@@ -419,7 +412,7 @@ async fn get_state() -> AppState {
     #[tokio::test(flavor = "current_thread")]
     async fn data_event_attendees_present_event_not_found() {
         unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let max_id: i64 = sqlx::query_scalar(r#"SELECT COALESCE(MAX(id), 0) FROM kbr_events"#)
             .fetch_one(&state.db)

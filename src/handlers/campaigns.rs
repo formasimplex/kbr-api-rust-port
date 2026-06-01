@@ -523,13 +523,6 @@ mod tests {
     use crate::test_utils::TEST_SECRET;
     use actix_web::{App, test};
 
-    async fn get_state() -> AppState {
-        let pool = sqlx::PgPool::connect(crate::test_utils::test_db_url())
-            .await
-            .expect("Failed to connect to test database");
-        crate::test_utils::build_test_state(pool).await
-    }
-
     fn admin_token() -> String {
         encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap()
     }
@@ -549,7 +542,7 @@ mod tests {
         .bind(format!("campaign_test_user_{}_{}@test.com", pid, ts))
         .bind("hashed_password_test".to_string())
         .bind(Some("artist".to_string()))
-        .fetch_one(&get_state().await.db)
+        .fetch_one(&get_test_state().await.db)
         .await
         .expect("Failed to seed user")
     }
@@ -567,7 +560,7 @@ mod tests {
         .bind(Some("A test artist for campaigns".to_string()))
         .bind(Some(user_id))
         .bind(Some(false))
-        .fetch_one(&get_state().await.db)
+        .fetch_one(&get_test_state().await.db)
         .await
         .expect("Failed to seed artist")
     }
@@ -585,7 +578,7 @@ mod tests {
         .bind(true)
         .bind(25_i32)
         .bind(50_i32)
-        .fetch_one(&get_state().await.db)
+        .fetch_one(&get_test_state().await.db)
         .await
         .expect("Failed to seed campaign")
     }
@@ -593,11 +586,11 @@ mod tests {
     async fn cleanup_campaign(campaign_id: i64) {
         let _ = sqlx::query(r"DELETE FROM campaign_pages WHERE campaign_id = $1")
             .bind(campaign_id)
-            .execute(&get_state().await.db)
+            .execute(&get_test_state().await.db)
             .await;
         let _ = sqlx::query(r"DELETE FROM campaigns WHERE id = $1")
             .bind(campaign_id)
-            .execute(&get_state().await.db)
+            .execute(&get_test_state().await.db)
             .await;
     }
 
@@ -606,7 +599,7 @@ mod tests {
             r"SELECT id FROM campaigns WHERE artist_id = $1",
         )
         .bind(artist_id)
-        .fetch_all(&get_state().await.db)
+        .fetch_all(&get_test_state().await.db)
         .await
         .unwrap_or_default();
         for cid in campaigns {
@@ -614,7 +607,7 @@ mod tests {
         }
         let _ = sqlx::query(r"DELETE FROM artists WHERE id = $1")
             .bind(artist_id)
-            .execute(&get_state().await.db)
+            .execute(&get_test_state().await.db)
             .await;
     }
 
@@ -623,7 +616,7 @@ mod tests {
             r"SELECT id FROM artists WHERE user_id = $1",
         )
         .bind(user_id)
-        .fetch_all(&get_state().await.db)
+        .fetch_all(&get_test_state().await.db)
         .await
         .unwrap_or_default();
         for aid in artists {
@@ -631,14 +624,14 @@ mod tests {
         }
         let _ = sqlx::query(r"DELETE FROM users WHERE id = $1")
             .bind(user_id)
-            .execute(&get_state().await.db)
+            .execute(&get_test_state().await.db)
             .await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_index_public() {
         unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
             App::new()
                 .app_data(state)
@@ -654,7 +647,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_show_found() {
         unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let user_id = seed_user().await;
         let artist_id = seed_artist(user_id).await;
@@ -684,7 +677,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_show_not_found() {
         unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let max_id: i64 = sqlx::query_scalar(
             r"SELECT COALESCE(MAX(id), 0) FROM campaigns",
@@ -714,7 +707,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let user_id = seed_user().await;
         let artist_id = seed_artist(user_id).await;
 
@@ -760,7 +753,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let user_id = seed_user().await;
         let artist_id = seed_artist(user_id).await;
 
@@ -793,7 +786,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
             App::new()
                 .app_data(state)
@@ -816,7 +809,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let user_id = seed_user().await;
         let artist_id = seed_artist(user_id).await;
@@ -856,7 +849,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let max_id: i64 = sqlx::query_scalar(
             r"SELECT COALESCE(MAX(id), 0) FROM campaigns",
@@ -890,7 +883,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let user_id = seed_user().await;
         let artist_id = seed_artist(user_id).await;
@@ -931,7 +924,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let max_id: i64 = sqlx::query_scalar(
             r"SELECT COALESCE(MAX(id), 0) FROM campaigns",
@@ -962,7 +955,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let user_id = seed_user().await;
         let artist_id = seed_artist(user_id).await;
@@ -1017,7 +1010,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let app = test::init_service(
             App::new()
@@ -1045,7 +1038,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let app = test::init_service(
             App::new()
@@ -1076,7 +1069,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let max_id: i64 = sqlx::query_scalar(
             r"SELECT COALESCE(MAX(id), 0) FROM campaigns",
@@ -1111,7 +1104,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let user_id = seed_user().await;
         let artist_id = seed_artist(user_id).await;
@@ -1164,7 +1157,7 @@ mod tests {
         }
 
         let token = encode_token_with_role(3, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let app = test::init_service(
             App::new()
@@ -1188,7 +1181,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_active_only() {
         unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let user_id = seed_user().await;
         let artist_id = seed_artist(user_id).await;

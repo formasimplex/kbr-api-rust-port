@@ -245,17 +245,10 @@ mod tests {
     use super::*;
     use actix_web::{test, App};
 
-    async fn get_state() -> AppState {
-        let pool = sqlx::PgPool::connect(crate::test_utils::test_db_url())
-            .await
-            .expect("Failed to connect to test database");
-        crate::test_utils::build_test_state(pool).await
-    }
-
     #[tokio::test(flavor = "current_thread")]
     async fn reset_trigger_create_returns_generic_response() {
         unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let app = test::init_service(
             App::new()
@@ -286,7 +279,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn reset_trigger_create_nonexistent_email_returns_same_response() {
         unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let app = test::init_service(
             App::new()
@@ -316,7 +309,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn reset_trigger_create_invalid_email() {
         unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
             App::new()
                 .app_data(state)
@@ -337,7 +330,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn reset_trigger_update_success() {
         unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let email = format!("reset_upd_{}@example.com", chrono::Utc::now().timestamp_micros());
         let old_hash = hash_password("oldpassword").unwrap();
@@ -364,7 +357,7 @@ mod tests {
 
         let app = test::init_service(
             App::new()
-                .app_data(web::Data::new(get_state().await))
+                .app_data(web::Data::new(get_test_state().await))
                 .configure(config_routes),
         )
         .await;
@@ -401,7 +394,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn reset_trigger_update_password_mismatch() {
         unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let email = format!("reset_mm_{}@example.com", chrono::Utc::now().timestamp_micros());
         let old_hash = hash_password("oldpassword").unwrap();
@@ -428,7 +421,7 @@ mod tests {
 
         let app = test::init_service(
             App::new()
-                .app_data(web::Data::new(get_state().await))
+                .app_data(web::Data::new(get_test_state().await))
                 .configure(config_routes),
         )
         .await;
@@ -465,7 +458,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn reset_trigger_update_short_password() {
         unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let email = format!("reset_sp_{}@example.com", chrono::Utc::now().timestamp_micros());
         let old_hash = hash_password("oldpassword").unwrap();
@@ -492,7 +485,7 @@ mod tests {
 
         let app = test::init_service(
             App::new()
-                .app_data(web::Data::new(get_state().await))
+                .app_data(web::Data::new(get_test_state().await))
                 .configure(config_routes),
         )
         .await;
@@ -529,7 +522,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn reset_trigger_update_same_password_rejected() {
         unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let email = format!("reset_same_{}@example.com", chrono::Utc::now().timestamp_micros());
         let current_password = "Currentpass1";
@@ -557,7 +550,7 @@ mod tests {
 
         let app = test::init_service(
             App::new()
-                .app_data(web::Data::new(get_state().await))
+                .app_data(web::Data::new(get_test_state().await))
                 .configure(config_routes),
         )
         .await;
@@ -594,7 +587,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn reset_trigger_update_no_user() {
         unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let token = format!("rust_reset_nu_{}", chrono::Utc::now().timestamp_micros());
         sqlx::query(
@@ -608,7 +601,7 @@ mod tests {
 
         let app = test::init_service(
             App::new()
-                .app_data(web::Data::new(get_state().await))
+                .app_data(web::Data::new(get_test_state().await))
                 .configure(config_routes),
         )
         .await;
@@ -632,7 +625,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn reset_trigger_update_expired_token_rejected() {
         unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = get_state().await;
+        let state = get_test_state().await;
 
         let email = format!("reset_exp_{}@example.com", chrono::Utc::now().timestamp_micros());
         let old_hash = hash_password("oldpassword").unwrap();
@@ -661,7 +654,7 @@ mod tests {
 
         let app = test::init_service(
             App::new()
-                .app_data(web::Data::new(get_state().await))
+                .app_data(web::Data::new(get_test_state().await))
                 .configure(config_routes),
         )
         .await;
@@ -698,7 +691,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn reset_trigger_update_token_consumed_once() {
         unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let email = format!("reset_once_{}@example.com", chrono::Utc::now().timestamp_micros());
         let old_hash = hash_password("oldpassword").unwrap();
@@ -725,7 +718,7 @@ mod tests {
 
         let app = test::init_service(
             App::new()
-                .app_data(web::Data::new(get_state().await))
+                .app_data(web::Data::new(get_test_state().await))
                 .configure(config_routes),
         )
         .await;

@@ -528,13 +528,6 @@ mod tests {
     use crate::test_utils::TEST_SECRET;
     use actix_web::{App, test};
 
-    async fn get_state() -> AppState {
-        let pool = sqlx::PgPool::connect(crate::test_utils::test_db_url())
-            .await
-            .expect("Failed to connect to test database");
-        crate::test_utils::build_test_state(pool).await
-    }
-
     fn admin_token() -> String {
         encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap()
     }
@@ -553,7 +546,7 @@ mod tests {
         .bind(format!("artist_test_{}@test.com", ts))
         .bind("hashed_password_test".to_string())
         .bind(Some("artist".to_string()))
-        .fetch_one(&get_state().await.db)
+        .fetch_one(&get_test_state().await.db)
         .await
         .expect("Failed to seed user")
     }
@@ -570,7 +563,7 @@ mod tests {
         .bind(Some("A test artist bio".to_string()))
         .bind(Some(user_id))
         .bind(Some(false))
-        .fetch_one(&get_state().await.db)
+        .fetch_one(&get_test_state().await.db)
         .await
         .expect("Failed to seed artist")
     }
@@ -578,22 +571,22 @@ mod tests {
     async fn cleanup_user(user_id: i64) {
         let _ = sqlx::query(r"DELETE FROM artists WHERE user_id = $1")
             .bind(user_id)
-            .execute(&get_state().await.db)
+            .execute(&get_test_state().await.db)
             .await;
         let _ = sqlx::query(r"DELETE FROM users WHERE id = $1")
             .bind(user_id)
-            .execute(&get_state().await.db)
+            .execute(&get_test_state().await.db)
             .await;
     }
 
     async fn cleanup_artist(artist_id: i64) {
         let _ = sqlx::query(r"DELETE FROM artist_links WHERE artist_id = $1")
             .bind(artist_id)
-            .execute(&get_state().await.db)
+            .execute(&get_test_state().await.db)
             .await;
         let _ = sqlx::query(r"DELETE FROM artists WHERE id = $1")
             .bind(artist_id)
-            .execute(&get_state().await.db)
+            .execute(&get_test_state().await.db)
             .await;
     }
 
@@ -602,7 +595,7 @@ mod tests {
         unsafe {
             std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
         }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::get().uri("/artists").to_request();
@@ -615,7 +608,7 @@ mod tests {
         unsafe {
             std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
         }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let user_id = seed_user().await;
         let artist_id = seed_artist(user_id).await;
@@ -641,7 +634,7 @@ mod tests {
         unsafe {
             std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
         }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let max_id: i64 = sqlx::query_scalar(r"SELECT COALESCE(MAX(id), 0) FROM artists")
             .fetch_one(&state.db)
@@ -664,7 +657,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let app =
             test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
 
@@ -699,7 +692,7 @@ mod tests {
         }
 
         let token = encode_token_with_role(2, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
@@ -721,7 +714,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let user_id = seed_user().await;
         let artist_id = seed_artist(user_id).await;
@@ -753,7 +746,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let max_id: i64 = sqlx::query_scalar(r"SELECT COALESCE(MAX(id), 0) FROM artists")
             .fetch_one(&state.db)
@@ -780,7 +773,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let user_id = seed_user().await;
         let artist_id = seed_artist(user_id).await;
@@ -815,7 +808,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
@@ -839,7 +832,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let user_id = seed_user().await;
         let artist_id = seed_artist(user_id).await;
@@ -890,7 +883,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
@@ -910,7 +903,7 @@ mod tests {
         unsafe {
             std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
         }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::get()
@@ -928,7 +921,7 @@ mod tests {
         unsafe {
             std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
         }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let ts = chrono::Utc::now().timestamp_micros();
         let email = format!("artistsignup{}@example.com", ts);
 
@@ -1003,7 +996,7 @@ mod tests {
         unsafe {
             std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
         }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
@@ -1025,7 +1018,7 @@ mod tests {
         unsafe {
             std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
         }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let ts = chrono::Utc::now().timestamp_micros();
         let email = format!("artistdup{}@example.com", ts);
 
@@ -1086,7 +1079,7 @@ mod tests {
         unsafe {
             std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
         }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let ts = chrono::Utc::now().timestamp_micros();
         let email = format!("artistprospect{}@example.com", ts);
 
@@ -1150,7 +1143,7 @@ mod tests {
         unsafe {
             std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
         }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let ts = chrono::Utc::now().timestamp_micros();
         let email = format!("artistexpired{}@example.com", ts);
 
@@ -1195,7 +1188,7 @@ mod tests {
         unsafe {
             std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
         }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
@@ -1217,7 +1210,7 @@ mod tests {
         unsafe {
             std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
         }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let ts = chrono::Utc::now().timestamp_micros();
         let email = format!("artistweak{}@example.com", ts);
 

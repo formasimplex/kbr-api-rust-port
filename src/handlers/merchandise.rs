@@ -355,13 +355,6 @@ mod tests {
     use crate::test_utils::TEST_SECRET;
     use actix_web::{test, App};
 
- async fn get_state() -> AppState {
-        let pool = sqlx::PgPool::connect(crate::test_utils::test_db_url())
-            .await
-            .expect("Failed to connect to test database");
-        crate::test_utils::build_test_state(pool).await
-    }
-
     fn admin_token() -> String {
         encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap()
     }
@@ -414,7 +407,7 @@ mod tests {
             std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
             App::new()
                 .app_data(state)
@@ -436,7 +429,7 @@ mod tests {
             std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
 
         let seed = sqlx::query_as::<_, ArtistMerchandiseRow>(
@@ -457,7 +450,7 @@ mod tests {
 
         let app = test::init_service(
             App::new()
-                .app_data(web::Data::new(get_state().await))
+                .app_data(web::Data::new(get_test_state().await))
                 .configure(config_routes),
         )
         .await;
@@ -485,7 +478,7 @@ mod tests {
             std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let max_id: i64 = sqlx::query_scalar(
             r"SELECT COALESCE(MAX(id), 0) FROM artist_merchandise"
@@ -515,7 +508,7 @@ mod tests {
             std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
 
         let _ = sqlx::query(
@@ -529,7 +522,7 @@ mod tests {
 
         let app = test::init_service(
             App::new()
-                .app_data(web::Data::new(get_state().await))
+                .app_data(web::Data::new(get_test_state().await))
                 .configure(config_routes),
         )
         .await;
@@ -557,7 +550,7 @@ mod tests {
             std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
 
         let suffix = std::time::SystemTime::now()
@@ -604,7 +597,7 @@ mod tests {
             std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
             App::new()
                 .app_data(state)
@@ -631,7 +624,7 @@ mod tests {
             std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
 
         let suffix = std::time::SystemTime::now()
@@ -689,7 +682,7 @@ mod tests {
             std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let max_id: i64 = sqlx::query_scalar(
             r"SELECT COALESCE(MAX(id), 0) FROM artist_merchandise"
@@ -722,7 +715,7 @@ mod tests {
             std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
 
         let suffix = std::time::SystemTime::now()
@@ -768,7 +761,7 @@ mod tests {
             std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let max_id: i64 = sqlx::query_scalar(
             r"SELECT COALESCE(MAX(id), 0) FROM artist_merchandise"
@@ -798,7 +791,7 @@ mod tests {
             std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
             App::new()
                 .app_data(state)
@@ -822,12 +815,12 @@ mod tests {
             std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let (artist_id, _producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
 
         let app = test::init_service(
             App::new()
-                .app_data(web::Data::new(get_state().await))
+                .app_data(web::Data::new(get_test_state().await))
                 .configure(config_routes),
         )
         .await;
@@ -851,7 +844,7 @@ mod tests {
             std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
             App::new()
                 .app_data(state)
@@ -872,7 +865,7 @@ mod tests {
             std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
 
         let suffix = std::time::SystemTime::now()
@@ -928,7 +921,7 @@ mod tests {
             std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
 
         let suffix = std::time::SystemTime::now()
@@ -982,7 +975,7 @@ mod tests {
             std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
 
         let cache_json = serde_json::json!({
@@ -1018,7 +1011,7 @@ mod tests {
 
         let app = test::init_service(
             App::new()
-                .app_data(web::Data::new(get_state().await))
+                .app_data(web::Data::new(get_test_state().await))
                 .configure(config_routes),
         )
         .await;
@@ -1063,7 +1056,7 @@ mod tests {
             std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
 
         let id: i64 = sqlx::query_scalar::<_, i64>(
@@ -1079,7 +1072,7 @@ mod tests {
 
         let app = test::init_service(
             App::new()
-                .app_data(web::Data::new(get_state().await))
+                .app_data(web::Data::new(get_test_state().await))
                 .configure(config_routes),
         )
         .await;

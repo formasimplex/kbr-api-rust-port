@@ -93,13 +93,6 @@ mod tests {
     use crate::test_utils::TEST_SECRET;
     use actix_web::{test, App};
 
- async fn get_state() -> AppState {
-        let pool = sqlx::PgPool::connect(crate::test_utils::test_db_url())
-            .await
-            .expect("Failed to connect to test database");
-        crate::test_utils::build_test_state(pool).await
-    }
-
     fn user_token(user_id: i64) -> String {
         encode_token_with_role(user_id, TEST_SECRET, 1, Some("user".to_string()), 1).unwrap()
     }
@@ -170,7 +163,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let user_id = seed_user(&state.db).await;
         let artist_id = seed_artist(&state.db).await;
         seed_mail_subscriber(&state.db, user_id, artist_id).await;
@@ -204,7 +197,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let user_id = seed_user(&state.db).await;
         let artist_id = seed_artist(&state.db).await;
         seed_mail_subscriber(&state.db, user_id, artist_id).await;
@@ -243,7 +236,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let user_id = seed_user(&state.db).await;
 
         let app = test::init_service(
@@ -273,7 +266,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
             App::new()
                 .app_data(state)

@@ -176,17 +176,10 @@ mod tests {
     use super::*;
     use actix_web::{test, App};
 
-    async fn get_state() -> AppState {
-        let pool = sqlx::PgPool::connect(crate::test_utils::test_db_url())
-            .await
-            .expect("Failed to connect to test database");
-        crate::test_utils::build_test_state(pool).await
-    }
-
     #[tokio::test(flavor = "current_thread")]
     async fn sign_up_trigger_create_success() {
         unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
             App::new()
                 .app_data(state.clone())
@@ -214,7 +207,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn sign_up_trigger_create_invalid_email() {
         unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
             App::new()
                 .app_data(state)
@@ -235,7 +228,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn sign_up_trigger_create_artist_conflict_returns_403() {
         unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let ts = chrono::Utc::now().timestamp_micros();
         let email = format!("artist_conflict_{}@example.com", ts);
@@ -266,7 +259,7 @@ mod tests {
 
         let app = test::init_service(
             App::new()
-                .app_data(web::Data::new(get_state().await))
+                .app_data(web::Data::new(get_test_state().await))
                 .configure(config_routes),
         )
         .await;
@@ -294,7 +287,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn sign_up_trigger_create_expires_existing_trigger() {
         unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let ts = chrono::Utc::now().timestamp_micros();
         let email = format!("existing_trigger_{}@example.com", ts);
 
@@ -354,7 +347,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn sign_up_trigger_show_valid() {
         unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let token = format!("rust_test_{}", chrono::Utc::now().timestamp_micros());
     let seed = sqlx::query_as::<_, SignUpTriggerRow>(
@@ -368,7 +361,7 @@ mod tests {
 
         let app = test::init_service(
             App::new()
-                .app_data(web::Data::new(get_state().await))
+                .app_data(web::Data::new(get_test_state().await))
                 .configure(config_routes),
         )
         .await;
@@ -392,7 +385,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn sign_up_trigger_show_not_found() {
         unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
             App::new()
                 .app_data(state)
@@ -410,7 +403,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn sign_up_trigger_show_expired_returns_404() {
         unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let token = format!("expired_test_{}", chrono::Utc::now().timestamp_micros());
         let past = (chrono::Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
@@ -426,7 +419,7 @@ mod tests {
 
         let app = test::init_service(
             App::new()
-                .app_data(web::Data::new(get_state().await))
+                .app_data(web::Data::new(get_test_state().await))
                 .configure(config_routes),
         )
         .await;

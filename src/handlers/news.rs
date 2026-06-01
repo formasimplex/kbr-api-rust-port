@@ -451,13 +451,6 @@ mod tests {
     use crate::test_utils::TEST_SECRET;
     use actix_web::{test, App};
 
-    async fn get_state() -> AppState {
-        let pool = sqlx::PgPool::connect(crate::test_utils::test_db_url())
-            .await
-            .expect("Failed to connect to test database");
-        crate::test_utils::build_test_state(pool).await
-    }
-
     fn admin_token() -> String {
         encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap()
     }
@@ -526,7 +519,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn news_index_returns_ok() {
         unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
             App::new()
                 .app_data(state)
@@ -542,7 +535,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn news_show_found() {
         unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let suffix = format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos());
         let news_id = seed_news(&state, &suffix).await;
         let title = format!("Test News {}", suffix);
@@ -569,7 +562,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn news_show_not_found() {
         unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let max_id: i64 = sqlx::query_scalar(r"SELECT COALESCE(MAX(id), 0) FROM news")
             .fetch_one(&state.db)
@@ -597,7 +590,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
             App::new()
                 .app_data(state.clone())
@@ -630,7 +623,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
             App::new()
                 .app_data(state)
@@ -656,7 +649,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let suffix = format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos());
         let news_id = seed_news(&state, &suffix).await;
         let title = format!("Test News {}", suffix);
@@ -691,7 +684,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let suffix = format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos());
         let news_id = seed_news(&state, &suffix).await;
         let title = format!("Test News {}", suffix);
@@ -723,7 +716,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let suffix = format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos());
         let news_id = seed_news(&state, &suffix).await;
         let title = format!("Test News {}", suffix);
@@ -755,7 +748,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let suffix = format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos());
         let news_id = seed_news(&state, &suffix).await;
         let news_title = format!("Test News {}", suffix);
@@ -794,7 +787,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let suffix = format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos());
         let url = format!("https://example.com/dup-{}", suffix);
         let title = format!("Dup News {}", suffix);
@@ -842,7 +835,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let suffix = format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos());
         let news_id = seed_news(&state, &suffix).await;
         let news_title = format!("Test News {}", suffix);
@@ -878,7 +871,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let app = test::init_service(
             App::new()
@@ -906,7 +899,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let suffix = format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos());
         let news_id = seed_news(&state, &suffix).await;
         let news_title = format!("Test News {}", suffix);

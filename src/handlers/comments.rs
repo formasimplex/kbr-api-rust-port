@@ -260,13 +260,6 @@ mod tests {
     use crate::test_utils::TEST_SECRET;
     use actix_web::{test, App};
 
-    async fn get_state() -> AppState {
-        let pool = sqlx::PgPool::connect(crate::test_utils::test_db_url())
-            .await
-            .expect("Failed to connect to test database");
-        crate::test_utils::build_test_state(pool).await
-    }
-
     fn admin_token() -> String {
         encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap()
     }
@@ -323,7 +316,7 @@ mod tests {
             std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
-        let state = get_state().await;
+        let state = get_test_state().await;
         let comment_id = seed_comment(&state).await;
 
         let app = test::init_service(
@@ -352,7 +345,7 @@ mod tests {
             std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
-        let state = get_state().await;
+        let state = get_test_state().await;
         let app = test::init_service(
             App::new()
                 .app_data(web::Data::new(state))
@@ -373,7 +366,7 @@ mod tests {
             std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
-        let state = get_state().await;
+        let state = get_test_state().await;
         let app = test::init_service(
             App::new()
                 .app_data(web::Data::new(state))
@@ -394,7 +387,7 @@ mod tests {
             std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
-        let state = get_state().await;
+        let state = get_test_state().await;
         let app = test::init_service(
             App::new()
                 .app_data(web::Data::new(state.clone()))
@@ -426,7 +419,7 @@ mod tests {
             std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
-        let state = get_state().await;
+        let state = get_test_state().await;
         let app = test::init_service(
             App::new()
                 .app_data(web::Data::new(state))
@@ -453,7 +446,7 @@ mod tests {
             std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
-        let state = get_state().await;
+        let state = get_test_state().await;
         let app = test::init_service(
             App::new()
                 .app_data(web::Data::new(state))
@@ -480,7 +473,7 @@ mod tests {
             std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
-        let state = get_state().await;
+        let state = get_test_state().await;
         let parent_id = seed_comment(&state).await;
 
         let app = test::init_service(
@@ -515,7 +508,7 @@ mod tests {
             std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
-        let state = get_state().await;
+        let state = get_test_state().await;
         let app = test::init_service(
             App::new()
                 .app_data(web::Data::new(state))

@@ -381,13 +381,6 @@ mod tests {
         format!("{}_{}", ts, count)
     }
 
-    async fn get_state() -> AppState {
-        let pool = sqlx::PgPool::connect(crate::test_utils::test_db_url())
-            .await
-            .expect("Failed to connect to test database");
-        crate::test_utils::build_test_state(pool).await
-    }
-
     fn admin_token() -> String {
         encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap()
     }
@@ -406,7 +399,7 @@ mod tests {
         .bind(&email)
         .bind("hashed_password_test".to_string())
         .bind(Some("artist".to_string()))
-        .fetch_one(&get_state().await.db)
+        .fetch_one(&get_test_state().await.db)
         .await
         .expect("Failed to seed user");
         (id, email)
@@ -429,7 +422,7 @@ mod tests {
         .bind(Some("https://tickets.com/test".to_string()))
         .bind(&now)
         .bind(&now)
-        .fetch_one(&get_state().await.db)
+        .fetch_one(&get_test_state().await.db)
         .await
         .expect("Failed to seed event")
     }
@@ -437,18 +430,18 @@ mod tests {
     async fn cleanup_event(event_id: i64) {
         let _ = sqlx::query(r"DELETE FROM kbr_events WHERE id = $1")
             .bind(event_id)
-            .execute(&get_state().await.db)
+            .execute(&get_test_state().await.db)
             .await;
     }
 
     async fn cleanup_user(user_id: i64, email: &str) {
         let _ = sqlx::query(r"DELETE FROM kbr_events WHERE create_by_user_id = $1")
             .bind(user_id as i32)
-            .execute(&get_state().await.db)
+            .execute(&get_test_state().await.db)
             .await;
         let _ = sqlx::query(r"DELETE FROM users WHERE email = $1")
             .bind(email)
-            .execute(&get_state().await.db)
+            .execute(&get_test_state().await.db)
             .await;
     }
 
@@ -457,7 +450,7 @@ mod tests {
         unsafe {
             std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
         }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::get().uri("/kbrevents").to_request();
@@ -476,7 +469,7 @@ mod tests {
         unsafe {
             std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
         }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let (user_id, user_email) = seed_user().await;
         let event_id = seed_event(user_id as i32).await;
@@ -505,7 +498,7 @@ mod tests {
         unsafe {
             std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
         }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let max_id: i64 = sqlx::query_scalar(r"SELECT COALESCE(MAX(id), 0) FROM kbr_events")
             .fetch_one(&state.db)
@@ -528,7 +521,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let app =
             test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
 
@@ -565,7 +558,7 @@ mod tests {
         }
 
         let token = encode_token_with_role(2, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
@@ -591,7 +584,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let (user_id, user_email) = seed_user().await;
         let event_id = seed_event(user_id as i32).await;
@@ -622,7 +615,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let (user_id, user_email) = seed_user().await;
         let event_id = seed_event(user_id as i32).await;
@@ -654,7 +647,7 @@ mod tests {
         }
 
         let token = encode_token_with_role(2, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
@@ -673,7 +666,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let (user_id, user_email) = seed_user().await;
         let event_id = seed_event(user_id as i32).await;
@@ -707,7 +700,7 @@ mod tests {
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let max_id: i64 = sqlx::query_scalar(r"SELECT COALESCE(MAX(id), 0) FROM kbr_events")
             .fetch_one(&state.db)

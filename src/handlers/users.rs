@@ -348,13 +348,6 @@ mod tests {
         }
     }
 
-    async fn get_state() -> AppState {
-        let pool = sqlx::PgPool::connect(crate::test_utils::test_db_url())
-            .await
-            .expect("Failed to connect to test database");
-        crate::test_utils::build_test_state(pool).await
-    }
-
     fn admin_token() -> String {
         encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap()
     }
@@ -424,7 +417,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn user_index_non_admin_forbidden() {
         setup_env();
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::get()
@@ -440,7 +433,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn user_show_self() {
         setup_env();
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let ts = timestamp();
         let email = format!("showself{}@example.com", ts);
         let user_id = seed_test_user(&state, &email, "user").await;
@@ -467,7 +460,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn user_show_other_not_admin() {
         setup_env();
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let ts = timestamp();
         let email_a = format!("showa{}@example.com", ts);
         let email_b = format!("showb{}@example.com", ts);
@@ -497,7 +490,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn user_show_admin_sees_other() {
         setup_env();
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let ts = timestamp();
         let email = format!("showadmin{}@example.com", ts);
         let user_id = seed_test_user(&state, &email, "user").await;
@@ -522,7 +515,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn user_show_not_found() {
         setup_env();
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let app =
             test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
 
@@ -544,7 +537,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn user_create_success() {
         setup_env();
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let ts = timestamp();
         let email = format!("newuser{}@example.com", ts);
         let username = format!("newuser{}", ts);
@@ -576,7 +569,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn user_create_with_valid_token_consumes_trigger() {
         setup_env();
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let ts = timestamp();
         let email = format!("tokenuser{}@example.com", ts);
         let username = format!("tokenuser{}", ts);
@@ -623,7 +616,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn user_create_with_expired_token_fails() {
         setup_env();
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let ts = timestamp();
         let email = format!("expiredtoken{}@example.com", ts);
         let token = format!("expired_token_{}", ts);
@@ -652,7 +645,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn user_create_with_mismatched_email_token_fails() {
         setup_env();
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let ts = timestamp();
         let trigger_email = format!("trigger_email_{}@example.com", ts);
         let request_email = format!("request_email_{}@example.com", ts);
@@ -683,7 +676,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn user_create_without_token_fails() {
         setup_env();
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::post()
@@ -700,7 +693,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn user_create_duplicate_email_returns_409() {
         setup_env();
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let ts = timestamp();
         let email = format!("dupemail{}@example.com", ts);
         let username2 = format!("dupuser{}b", ts);
@@ -733,7 +726,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn user_create_email_normalized_on_create() {
         setup_env();
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let ts = timestamp();
         let email_upper = format!("Normalised{}@Example.COM", ts);
         let email_lower = format!("normalised{}@example.com", ts);
@@ -768,7 +761,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn user_update_self() {
         setup_env();
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let ts = timestamp();
         let email = format!("updateself{}@example.com", ts);
         let user_id = seed_test_user(&state, &email, "user").await;
@@ -800,7 +793,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn user_update_other_not_admin() {
         setup_env();
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let ts = timestamp();
         let email_a = format!("updatea{}@example.com", ts);
         let email_b = format!("updateb{}@example.com", ts);
@@ -833,7 +826,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn user_update_admin_changes_other() {
         setup_env();
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let ts = timestamp();
         let email = format!("updateadmin{}@example.com", ts);
         let user_id = seed_test_user(&state, &email, "user").await;
@@ -863,7 +856,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn user_update_non_admin_cannot_change_role() {
         setup_env();
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let ts = timestamp();
         let email = format!("updaterole{}@example.com", ts);
         let user_id = seed_test_user(&state, &email, "user").await;
@@ -895,7 +888,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn password_change_revokes_old_tokens() {
         setup_env();
-        let state_data = web::Data::new(get_state().await);
+        let state_data = web::Data::new(get_test_state().await);
         let ts = timestamp();
         let email = format!("pwdchange{}@example.com", ts);
         let user_id = seed_test_user(&state_data, &email, "user").await;

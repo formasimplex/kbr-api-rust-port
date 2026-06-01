@@ -16,6 +16,14 @@ pub fn test_db_url() -> String {
     std::env::var("TEST_DB_URL").unwrap_or_else(|_| "postgresql://ws@localhost:5432/kbr_test".to_string())
 }
 
+/// Connect to the test database and build a full AppState.
+pub async fn get_test_state() -> AppState {
+    let pool = sqlx::PgPool::connect(test_db_url())
+        .await
+        .expect("Failed to connect to test database");
+    build_test_state(pool).await
+}
+
 /// Build a test AppState with the given pool.
 pub async fn build_test_state(pool: PgPool) -> AppState {
     let config = S3Config::from_env().unwrap_or_else(|_| S3Config {

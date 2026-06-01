@@ -195,14 +195,7 @@ mod tests {
         format!("{}_{}", ts, count)
     }
 
-async fn get_state() -> AppState {
-        let pool = sqlx::PgPool::connect(crate::test_utils::test_db_url())
-            .await
-            .expect("Failed to connect to test database");
-        crate::test_utils::build_test_state(pool).await
-    }
-
-    async fn seed_campaign_with_page() -> (i64, i64, String) {
+   async fn seed_campaign_with_page() -> (i64, i64, String) {
         let now = chrono::Utc::now().naive_utc();
         let start = now;
         let end = now + chrono::TimeDelta::days(30);
@@ -215,7 +208,7 @@ async fn get_state() -> AppState {
         .bind(&artist_name)
         .bind(&now)
         .bind(&now)
-        .fetch_one(&get_state().await.db)
+        .fetch_one(&get_test_state().await.db)
         .await
         .expect("Failed to seed artist");
 
@@ -233,7 +226,7 @@ async fn get_state() -> AppState {
         .bind(0i32)
         .bind(&now)
         .bind(&now)
-        .fetch_one(&get_state().await.db)
+        .fetch_one(&get_test_state().await.db)
         .await
         .expect("Failed to seed campaign");
 
@@ -248,7 +241,7 @@ async fn get_state() -> AppState {
         .bind(&inventory_item_id)
         .bind(&now)
         .bind(&now)
-        .fetch_one(&get_state().await.db)
+        .fetch_one(&get_test_state().await.db)
         .await
         .expect("Failed to seed campaign page");
 
@@ -258,21 +251,21 @@ async fn get_state() -> AppState {
     async fn cleanup_campaign(campaign_id: i64) {
         let _ = sqlx::query(r#"DELETE FROM campaign_pages WHERE campaign_id = $1"#)
             .bind(campaign_id)
-            .execute(&get_state().await.db)
+            .execute(&get_test_state().await.db)
             .await;
         let _ = sqlx::query(r#"DELETE FROM campaigns WHERE id = $1"#)
             .bind(campaign_id)
-            .execute(&get_state().await.db)
+            .execute(&get_test_state().await.db)
             .await;
         let _ = sqlx::query(r#"DELETE FROM artists WHERE name LIKE 'Webhook Artist %'"#)
-            .execute(&get_state().await.db)
+            .execute(&get_test_state().await.db)
             .await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn webhook_update_progress_updates_campaign() {
         unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let (campaign_id, _page_id, inventory_item_id) = seed_campaign_with_page().await;
 
@@ -313,7 +306,7 @@ async fn get_state() -> AppState {
     #[tokio::test(flavor = "current_thread")]
     async fn webhook_update_progress_no_campaign_page() {
         unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let app = test::init_service(
             App::new()
@@ -341,7 +334,7 @@ async fn get_state() -> AppState {
     #[tokio::test(flavor = "current_thread")]
     async fn webhook_update_progress_zero_available() {
         unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let (campaign_id, _page_id, inventory_item_id) = seed_campaign_with_page().await;
 
@@ -379,7 +372,7 @@ async fn get_state() -> AppState {
     #[tokio::test(flavor = "current_thread")]
     async fn webhook_customers_data_request() {
         unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let app = test::init_service(
             App::new()
@@ -401,7 +394,7 @@ async fn get_state() -> AppState {
     #[tokio::test(flavor = "current_thread")]
     async fn webhook_customers_redact() {
         unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let app = test::init_service(
             App::new()
@@ -423,7 +416,7 @@ async fn get_state() -> AppState {
     #[tokio::test(flavor = "current_thread")]
     async fn webhook_shop_redact() {
         unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let app = test::init_service(
             App::new()

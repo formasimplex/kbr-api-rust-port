@@ -142,13 +142,6 @@ mod tests {
     use crate::test_utils::TEST_SECRET;
     use actix_web::{test, App};
 
-    async fn get_state() -> AppState {
-        let pool = sqlx::PgPool::connect(crate::test_utils::test_db_url())
-            .await
-            .expect("Failed to connect to test database");
-        crate::test_utils::build_test_state(pool).await
-    }
-
     async fn seed_album_and_artist(pool: &sqlx::PgPool) -> (i64, i64) {
         let suffix = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -183,7 +176,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn songs_index_returns_ok() {
         unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
             App::new()
                 .app_data(state)
@@ -199,7 +192,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn song_show_found() {
         unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let (album_id, artist_id) = seed_album_and_artist(&state.db).await;
 
         let seed = sqlx::query_as::<_, SongRow>(
@@ -214,7 +207,7 @@ mod tests {
 
         let app = test::init_service(
             App::new()
-                .app_data(web::Data::new(get_state().await))
+                .app_data(web::Data::new(get_test_state().await))
                 .configure(config_routes),
         )
         .await;
@@ -239,7 +232,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn song_show_not_found() {
         unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
             App::new()
                 .app_data(state.clone())
@@ -269,7 +262,7 @@ mod tests {
         }
 
         let token = encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap();
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
         let (album_id, artist_id) = seed_album_and_artist(&state.db).await;
 
         let app = test::init_service(
@@ -311,7 +304,7 @@ mod tests {
         }
 
         let token = encode_token_with_role(2, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
-        let state = web::Data::new(get_state().await);
+        let state = web::Data::new(get_test_state().await);
 
         let app = test::init_service(
             App::new()
