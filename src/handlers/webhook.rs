@@ -186,8 +186,6 @@ mod tests {
     use super::*;
     use actix_web::{test, App};
 
-    const TEST_DB_URL: &str = "postgresql://ws@localhost:5432/kbr_test";
-
     use std::sync::atomic::{AtomicI64, Ordering};
     static TEST_COUNTER: AtomicI64 = AtomicI64::new(0);
 
@@ -198,7 +196,7 @@ mod tests {
     }
 
 async fn get_state() -> AppState {
-        let pool = sqlx::PgPool::connect(TEST_DB_URL)
+        let pool = sqlx::PgPool::connect(crate::test_utils::test_db_url())
             .await
             .expect("Failed to connect to test database");
         crate::test_utils::build_test_state(pool).await
@@ -273,7 +271,7 @@ async fn get_state() -> AppState {
 
     #[tokio::test(flavor = "current_thread")]
     async fn webhook_update_progress_updates_campaign() {
-        unsafe { std::env::set_var("DATABASE_URL", TEST_DB_URL); }
+        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
         let state = web::Data::new(get_state().await);
 
         let (campaign_id, _page_id, inventory_item_id) = seed_campaign_with_page().await;
@@ -314,7 +312,7 @@ async fn get_state() -> AppState {
 
     #[tokio::test(flavor = "current_thread")]
     async fn webhook_update_progress_no_campaign_page() {
-        unsafe { std::env::set_var("DATABASE_URL", TEST_DB_URL); }
+        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
         let state = web::Data::new(get_state().await);
 
         let app = test::init_service(
@@ -342,7 +340,7 @@ async fn get_state() -> AppState {
 
     #[tokio::test(flavor = "current_thread")]
     async fn webhook_update_progress_zero_available() {
-        unsafe { std::env::set_var("DATABASE_URL", TEST_DB_URL); }
+        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
         let state = web::Data::new(get_state().await);
 
         let (campaign_id, _page_id, inventory_item_id) = seed_campaign_with_page().await;
@@ -380,7 +378,7 @@ async fn get_state() -> AppState {
 
     #[tokio::test(flavor = "current_thread")]
     async fn webhook_customers_data_request() {
-        unsafe { std::env::set_var("DATABASE_URL", TEST_DB_URL); }
+        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
         let state = web::Data::new(get_state().await);
 
         let app = test::init_service(
@@ -402,7 +400,7 @@ async fn get_state() -> AppState {
 
     #[tokio::test(flavor = "current_thread")]
     async fn webhook_customers_redact() {
-        unsafe { std::env::set_var("DATABASE_URL", TEST_DB_URL); }
+        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
         let state = web::Data::new(get_state().await);
 
         let app = test::init_service(
@@ -424,7 +422,7 @@ async fn get_state() -> AppState {
 
     #[tokio::test(flavor = "current_thread")]
     async fn webhook_shop_redact() {
-        unsafe { std::env::set_var("DATABASE_URL", TEST_DB_URL); }
+        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
         let state = web::Data::new(get_state().await);
 
         let app = test::init_service(

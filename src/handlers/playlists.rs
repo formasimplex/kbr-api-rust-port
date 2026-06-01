@@ -601,10 +601,9 @@ mod tests {
     use actix_web::{test, App};
 
     const TEST_SECRET: &str = "test-secret-key";
-    const TEST_DB_URL: &str = "postgresql://ws@localhost:5432/kbr_test";
 
     async fn get_state() -> AppState {
-        let pool = sqlx::PgPool::connect(TEST_DB_URL)
+        let pool = sqlx::PgPool::connect(crate::test_utils::test_db_url())
             .await
             .expect("Failed to connect to test database");
         crate::test_utils::build_test_state(pool).await
@@ -652,7 +651,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn admin_playlists_index() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
         let state = web::Data::new(get_state().await);
@@ -674,7 +673,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn admin_playlist_show_found() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
         let state = web::Data::new(get_state().await);
@@ -704,7 +703,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn admin_playlist_show_not_found() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
         let state = web::Data::new(get_state().await);
@@ -732,7 +731,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn admin_playlist_destroy() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
         let state = web::Data::new(get_state().await);
@@ -764,7 +763,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn dashboard_playlists_index() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
         let state = web::Data::new(get_state().await);
@@ -795,7 +794,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn dashboard_create_playlist() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
         let state = web::Data::new(get_state().await);
@@ -828,7 +827,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn dashboard_create_empty_name() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
         let state = web::Data::new(get_state().await);
@@ -853,7 +852,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn dashboard_update_playlist() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
         let state = web::Data::new(get_state().await);
@@ -888,7 +887,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn dashboard_update_forbidden() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
         let state = web::Data::new(get_state().await);
@@ -927,7 +926,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn dashboard_destroy_playlist() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
         let state = web::Data::new(get_state().await);
@@ -959,7 +958,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn dashboard_destroy_forbidden() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
         let state = web::Data::new(get_state().await);

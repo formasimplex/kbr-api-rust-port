@@ -10,6 +10,12 @@ use crate::services::storage_service::{S3Config, create_s3_bucket};
 
 pub const TEST_SECRET: &str = "test-secret-key";
 
+/// Get the test database URL from the `TEST_DB_URL` environment variable.
+/// Falls back to `"postgresql://ws@localhost:5432/kbr_test"` if not set.
+pub fn test_db_url() -> String {
+    std::env::var("TEST_DB_URL").unwrap_or_else(|_| "postgresql://ws@localhost:5432/kbr_test".to_string())
+}
+
 /// Build a test AppState with the given pool.
 pub async fn build_test_state(pool: PgPool) -> AppState {
     let config = S3Config::from_env().unwrap_or_else(|_| S3Config {

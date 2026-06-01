@@ -341,17 +341,16 @@ mod tests {
     use actix_web::{App, test};
 
     const TEST_SECRET: &str = "test-secret-key";
-    const TEST_DB_URL: &str = "postgresql://ws@localhost:5432/kbr_test";
 
     fn setup_env() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", &crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
     }
 
     async fn get_state() -> AppState {
-        let pool = sqlx::PgPool::connect(TEST_DB_URL)
+        let pool = sqlx::PgPool::connect(crate::test_utils::test_db_url())
             .await
             .expect("Failed to connect to test database");
         crate::test_utils::build_test_state(pool).await

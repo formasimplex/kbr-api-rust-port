@@ -181,7 +181,6 @@ mod tests {
     use crate::auth::jwt::encode_token_with_role;
     use actix_web::{test, App};
 
-    const TEST_DB_URL: &str = "postgresql://ws@localhost:5432/kbr_test";
     const TEST_SECRET: &str = "test-secret-key";
 
     use std::sync::atomic::{AtomicI64, Ordering};
@@ -198,7 +197,7 @@ mod tests {
     }
 
 async fn get_state() -> AppState {
-        let pool = sqlx::PgPool::connect(TEST_DB_URL)
+        let pool = sqlx::PgPool::connect(crate::test_utils::test_db_url())
             .await
             .expect("Failed to connect to test database");
         crate::test_utils::build_test_state(pool).await
@@ -289,7 +288,7 @@ async fn get_state() -> AppState {
 
     #[tokio::test(flavor = "current_thread")]
     async fn data_last_logins_returns_users() {
-        unsafe { std::env::set_var("DATABASE_URL", TEST_DB_URL); }
+        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
         let state = web::Data::new(get_state().await);
         let app = test::init_service(
             App::new()
@@ -318,7 +317,7 @@ async fn get_state() -> AppState {
 
     #[tokio::test(flavor = "current_thread")]
     async fn data_last_login_by_id_found() {
-        unsafe { std::env::set_var("DATABASE_URL", TEST_DB_URL); }
+        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
         let state = web::Data::new(get_state().await);
 
         let (user_id, user_email) = seed_user().await;
@@ -349,7 +348,7 @@ async fn get_state() -> AppState {
 
     #[tokio::test(flavor = "current_thread")]
     async fn data_last_login_by_id_not_found() {
-        unsafe { std::env::set_var("DATABASE_URL", TEST_DB_URL); }
+        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
         let state = web::Data::new(get_state().await);
 
         let max_id: i64 = sqlx::query_scalar(r#"SELECT COALESCE(MAX(id), 0) FROM users"#)
@@ -377,7 +376,7 @@ async fn get_state() -> AppState {
 
     #[tokio::test(flavor = "current_thread")]
     async fn data_event_attendees_present_returns_scanned() {
-        unsafe { std::env::set_var("DATABASE_URL", TEST_DB_URL); }
+        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
         let state = web::Data::new(get_state().await);
 
         let event_id = seed_event().await;
@@ -420,7 +419,7 @@ async fn get_state() -> AppState {
 
     #[tokio::test(flavor = "current_thread")]
     async fn data_event_attendees_present_event_not_found() {
-        unsafe { std::env::set_var("DATABASE_URL", TEST_DB_URL); }
+        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
         let state = web::Data::new(get_state().await);
 
         let max_id: i64 = sqlx::query_scalar(r#"SELECT COALESCE(MAX(id), 0) FROM kbr_events"#)

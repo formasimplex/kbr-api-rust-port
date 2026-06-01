@@ -451,10 +451,9 @@ mod tests {
     use actix_web::{test, App};
 
     const TEST_SECRET: &str = "test-secret-key";
-    const TEST_DB_URL: &str = "postgresql://ws@localhost:5432/kbr_test";
 
     async fn get_state() -> AppState {
-        let pool = sqlx::PgPool::connect(TEST_DB_URL)
+        let pool = sqlx::PgPool::connect(crate::test_utils::test_db_url())
             .await
             .expect("Failed to connect to test database");
         crate::test_utils::build_test_state(pool).await
@@ -527,7 +526,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn news_index_returns_ok() {
-        unsafe { std::env::set_var("DATABASE_URL", TEST_DB_URL); }
+        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
         let state = web::Data::new(get_state().await);
         let app = test::init_service(
             App::new()
@@ -543,7 +542,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn news_show_found() {
-        unsafe { std::env::set_var("DATABASE_URL", TEST_DB_URL); }
+        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
         let state = web::Data::new(get_state().await);
         let suffix = format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos());
         let news_id = seed_news(&state, &suffix).await;
@@ -570,7 +569,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn news_show_not_found() {
-        unsafe { std::env::set_var("DATABASE_URL", TEST_DB_URL); }
+        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
         let state = web::Data::new(get_state().await);
 
         let max_id: i64 = sqlx::query_scalar(r"SELECT COALESCE(MAX(id), 0) FROM news")
@@ -595,7 +594,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn news_create_valid_url() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
@@ -628,7 +627,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn news_create_malicious_url() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
@@ -654,7 +653,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn news_update_active() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
@@ -689,7 +688,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn news_update_forbidden() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
@@ -721,7 +720,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn news_toggle_comments() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
@@ -753,7 +752,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn news_add_to_playlist() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
@@ -792,7 +791,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn news_create_duplicate_url_returns_409() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
@@ -840,7 +839,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn news_add_to_playlist_forbidden_wrong_owner() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
@@ -876,7 +875,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn news_add_to_playlist_news_not_found() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
@@ -904,7 +903,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn news_add_to_playlist_idempotent() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
