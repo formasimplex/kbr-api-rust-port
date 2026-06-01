@@ -2,7 +2,6 @@
 ///
 /// Variables: event_name, full_name, event_description, event_date,
 /// qr_image_cid, event_image_cid (optional), unsubscribe_url
-
 pub const HTML: &str = r#"<!DOCTYPE html>
 <html>
   <body style="margin: 0; padding: 0; font-family: 'IBM Plex Sans', Arial, sans-serif; background-color: #ffffff; color: #000000;">

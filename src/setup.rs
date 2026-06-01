@@ -17,22 +17,22 @@ use crate::services::storage_service::{S3Config, create_s3_bucket};
 pub async fn setup_web_server() -> std::io::Result<Server> {
     let pool = connect().await.map_err(|e| {
         tracing::error!("Failed to connect to database: {}", e);
-        std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+        std::io::Error::other(e.to_string())
     })?;
 
     crate::db::migrate::run_migrations(&pool).await.map_err(|e| {
         tracing::error!("Failed to run database migrations: {}", e);
-        std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+        std::io::Error::other(e.to_string())
     })?;
 
     let s3_config = S3Config::from_env().map_err(|e| {
         tracing::error!("Failed to load S3 config: {}", e);
-        std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+        std::io::Error::other(e.to_string())
     })?;
 
     let s3 = create_s3_bucket(&s3_config).map_err(|e| {
         tracing::error!("Failed to create S3 bucket: {}", e);
-        std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+        std::io::Error::other(e.to_string())
     })?;
 
     let shopify = ShopifyClient::new_from_env();
@@ -71,8 +71,7 @@ pub async fn setup_web_server() -> std::io::Result<Server> {
 
     let jwt_secret = std::env::var("JWT_SECRET").map_err(|_| {
         tracing::error!("JWT_SECRET not configured");
-        std::io::Error::new(
-            std::io::ErrorKind::Other,
+        std::io::Error::other(
             "JWT_SECRET not configured",
         )
     })?;
@@ -92,7 +91,7 @@ pub async fn setup_web_server() -> std::io::Result<Server> {
         .finish()
         .ok_or_else(|| {
             tracing::error!("Failed to create governor config");
-            std::io::Error::new(std::io::ErrorKind::Other, "Failed to create governor config")
+            std::io::Error::other("Failed to create governor config")
         })?;
 
     let addr: std::net::SocketAddr = std::env::var("BIND_ADDR")
@@ -119,7 +118,6 @@ pub async fn setup_web_server() -> std::io::Result<Server> {
 
     let governor_conf = governor_conf.clone();
     let cookie_builder = cookie_builder.clone();
-    let jwt_secret_static = jwt_secret_static;
 
     let server = HttpServer::new(move || {
         actix_web::App::new()

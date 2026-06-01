@@ -48,7 +48,7 @@ pub async fn send_prospect_welcome_email(
         ("full_name", &full_name),
     ]);
 
-    send_email(state, &row.email, &subject, &html).await?;
+    send_email(state, &row.email, subject, &html).await?;
 
     tracing::info!(user_id, to = row.email, "Sent prospect welcome email");
     Ok(())

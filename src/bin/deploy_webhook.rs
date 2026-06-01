@@ -76,10 +76,9 @@ fn verify_signature(payload: &[u8], expected: &str) -> bool {
         }
     };
 
-    let expected = if expected.starts_with("sha256=") {
-        &expected[7..]
-    } else {
-        return false;
+    let expected = match expected.strip_prefix("sha256=") {
+        Some(stripped) => stripped,
+        None => return false,
     };
 
     let mut mac = match HmacSha256::new_from_slice(secret.as_bytes()) {

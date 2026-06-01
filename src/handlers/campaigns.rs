@@ -477,7 +477,7 @@ pub async fn activate_campaign(
     )
     .bind(&inventory_item_id)
     .bind(&inventory_url)
-    .bind(&now)
+    .bind(now)
     .bind(campaign_page.id)
     .execute(&state.db)
     .await?;
@@ -494,9 +494,9 @@ pub async fn activate_campaign(
                campaign_start_date, campaign_end_date, progress, album_id,
                deleted_at, created_at, updated_at"#,
     )
-    .bind(&start_date)
-    .bind(&end_date)
-    .bind(&now)
+    .bind(start_date)
+    .bind(end_date)
+    .bind(now)
     .bind(campaign_id)
     .fetch_one(&state.db)
     .await?;
