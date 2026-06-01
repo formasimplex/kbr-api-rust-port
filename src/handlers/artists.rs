@@ -257,15 +257,13 @@ pub(crate) async fn sign_up(
 
     match trigger {
         Some((Some(trigger_email), trigger_expires)) => {
-            if let Some(expires_str) = trigger_expires {
-                if let Some(expired_time) = SignUpTrigger::parse_expires_at(&expires_str) {
-                    if expired_time < chrono::Utc::now() {
+            if let Some(expires_str) = trigger_expires
+                && let Some(expired_time) = SignUpTrigger::parse_expires_at(&expires_str)
+                    && expired_time < chrono::Utc::now() {
                         return Err(AppError::Validation(
                             "Sign-up token has expired".to_string(),
                         ));
                     }
-                }
-            }
 
             if !User::validate_email(&trigger_email) {
                 return Err(AppError::Validation("Invalid sign-up token".to_string()));
@@ -313,7 +311,7 @@ pub(crate) async fn sign_up(
             .bind(&trigger_email)
             .bind(&password_digest)
             .bind(body.username.as_deref())
-            .bind(&now)
+            .bind(now)
             .fetch_one(&mut *tx)
             .await?;
 

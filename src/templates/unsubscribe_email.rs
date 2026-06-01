@@ -1,7 +1,6 @@
 /// Unsubscribe confirmation email.
 ///
 /// Variables: full_name, unsubscribe_url
-
 pub const HTML: &str = r#"<!DOCTYPE html>
 <html>
   <body style="margin: 0; padding: 0; font-family: 'IBM Plex Sans', Arial, sans-serif; background-color: #ffffff; color: #000000;">

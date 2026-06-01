@@ -8,6 +8,12 @@ pub struct OgTagsService {
     http: Client,
 }
 
+impl Default for OgTagsService {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl OgTagsService {
     pub fn new() -> Self {
         Self {

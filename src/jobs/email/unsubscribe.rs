@@ -46,7 +46,7 @@ pub async fn send_unsubscribe_email(
         ("unsubscribe_url", &unsubscribe_url),
     ]);
 
-    send_email(state, email, &subject, &html).await?;
+    send_email(state, email, subject, &html).await?;
 
     tracing::info!(email, "Sent unsubscribe confirmation email");
     Ok(())

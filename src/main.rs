@@ -14,8 +14,7 @@ async fn main() -> std::io::Result<()> {
 
     rs_vips::Vips::init("kbr-api-rust").map_err(|e| {
         tracing::error!("Failed to initialize libvips: {}", e);
-        std::io::Error::new(
-            std::io::ErrorKind::Other,
+        std::io::Error::other(
             format!("libvips init failed: {}", e),
         )
     })?;

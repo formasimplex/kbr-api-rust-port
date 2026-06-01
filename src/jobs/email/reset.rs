@@ -70,7 +70,7 @@ pub async fn send_reset_trigger_email(
         "Sending password reset email"
     );
 
-    send_email(state, to, &subject, &html).await?;
+    send_email(state, to, subject, &html).await?;
 
     tracing::info!(reset_trigger_id, to, "Sent password reset email");
     Ok(())

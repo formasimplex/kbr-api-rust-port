@@ -44,7 +44,7 @@ impl CurrentUser {
         let is_revoked: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM revoked_tokens WHERE jti = $1)"
         )
-        .bind(&jti_uuid)
+        .bind(jti_uuid)
         .fetch_optional(pool)
         .await
         .unwrap_or(Some(false))
@@ -71,7 +71,7 @@ impl CurrentUser {
         let _ = sqlx::query(
             "INSERT INTO revoked_tokens (jti) VALUES ($1) ON CONFLICT (jti) DO NOTHING"
         )
-        .bind(&jti_uuid)
+        .bind(jti_uuid)
         .execute(pool)
         .await
         .map_err(|e| {

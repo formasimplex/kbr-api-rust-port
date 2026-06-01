@@ -160,15 +160,13 @@ pub async fn create(
 
     match trigger {
         Some((trigger_email, trigger_expires)) => {
-            if let Some(expires_str) = trigger_expires {
-                if let Some(expired_time) = SignUpTrigger::parse_expires_at(&expires_str) {
-                    if expired_time < chrono::Utc::now() {
+            if let Some(expires_str) = trigger_expires
+                && let Some(expired_time) = SignUpTrigger::parse_expires_at(&expires_str)
+                    && expired_time < chrono::Utc::now() {
                         return Err(AppError::Validation(
                             "Sign-up token has expired".to_string(),
                         ));
                     }
-                }
-            }
 
             let emails_match = trigger_email
                 .as_ref()

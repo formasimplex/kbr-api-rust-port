@@ -459,11 +459,10 @@ pub async fn process_unsubscribe(
 
     match row {
         Some((email,)) => {
-            if let Some(ref mc) = state.mailchimp {
-                if let Err(e) = mc.unsubscribe(&email).await {
+            if let Some(ref mc) = state.mailchimp
+                && let Err(e) = mc.unsubscribe(&email).await {
                     tracing::warn!(error = %e, email = %email, "Mailchimp unsubscribe failed");
                 }
-            }
             Ok(HttpResponse::Ok().json(serde_json::json!({
                 "message": "Unsubscribed successfully",
                 "status": "success"

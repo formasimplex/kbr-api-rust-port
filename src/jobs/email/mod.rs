@@ -24,7 +24,7 @@ pub(crate) fn escape_html(s: &str) -> String {
 
 /// Strip characters that could inject email headers.
 pub(crate) fn strip_newlines(s: &str) -> String {
-    s.replace('\r', "").replace('\n', "")
+    s.replace(['\r', '\n'], "")
 }
 
 /// Validate an email address using RFC 5322 parsing. Returns an error
@@ -137,7 +137,7 @@ pub(crate) async fn send_email(
         Some(client) => client
             .send(&to, &subject, html, None)
             .await
-            .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, e)) as Box<dyn std::error::Error + Send + Sync>),
+            .map_err(|e| Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send + Sync>),
         None => {
             tracing::warn!(to = %to, subject = %subject, "Email not sent: SMTP not configured");
             Ok(())
@@ -162,7 +162,7 @@ pub(crate) async fn send_email_with_attachment(
         Some(client) => client
             .send(&to, &subject, html, Some((filename, data)))
             .await
-            .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, e)) as Box<dyn std::error::Error + Send + Sync>),
+            .map_err(|e| Box::new(std::io::Error::other(e)) as Box<dyn std::error::Error + Send + Sync>),
         None => {
             tracing::warn!(to = %to, subject = %subject, "Email not sent: SMTP not configured");
             Ok(())

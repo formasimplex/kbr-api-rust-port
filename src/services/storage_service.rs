@@ -92,10 +92,6 @@ pub async fn upload_file(
     .bind("kbr")
     .fetch_one(db)
     .await
-    .map_err(|e| {
-        let _ = s3.delete_object(key);
-        e
-    })
     .map_err(AppError::from)?;
 
     Ok(blob_id)
