@@ -307,10 +307,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn configs_index_authenticated() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
             App::new()
@@ -329,10 +326,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn config_create_success() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
             App::new()
@@ -368,10 +362,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn config_create_missing_fields() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
             App::new()
@@ -396,10 +387,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn config_show_not_found() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
             App::new()

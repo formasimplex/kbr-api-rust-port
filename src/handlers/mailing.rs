@@ -603,10 +603,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn mail_subscribers_index_authenticated() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
             App::new()
@@ -625,10 +622,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn mail_subscribers_index_forbidden() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let user_token = encode_token_with_role(99, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
         let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
@@ -648,10 +642,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn artist_mailing_list_authenticated() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
         let user_id = seed_user().await;
         let artist_id = seed_artist(user_id).await;
@@ -683,7 +674,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn add_mail_subscriber_public() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
+        crate::test_utils::set_test_env();
         let state = web::Data::new(get_test_state().await);
 
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
@@ -718,7 +709,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn add_mail_subscriber_invalid_email() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
+        crate::test_utils::set_test_env();
         let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
             App::new()
@@ -740,10 +731,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn add_mail_subscriber_with_user_authenticated() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
 
         let state = web::Data::new(get_test_state().await);
         let user_id = seed_user().await;
@@ -785,10 +773,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn add_mail_subscriber_duplicate() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
 
         let state = web::Data::new(get_test_state().await);
         let user_id = seed_user().await;
@@ -839,10 +824,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn unsubscribe_authenticated() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
 
         let state = web::Data::new(get_test_state().await);
         let user_id = seed_user().await;
@@ -883,10 +865,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn unsubscribe_not_found() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
 
         let state = web::Data::new(get_test_state().await);
 
@@ -917,7 +896,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn request_unsubscribe_public() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
+        crate::test_utils::set_test_env();
         let state = web::Data::new(get_test_state().await);
 
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
@@ -963,7 +942,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn request_unsubscribe_not_found_returns_same_response() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
+        crate::test_utils::set_test_env();
         let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
             App::new()
@@ -987,7 +966,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn process_unsubscribe_public() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
+        crate::test_utils::set_test_env();
         let state = web::Data::new(get_test_state().await);
 
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
@@ -1035,7 +1014,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn process_unsubscribe_invalid_token() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
+        crate::test_utils::set_test_env();
         let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
             App::new()

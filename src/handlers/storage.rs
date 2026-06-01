@@ -335,10 +335,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn upload_forbidden_for_non_artist() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
 
         let pool = sqlx::PgPool::connect(crate::test_utils::test_db_url())
             .await
@@ -366,10 +363,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn upload_missing_file_field() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
 
         let pool = sqlx::PgPool::connect(crate::test_utils::test_db_url())
             .await

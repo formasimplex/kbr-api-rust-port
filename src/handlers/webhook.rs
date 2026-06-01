@@ -264,7 +264,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn webhook_update_progress_updates_campaign() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
+        crate::test_utils::set_test_env();
         let state = web::Data::new(get_test_state().await);
 
         let (campaign_id, _page_id, inventory_item_id) = seed_campaign_with_page().await;
@@ -305,7 +305,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn webhook_update_progress_no_campaign_page() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
+        crate::test_utils::set_test_env();
         let state = web::Data::new(get_test_state().await);
 
         let app = test::init_service(
@@ -333,7 +333,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn webhook_update_progress_zero_available() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
+        crate::test_utils::set_test_env();
         let state = web::Data::new(get_test_state().await);
 
         let (campaign_id, _page_id, inventory_item_id) = seed_campaign_with_page().await;
@@ -371,7 +371,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn webhook_customers_data_request() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
+        crate::test_utils::set_test_env();
         let state = web::Data::new(get_test_state().await);
 
         let app = test::init_service(
@@ -393,7 +393,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn webhook_customers_redact() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
+        crate::test_utils::set_test_env();
         let state = web::Data::new(get_test_state().await);
 
         let app = test::init_service(
@@ -415,7 +415,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn webhook_shop_redact() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
+        crate::test_utils::set_test_env();
         let state = web::Data::new(get_test_state().await);
 
         let app = test::init_service(

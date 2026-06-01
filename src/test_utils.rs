@@ -16,6 +16,19 @@ pub fn test_db_url() -> String {
     std::env::var("TEST_DB_URL").unwrap_or_else(|_| "postgresql://ws@localhost:5432/kbr_test".to_string())
 }
 
+/// Set DATABASE_URL for tests.
+pub fn set_test_env() {
+    unsafe { std::env::set_var("DATABASE_URL", test_db_url()); }
+}
+
+/// Set DATABASE_URL and JWT_SECRET for tests that need auth.
+pub fn set_test_env_jwt() {
+    unsafe {
+        std::env::set_var("DATABASE_URL", test_db_url());
+        std::env::set_var("JWT_SECRET", TEST_SECRET);
+    }
+}
+
 /// Connect to the test database and build a full AppState.
 pub async fn get_test_state() -> AppState {
     let pool = sqlx::PgPool::connect(test_db_url())

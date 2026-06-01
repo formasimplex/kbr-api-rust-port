@@ -280,7 +280,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn data_last_logins_returns_users() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
+        crate::test_utils::set_test_env();
         let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
             App::new()
@@ -309,7 +309,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn data_last_login_by_id_found() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
+        crate::test_utils::set_test_env();
         let state = web::Data::new(get_test_state().await);
 
         let (user_id, user_email) = seed_user().await;
@@ -340,7 +340,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn data_last_login_by_id_not_found() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
+        crate::test_utils::set_test_env();
         let state = web::Data::new(get_test_state().await);
 
         let max_id: i64 = sqlx::query_scalar(r#"SELECT COALESCE(MAX(id), 0) FROM users"#)
@@ -368,7 +368,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn data_event_attendees_present_returns_scanned() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
+        crate::test_utils::set_test_env();
         let state = web::Data::new(get_test_state().await);
 
         let event_id = seed_event().await;
@@ -411,7 +411,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn data_event_attendees_present_event_not_found() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
+        crate::test_utils::set_test_env();
         let state = web::Data::new(get_test_state().await);
 
         let max_id: i64 = sqlx::query_scalar(r#"SELECT COALESCE(MAX(id), 0) FROM kbr_events"#)

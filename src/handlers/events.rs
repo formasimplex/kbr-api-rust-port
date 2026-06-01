@@ -447,9 +447,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn events_index_public() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-        }
+        crate::test_utils::set_test_env();
         let state = web::Data::new(get_test_state().await);
         let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
@@ -466,9 +464,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn event_show_found() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-        }
+        crate::test_utils::set_test_env();
         let state = web::Data::new(get_test_state().await);
 
         let (user_id, user_email) = seed_user().await;
@@ -495,9 +491,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn event_show_not_found() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-        }
+        crate::test_utils::set_test_env();
         let state = web::Data::new(get_test_state().await);
 
         let max_id: i64 = sqlx::query_scalar(r"SELECT COALESCE(MAX(id), 0) FROM kbr_events")
@@ -516,10 +510,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn event_create_authenticated() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
 
         let state = web::Data::new(get_test_state().await);
         let app =
@@ -552,10 +543,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn event_create_forbidden_non_artist() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
 
         let token = encode_token_with_role(2, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
         let state = web::Data::new(get_test_state().await);
@@ -579,10 +567,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn events_by_user_admin() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
 
         let state = web::Data::new(get_test_state().await);
 
@@ -610,10 +595,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn events_by_user_artist() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
 
         let state = web::Data::new(get_test_state().await);
 
@@ -641,10 +623,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn events_by_user_forbidden() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
 
         let token = encode_token_with_role(2, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
         let state = web::Data::new(get_test_state().await);
@@ -661,10 +640,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn event_update_success() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
 
         let state = web::Data::new(get_test_state().await);
 
@@ -695,10 +671,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn event_update_not_found() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
 
         let state = web::Data::new(get_test_state().await);
 

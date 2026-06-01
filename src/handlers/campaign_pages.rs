@@ -246,10 +246,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaign_pages_index_admin() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
             App::new()
@@ -268,10 +265,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaign_pages_index_forbidden() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
             App::new()
@@ -290,10 +284,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaign_pages_show_found() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
 
         let user_id = seed_user().await;
@@ -326,10 +317,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaign_pages_show_not_found() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
 
         let max_id: i64 = sqlx::query_scalar(

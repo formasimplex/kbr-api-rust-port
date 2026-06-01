@@ -158,10 +158,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn subscribed_artists_returns_subscribed() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
 
         let state = web::Data::new(get_test_state().await);
         let user_id = seed_user(&state.db).await;
@@ -192,10 +189,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn subscribed_artists_excludes_unsubscribed() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
 
         let state = web::Data::new(get_test_state().await);
         let user_id = seed_user(&state.db).await;
@@ -231,10 +225,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn subscribed_artists_empty_when_no_subscriptions() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
 
         let state = web::Data::new(get_test_state().await);
         let user_id = seed_user(&state.db).await;
@@ -261,10 +252,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn subscribed_artists_requires_auth() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
 
         let state = web::Data::new(get_test_state().await);
         let app = test::init_service(

@@ -322,10 +322,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn login_success_with_valid_credentials() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = get_test_state().await;
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -362,10 +359,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn login_fails_with_invalid_email() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
             App::new()
@@ -389,10 +383,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn login_fails_with_wrong_password() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = get_test_state().await;
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -425,10 +416,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn session_returns_fresh_token() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = get_test_state().await;
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -464,10 +452,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn session_rejects_without_token() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
             App::new()
@@ -502,10 +487,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn logout_success() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = get_test_state().await;
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -539,10 +521,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn logout_rejects_without_token() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
             App::new()
@@ -560,10 +539,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn logout_prevents_further_session_requests() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = get_test_state().await;
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -604,10 +580,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn logout_idempotent() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = get_test_state().await;
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -649,10 +622,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn logout_invalidates_all_sessions_for_user() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = get_test_state().await;
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

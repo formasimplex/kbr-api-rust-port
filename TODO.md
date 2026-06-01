@@ -10,9 +10,9 @@ Total estimated savings: ~2,838 lines across Low + Mid effort phases.
 
 - [x] **L1: Remove `TEST_SECRET` from all handler test modules** — import from `crate::test_utils::TEST_SECRET` instead (21 files, ~21 lines saved)
 - [x] **L2: Replace all `get_state()` functions** — expose single `get_test_state()` in `test_utils`, remove 22 local copies (~132 lines)
-- [ ] **L3: Delete unused `AppState::for_tests()` in `app.rs:27-48`** — dead code (~22 lines)
-- [ ] **L4: Fix `auth.rs` inline `get_state()`** — replace 40-line duplicate with `build_test_state` call (~40 lines)
-- [ ] **L5: Consolidate `setup_env()` pattern** — add `set_test_env()` to `test_utils`, replace 180 inline `unsafe { set_var(...) }` blocks (~720 lines)
+- [x] **L3: Delete unused `AppState::for_tests()` in `app.rs:27-48`** — dead code (~22 lines)
+- [x] **L4: Fix `auth.rs` inline `get_state()`** — replaced as part of L2 (~40 lines)
+- [x] **L5: Consolidate `setup_env()` pattern** — add `set_test_env()` to `test_utils`, replace 180 inline `unsafe { set_var(...) }` blocks (~720 lines)
 
 ## Mid Effort (New helpers)
 

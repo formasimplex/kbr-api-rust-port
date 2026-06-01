@@ -248,10 +248,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn permissions_index_admin() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
             App::new()
@@ -270,10 +267,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn permissions_index_non_admin_forbidden() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
             App::new()
@@ -292,10 +286,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn permissions_resources_admin() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
             App::new()
@@ -317,10 +308,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn permissions_show_not_found() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
             App::new()
@@ -344,10 +332,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn permissions_create_admin() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
 
         let _ = sqlx::query(
@@ -390,10 +375,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn permissions_create_invalid_resource() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
             App::new()
@@ -415,10 +397,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn permissions_update_not_found() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
             App::new()

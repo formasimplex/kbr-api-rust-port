@@ -247,7 +247,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn reset_trigger_create_returns_generic_response() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
+        crate::test_utils::set_test_env();
         let state = web::Data::new(get_test_state().await);
 
         let app = test::init_service(
@@ -278,7 +278,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn reset_trigger_create_nonexistent_email_returns_same_response() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
+        crate::test_utils::set_test_env();
         let state = web::Data::new(get_test_state().await);
 
         let app = test::init_service(
@@ -308,7 +308,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn reset_trigger_create_invalid_email() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
+        crate::test_utils::set_test_env();
         let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
             App::new()
@@ -329,7 +329,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn reset_trigger_update_success() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
+        crate::test_utils::set_test_env();
         let state = web::Data::new(get_test_state().await);
 
         let email = format!("reset_upd_{}@example.com", chrono::Utc::now().timestamp_micros());
@@ -393,7 +393,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn reset_trigger_update_password_mismatch() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
+        crate::test_utils::set_test_env();
         let state = web::Data::new(get_test_state().await);
 
         let email = format!("reset_mm_{}@example.com", chrono::Utc::now().timestamp_micros());
@@ -457,7 +457,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn reset_trigger_update_short_password() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
+        crate::test_utils::set_test_env();
         let state = web::Data::new(get_test_state().await);
 
         let email = format!("reset_sp_{}@example.com", chrono::Utc::now().timestamp_micros());
@@ -521,7 +521,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn reset_trigger_update_same_password_rejected() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
+        crate::test_utils::set_test_env();
         let state = web::Data::new(get_test_state().await);
 
         let email = format!("reset_same_{}@example.com", chrono::Utc::now().timestamp_micros());
@@ -586,7 +586,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn reset_trigger_update_no_user() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
+        crate::test_utils::set_test_env();
         let state = web::Data::new(get_test_state().await);
 
         let token = format!("rust_reset_nu_{}", chrono::Utc::now().timestamp_micros());
@@ -624,7 +624,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn reset_trigger_update_expired_token_rejected() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
+        crate::test_utils::set_test_env();
         let state = get_test_state().await;
 
         let email = format!("reset_exp_{}@example.com", chrono::Utc::now().timestamp_micros());
@@ -690,7 +690,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn reset_trigger_update_token_consumed_once() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
+        crate::test_utils::set_test_env();
         let state = web::Data::new(get_test_state().await);
 
         let email = format!("reset_once_{}@example.com", chrono::Utc::now().timestamp_micros());

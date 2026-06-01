@@ -403,10 +403,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn merchandise_index_authenticated() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
             App::new()
@@ -425,10 +422,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn merchandise_show_found() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
         let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
 
@@ -474,10 +468,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn merchandise_show_not_found() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
 
         let max_id: i64 = sqlx::query_scalar(
@@ -504,10 +495,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn merchandise_by_artist() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
         let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
 
@@ -546,10 +534,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn merchandise_create_success() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
         let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
 
@@ -593,10 +578,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn merchandise_create_empty_title() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
             App::new()
@@ -620,10 +602,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn merchandise_update_success() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
         let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
 
@@ -678,10 +657,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn merchandise_update_not_found() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
 
         let max_id: i64 = sqlx::query_scalar(
@@ -711,10 +687,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn merchandise_destroy_success() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
         let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
 
@@ -757,10 +730,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn merchandise_destroy_not_found() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
 
         let max_id: i64 = sqlx::query_scalar(
@@ -787,10 +757,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn cache_update_returns_ok() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
             App::new()
@@ -811,10 +778,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn by_artist_returns_empty_when_no_merchandise() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
         let (artist_id, _producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
 
@@ -840,10 +804,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn merchandise_unauthenticated_returns_200() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
             App::new()
@@ -861,10 +822,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn merchandise_update_partial_preserves_unsent_fields() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
         let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
 
@@ -917,10 +875,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn merchandise_create_all_fields() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
         let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
 
@@ -971,10 +926,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn merchandise_show_includes_shopify_json_cache() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
         let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
 
@@ -1052,10 +1004,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn merchandise_show_null_shopify_json_cache_when_missing() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
         let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
 

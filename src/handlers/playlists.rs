@@ -642,10 +642,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn admin_playlists_index() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
             App::new()
@@ -664,10 +661,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn admin_playlist_show_found() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
         let s = suffix();
         let (playlist_id, name) = seed_playlist(&state, &s).await;
@@ -694,10 +688,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn admin_playlist_show_not_found() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
 
         let max_id: i64 = sqlx::query_scalar(r"SELECT COALESCE(MAX(id), 0) FROM news_playlists")
@@ -722,10 +713,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn admin_playlist_destroy() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
         let s = suffix();
         let (playlist_id, name) = seed_playlist(&state, &s).await;
@@ -754,10 +742,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn dashboard_playlists_index() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
         let s = suffix();
         let (_playlist_id, name) = seed_playlist(&state, &s).await;
@@ -785,10 +770,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn dashboard_create_playlist() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
             App::new()
@@ -818,10 +800,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn dashboard_create_empty_name() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
             App::new()
@@ -843,10 +822,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn dashboard_update_playlist() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
         let s = suffix();
         let (playlist_id, name) = seed_playlist(&state, &s).await;
@@ -878,10 +854,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn dashboard_update_forbidden() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
         let s = suffix();
         let (_playlist_id, name) = seed_playlist(&state, &s).await;
@@ -917,10 +890,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn dashboard_destroy_playlist() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
         let s = suffix();
         let (playlist_id, name) = seed_playlist(&state, &s).await;
@@ -949,10 +919,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn dashboard_destroy_forbidden() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
         let s = suffix();
         let (playlist_id, name) = seed_playlist(&state, &s).await;

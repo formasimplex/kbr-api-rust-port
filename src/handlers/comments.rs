@@ -312,10 +312,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn comment_show_found() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = get_test_state().await;
         let comment_id = seed_comment(&state).await;
 
@@ -341,10 +338,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn comment_show_not_found() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = get_test_state().await;
         let app = test::init_service(
             App::new()
@@ -362,10 +356,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn comments_index_public() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = get_test_state().await;
         let app = test::init_service(
             App::new()
@@ -383,10 +374,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn comment_create_authenticated() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = get_test_state().await;
         let app = test::init_service(
             App::new()
@@ -415,10 +403,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn comment_create_empty_content() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = get_test_state().await;
         let app = test::init_service(
             App::new()
@@ -442,10 +427,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn comment_create_invalid_commentable_type() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = get_test_state().await;
         let app = test::init_service(
             App::new()
@@ -469,10 +451,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn comment_create_reply() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = get_test_state().await;
         let parent_id = seed_comment(&state).await;
 
@@ -504,10 +483,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn comment_create_reply_empty_content() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let state = get_test_state().await;
         let app = test::init_service(
             App::new()

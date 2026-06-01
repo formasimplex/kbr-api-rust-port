@@ -630,7 +630,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_index_public() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
+        crate::test_utils::set_test_env();
         let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
             App::new()
@@ -646,7 +646,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_show_found() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
+        crate::test_utils::set_test_env();
         let state = web::Data::new(get_test_state().await);
 
         let user_id = seed_user().await;
@@ -676,7 +676,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_show_not_found() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
+        crate::test_utils::set_test_env();
         let state = web::Data::new(get_test_state().await);
 
         let max_id: i64 = sqlx::query_scalar(
@@ -702,10 +702,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_create_admin() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
 
         let state = web::Data::new(get_test_state().await);
         let user_id = seed_user().await;
@@ -748,10 +745,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_create_empty_name() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
 
         let state = web::Data::new(get_test_state().await);
         let user_id = seed_user().await;
@@ -781,10 +775,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_index_by_user_admin() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
 
         let state = web::Data::new(get_test_state().await);
         let app = test::init_service(
@@ -804,10 +795,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_update_success() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
 
         let state = web::Data::new(get_test_state().await);
 
@@ -844,10 +832,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_update_not_found() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
 
         let state = web::Data::new(get_test_state().await);
 
@@ -878,10 +863,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_destroy_success() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
 
         let state = web::Data::new(get_test_state().await);
 
@@ -919,10 +901,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_destroy_not_found() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
 
         let state = web::Data::new(get_test_state().await);
 
@@ -950,10 +929,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_activate_success() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
 
         let state = web::Data::new(get_test_state().await);
 
@@ -1005,10 +981,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_activate_missing_start_date() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
 
         let state = web::Data::new(get_test_state().await);
 
@@ -1033,10 +1006,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_activate_invalid_date_format() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
 
         let state = web::Data::new(get_test_state().await);
 
@@ -1064,10 +1034,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_activate_campaign_not_found() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
 
         let state = web::Data::new(get_test_state().await);
 
@@ -1099,10 +1066,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_activate_no_campaign_page() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
 
         let state = web::Data::new(get_test_state().await);
 
@@ -1151,10 +1115,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_create_forbidden() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
 
         let token = encode_token_with_role(3, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
         let state = web::Data::new(get_test_state().await);
@@ -1180,7 +1141,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_active_only() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
+        crate::test_utils::set_test_env();
         let state = web::Data::new(get_test_state().await);
 
         let user_id = seed_user().await;

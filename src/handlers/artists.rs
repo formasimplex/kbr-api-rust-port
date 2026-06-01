@@ -592,9 +592,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn artists_index_public() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-        }
+        crate::test_utils::set_test_env();
         let state = web::Data::new(get_test_state().await);
         let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
@@ -605,9 +603,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn artist_show_found() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-        }
+        crate::test_utils::set_test_env();
         let state = web::Data::new(get_test_state().await);
 
         let user_id = seed_user().await;
@@ -631,9 +627,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn artist_show_not_found() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-        }
+        crate::test_utils::set_test_env();
         let state = web::Data::new(get_test_state().await);
 
         let max_id: i64 = sqlx::query_scalar(r"SELECT COALESCE(MAX(id), 0) FROM artists")
@@ -652,10 +646,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn artist_create_admin() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
 
         let state = web::Data::new(get_test_state().await);
         let app =
@@ -686,10 +677,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn artist_create_forbidden_non_admin() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
 
         let token = encode_token_with_role(2, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
         let state = web::Data::new(get_test_state().await);
@@ -709,10 +697,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn artist_update_success() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
 
         let state = web::Data::new(get_test_state().await);
 
@@ -741,10 +726,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn artist_update_not_found() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
 
         let state = web::Data::new(get_test_state().await);
 
@@ -768,10 +750,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn add_artist_link_success() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
 
         let state = web::Data::new(get_test_state().await);
 
@@ -803,10 +782,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn add_artist_link_invalid_url() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
 
         let state = web::Data::new(get_test_state().await);
 
@@ -827,10 +803,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn delete_artist_link_success() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
 
         let state = web::Data::new(get_test_state().await);
 
@@ -878,10 +851,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn delete_artist_link_not_found() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
 
         let state = web::Data::new(get_test_state().await);
 
@@ -900,9 +870,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn available_link_types_public() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-        }
+        crate::test_utils::set_test_env();
         let state = web::Data::new(get_test_state().await);
         let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
@@ -918,9 +886,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn artist_sign_up_success() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-        }
+        crate::test_utils::set_test_env();
         let state = web::Data::new(get_test_state().await);
         let ts = chrono::Utc::now().timestamp_micros();
         let email = format!("artistsignup{}@example.com", ts);
@@ -993,9 +959,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn artist_sign_up_invalid_token() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-        }
+        crate::test_utils::set_test_env();
         let state = web::Data::new(get_test_state().await);
 
         let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
@@ -1015,9 +979,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn artist_sign_up_duplicate_email_returns_409() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-        }
+        crate::test_utils::set_test_env();
         let state = web::Data::new(get_test_state().await);
         let ts = chrono::Utc::now().timestamp_micros();
         let email = format!("artistdup{}@example.com", ts);
@@ -1076,9 +1038,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn artist_sign_up_sets_prospect_true() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-        }
+        crate::test_utils::set_test_env();
         let state = web::Data::new(get_test_state().await);
         let ts = chrono::Utc::now().timestamp_micros();
         let email = format!("artistprospect{}@example.com", ts);
@@ -1140,9 +1100,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn artist_sign_up_expired_token() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-        }
+        crate::test_utils::set_test_env();
         let state = web::Data::new(get_test_state().await);
         let ts = chrono::Utc::now().timestamp_micros();
         let email = format!("artistexpired{}@example.com", ts);
@@ -1185,9 +1143,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn artist_sign_up_password_mismatch() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-        }
+        crate::test_utils::set_test_env();
         let state = web::Data::new(get_test_state().await);
 
         let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
@@ -1207,9 +1163,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn artist_sign_up_weak_password() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-        }
+        crate::test_utils::set_test_env();
         let state = web::Data::new(get_test_state().await);
         let ts = chrono::Utc::now().timestamp_micros();
         let email = format!("artistweak{}@example.com", ts);
