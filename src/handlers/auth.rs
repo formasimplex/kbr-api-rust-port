@@ -289,9 +289,8 @@ pub async fn logout(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::TEST_SECRET;
     use actix_web::{test, App};
-
-  const TEST_SECRET: &str = "test-secret-key";
 
     async fn get_state() -> AppState {
         let pool = sqlx::PgPool::connect(crate::test_utils::test_db_url())

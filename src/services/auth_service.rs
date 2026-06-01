@@ -104,8 +104,7 @@ pub fn generate_session_token() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    const TEST_SECRET: &str = "test-secret-key";
+    use crate::test_utils::TEST_SECRET;
 
     #[test]
     fn generate_session_token_returns_uuid() {

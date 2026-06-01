@@ -598,9 +598,8 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 mod tests {
     use super::*;
     use crate::auth::jwt::encode_token_with_role;
+    use crate::test_utils::TEST_SECRET;
     use actix_web::{test, App};
-
-    const TEST_SECRET: &str = "test-secret-key";
 
     async fn get_state() -> AppState {
         let pool = sqlx::PgPool::connect(crate::test_utils::test_db_url())

@@ -179,9 +179,8 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 mod tests {
    use super::*;
     use crate::auth::jwt::encode_token_with_role;
+    use crate::test_utils::TEST_SECRET;
     use actix_web::{test, App};
-
-    const TEST_SECRET: &str = "test-secret-key";
 
     use std::sync::atomic::{AtomicI64, Ordering};
     static TEST_COUNTER: AtomicI64 = AtomicI64::new(0);

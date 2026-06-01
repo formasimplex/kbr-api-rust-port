@@ -338,9 +338,8 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 mod tests {
     use super::*;
     use crate::auth::jwt::encode_token_with_role;
+    use crate::test_utils::TEST_SECRET;
     use actix_web::{App, test};
-
-    const TEST_SECRET: &str = "test-secret-key";
 
     fn setup_env() {
         unsafe {
