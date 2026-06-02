@@ -59,6 +59,32 @@ pub async fn not_found_id(pool: &PgPool, table: &str) -> i64 {
     id + 9999
 }
 
+/// Seed a test user with a given email and role.
+/// Uses a dummy password digest (not suitable for auth tests that need real hashing).
+/// Returns the inserted user's ID.
+pub async fn seed_user(pool: &PgPool, email: &str, role: &str) -> i64 {
+    let now = chrono::Utc::now().naive_utc();
+    sqlx::query_scalar::<_, i64>(
+        r"INSERT INTO users (email, password_digest, role, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $4) RETURNING id"
+    )
+    .bind(email)
+    .bind("hashed_password_test".to_string())
+    .bind(Some(role.to_string()))
+    .bind(&now)
+    .fetch_one(pool)
+    .await
+    .expect("Failed to seed user")
+}
+
+/// Delete a test user by email.
+pub async fn cleanup_user(pool: &PgPool, email: &str) {
+    let _ = sqlx::query(r"DELETE FROM users WHERE email = $1")
+        .bind(email)
+        .execute(pool)
+        .await;
+}
+
 /// Get the test database URL from the `TEST_DB_URL` environment variable.
 /// Falls back to `"postgresql://ws@localhost:5432/kbr_test"` if not set.
 pub fn test_db_url() -> String {
