@@ -519,9 +519,9 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-   use crate::auth::jwt::encode_token_with_role;
-    use crate::test_utils::{admin_token, artist_token, get_test_state, not_found_id, TEST_SECRET};
-    use actix_web::{App, test};
+use crate::auth::jwt::encode_token_with_role;
+     use crate::test_utils::{admin_token, artist_token, get_test_state, not_found_id, TEST_SECRET};
+    use actix_web::test;
 
     async fn seed_user() -> i64 {
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
@@ -623,13 +623,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_index_public() {
         crate::test_utils::set_test_env();
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get().uri("/campaigns").to_request();
         let resp = test::call_service(&app, req).await;
@@ -639,18 +633,11 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_show_found() {
         crate::test_utils::set_test_env();
-        let state = web::Data::new(get_test_state().await);
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let user_id = seed_user().await;
         let artist_id = seed_artist(user_id).await;
         let campaign_id = seed_campaign(artist_id).await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::get()
             .uri(&format!("/campaign/{}", campaign_id))
@@ -669,16 +656,9 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_show_not_found() {
         crate::test_utils::set_test_env();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
 
         let not_found = not_found_id(&state.db, "campaigns").await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::get()
             .uri(&format!("/campaign/{}", not_found))
@@ -690,17 +670,10 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_create_admin() {
         crate::test_utils::set_test_env_jwt();
+        let (state, app) = crate::build_test_app!(config_routes);
 
-        let state = web::Data::new(get_test_state().await);
         let user_id = seed_user().await;
         let artist_id = seed_artist(user_id).await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
         let pid = std::process::id();
@@ -731,19 +704,12 @@ mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
-    async fn campaigns_create_empty_name() {
+async fn campaigns_create_empty_name() {
         crate::test_utils::set_test_env_jwt();
+        let (_state, app) = crate::build_test_app!(config_routes);
 
-        let state = web::Data::new(get_test_state().await);
         let user_id = seed_user().await;
         let artist_id = seed_artist(user_id).await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::post()
             .uri("/campaigns")
@@ -763,14 +729,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_index_by_user_admin() {
         crate::test_utils::set_test_env_jwt();
-
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/campaigns_by_user")
@@ -781,21 +740,13 @@ mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
-    async fn campaigns_update_success() {
+async fn campaigns_update_success() {
         crate::test_utils::set_test_env_jwt();
-
-        let state = web::Data::new(get_test_state().await);
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let user_id = seed_user().await;
         let artist_id = seed_artist(user_id).await;
         let campaign_id = seed_campaign(artist_id).await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::post()
             .uri(&format!("/campaign/{}", campaign_id))
@@ -820,17 +771,9 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_update_not_found() {
         crate::test_utils::set_test_env_jwt();
-
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
 
         let not_found = not_found_id(&state.db, "campaigns").await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::post()
             .uri(&format!("/campaign/{}", not_found))
@@ -846,19 +789,11 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_destroy_success() {
         crate::test_utils::set_test_env_jwt();
-
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
 
         let user_id = seed_user().await;
         let artist_id = seed_artist(user_id).await;
         let campaign_id = seed_campaign(artist_id).await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::delete()
             .uri(&format!("/campaign/{}", campaign_id))
@@ -884,17 +819,9 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_destroy_not_found() {
         crate::test_utils::set_test_env_jwt();
-
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
 
         let not_found = not_found_id(&state.db, "campaigns").await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::delete()
             .uri(&format!("/campaign/{}", not_found))
@@ -907,8 +834,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_activate_success() {
         crate::test_utils::set_test_env_jwt();
-
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
 
         let user_id = seed_user().await;
         let artist_id = seed_artist(user_id).await;
@@ -928,13 +854,6 @@ mod tests {
         .fetch_one(&state.db)
         .await
         .expect("Failed to seed inactive campaign");
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::post()
             .uri("/activate_campaign")
@@ -959,15 +878,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_activate_missing_start_date() {
         crate::test_utils::set_test_env_jwt();
-
-        let state = web::Data::new(get_test_state().await);
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/activate_campaign")
@@ -984,15 +895,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_activate_invalid_date_format() {
         crate::test_utils::set_test_env_jwt();
-
-        let state = web::Data::new(get_test_state().await);
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/activate_campaign")
@@ -1012,17 +915,9 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_activate_campaign_not_found() {
         crate::test_utils::set_test_env_jwt();
-
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
 
         let not_found = not_found_id(&state.db, "campaigns").await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::post()
             .uri("/activate_campaign")
@@ -1039,8 +934,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_activate_no_campaign_page() {
         crate::test_utils::set_test_env_jwt();
-
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
 
         let user_id = seed_user().await;
         let artist_id = seed_artist(user_id).await;
@@ -1060,13 +954,6 @@ mod tests {
         .fetch_one(&state.db)
         .await
         .expect("Failed to seed campaign");
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::post()
             .uri("/activate_campaign")
@@ -1088,16 +975,9 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_create_forbidden() {
         crate::test_utils::set_test_env_jwt();
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let token = encode_token_with_role(3, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
-        let state = web::Data::new(get_test_state().await);
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::post()
             .uri("/campaigns")
@@ -1114,7 +994,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_active_only() {
         crate::test_utils::set_test_env();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
 
         let user_id = seed_user().await;
         let artist_id = seed_artist(user_id).await;
@@ -1142,13 +1022,6 @@ mod tests {
         .fetch_one(&state.db)
         .await
         .expect("Failed to seed inactive campaign");
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::get().uri("/active_campaigns").to_request();
         let resp = test::call_service(&app, req).await;

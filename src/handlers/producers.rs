@@ -158,19 +158,13 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{admin_token, get_test_state};
-    use actix_web::{test, App};
+    use crate::test_utils::admin_token;
+    use actix_web::test;
 
     #[tokio::test(flavor = "current_thread")]
     async fn producers_index_authenticated() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/producers")
@@ -183,13 +177,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn producer_create_success() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
+        let (state, app) = crate::build_test_app!(config_routes);
 
         let suffix = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -218,13 +206,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn producer_create_empty_name() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/producers")
@@ -240,7 +222,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn producer_update_success() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
 
         let suffix = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -258,13 +240,6 @@ mod tests {
         .fetch_one(&state.db)
         .await
         .expect("Failed to seed producer");
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::put()
             .uri(&format!("/producers/{}", id))
@@ -289,13 +264,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn producer_update_not_found() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::put()
             .uri("/producers/99999999")

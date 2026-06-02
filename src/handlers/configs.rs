@@ -298,8 +298,8 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 mod tests {
     use super::*;
     use crate::auth::jwt::encode_token_with_role;
-    use crate::test_utils::{TEST_SECRET, get_test_state};
-    use actix_web::{test, App};
+    use crate::test_utils::TEST_SECRET;
+    use actix_web::test;
 
     fn token() -> String {
         encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap()
@@ -308,13 +308,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn configs_index_authenticated() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/configs")
@@ -327,13 +321,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn config_create_success() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
+        let (state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/configs")
@@ -363,13 +351,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn config_create_missing_fields() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/configs")
@@ -388,13 +370,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn config_show_not_found() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/config/00000000-0000-0000-0000-000000000000")

@@ -89,8 +89,8 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{user_token, get_test_state};
-    use actix_web::{test, App};
+    use crate::test_utils::user_token;
+    use actix_web::test;
 
     async fn seed_user(pool: &sqlx::PgPool) -> i64 {
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
@@ -154,18 +154,11 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn subscribed_artists_returns_subscribed() {
         crate::test_utils::set_test_env_jwt();
+        let (state, app) = crate::build_test_app!(config_routes);
 
-        let state = web::Data::new(get_test_state().await);
         let user_id = seed_user(&state.db).await;
         let artist_id = seed_artist(&state.db).await;
         seed_mail_subscriber(&state.db, user_id, artist_id).await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::get()
             .uri("/dashboard/subscribed_artists")
@@ -185,8 +178,8 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn subscribed_artists_excludes_unsubscribed() {
         crate::test_utils::set_test_env_jwt();
+        let (state, app) = crate::build_test_app!(config_routes);
 
-        let state = web::Data::new(get_test_state().await);
         let user_id = seed_user(&state.db).await;
         let artist_id = seed_artist(&state.db).await;
         seed_mail_subscriber(&state.db, user_id, artist_id).await;
@@ -196,13 +189,6 @@ mod tests {
             .bind(artist_id)
             .execute(&state.db)
             .await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::get()
             .uri("/dashboard/subscribed_artists")
@@ -221,16 +207,9 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn subscribed_artists_empty_when_no_subscriptions() {
         crate::test_utils::set_test_env_jwt();
+        let (state, app) = crate::build_test_app!(config_routes);
 
-        let state = web::Data::new(get_test_state().await);
         let user_id = seed_user(&state.db).await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::get()
             .uri("/dashboard/subscribed_artists")
@@ -248,14 +227,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn subscribed_artists_requires_auth() {
         crate::test_utils::set_test_env_jwt();
-
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/dashboard/subscribed_artists")

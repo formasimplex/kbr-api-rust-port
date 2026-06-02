@@ -276,8 +276,8 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{admin_token, get_test_state, unique_suffix};
-    use actix_web::{test, App};
+    use crate::test_utils::{admin_token, unique_suffix};
+    use actix_web::test;
 
     async fn seed_event(state: &AppState) -> i64 {
         let name = format!("Test Event {}", unique_suffix());
@@ -339,13 +339,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn qr_scan_found() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
+        let (state, app) = crate::build_test_app!(config_routes);
 
         let event_id = seed_event(&state).await;
         let sub_id = seed_mail_subscriber(&state, &format!("QRScanTest {}", unique_suffix())).await;
@@ -366,13 +360,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn qr_scan_not_found() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/qr_scan/99999999")
@@ -384,13 +372,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn attendees_for_event_authenticated() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
+        let (state, app) = crate::build_test_app!(config_routes);
 
         let event_id = seed_event(&state).await;
         let sub1 = seed_mail_subscriber(&state, &format!("EventSub1 {}", unique_suffix())).await;
@@ -414,13 +396,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn attendees_for_event_forbidden() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/kbr_event_attendees?kbr_event_id=1")
@@ -432,13 +408,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn create_attendee_authenticated() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
+        let (state, app) = crate::build_test_app!(config_routes);
 
         let event_id = seed_event(&state).await;
         let sub1 = seed_mail_subscriber(&state, &format!("CreateSub1 {}", unique_suffix())).await;
@@ -464,13 +434,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn create_attendee_empty_subscribers() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/kbr_event_attendees")
@@ -487,13 +451,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn update_attendee_authenticated() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
+        let (state, app) = crate::build_test_app!(config_routes);
 
         let event_id = seed_event(&state).await;
         let sub1 = seed_mail_subscriber(&state, &format!("UpdateSub1 {}", unique_suffix())).await;

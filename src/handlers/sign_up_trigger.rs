@@ -180,13 +180,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn sign_up_trigger_create_success() {
         crate::test_utils::set_test_env();
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
+        let (state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/sign_up_trigger")
@@ -208,13 +202,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn sign_up_trigger_create_invalid_email() {
         crate::test_utils::set_test_env();
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/sign_up_trigger")
@@ -288,7 +276,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn sign_up_trigger_create_expires_existing_trigger() {
         crate::test_utils::set_test_env();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
         let ts = chrono::Utc::now().timestamp_micros();
         let email = format!("existing_trigger_{}@example.com", ts);
 
@@ -306,13 +294,6 @@ mod tests {
         .fetch_one(&state.db)
         .await
         .expect("Failed to seed existing trigger");
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::post()
             .uri("/sign_up_trigger")
@@ -386,13 +367,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn sign_up_trigger_show_not_found() {
         crate::test_utils::set_test_env();
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/sign_up_trigger/nonexistent-token-xyz")

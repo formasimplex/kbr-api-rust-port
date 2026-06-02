@@ -115,7 +115,7 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 mod tests {
     use super::*;
     use crate::test_utils::{admin_token, get_test_state, not_found_id, user_token};
-    use actix_web::{test, App};
+    use actix_web::test;
 
     async fn seed_user() -> i64 {
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
@@ -238,13 +238,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn campaign_pages_index_admin() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/campaign_pages")
@@ -257,13 +251,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn campaign_pages_index_forbidden() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/campaign_pages")
@@ -276,19 +264,12 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn campaign_pages_show_found() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let user_id = seed_user().await;
         let artist_id = seed_artist(user_id).await;
         let campaign_id = seed_campaign(artist_id).await;
         let page_id = seed_campaign_page(campaign_id).await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::get()
             .uri(&format!("/campaign_pages/{}", page_id))
@@ -309,16 +290,9 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn campaign_pages_show_not_found() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
 
         let not_found = not_found_id(&state.db, "campaign_pages").await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::get()
             .uri(&format!("/campaign_pages/{}", not_found))

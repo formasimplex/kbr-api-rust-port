@@ -179,7 +179,7 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 mod tests {
    use super::*;
     use crate::test_utils::{admin_token, get_test_state, not_found_id, unique_suffix};
-    use actix_web::{test, App};
+    use actix_web::test;
 
       async fn seed_user() -> (i64, String) {
         let email = format!("dataapi_user_{}@test.com", unique_suffix());
@@ -266,14 +266,8 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn data_last_logins_returns_users() {
-        crate::test_utils::set_test_env();
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        crate::test_utils::set_test_env_jwt();
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/data/last_logins")
@@ -295,17 +289,10 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn data_last_login_by_id_found() {
-        crate::test_utils::set_test_env();
-        let state = web::Data::new(get_test_state().await);
+        crate::test_utils::set_test_env_jwt();
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let (user_id, user_email) = seed_user().await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::get()
             .uri(&format!("/data/last_logins/{}", user_id))
@@ -326,17 +313,10 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn data_last_login_by_id_not_found() {
-        crate::test_utils::set_test_env();
-        let state = web::Data::new(get_test_state().await);
+        crate::test_utils::set_test_env_jwt();
+        let (state, app) = crate::build_test_app!(config_routes);
 
         let not_found = not_found_id(&state.db, "users").await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::get()
             .uri(&format!("/data/last_logins/{}", not_found))
@@ -351,8 +331,8 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn data_event_attendees_present_returns_scanned() {
-        crate::test_utils::set_test_env();
-        let state = web::Data::new(get_test_state().await);
+        crate::test_utils::set_test_env_jwt();
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let event_id = seed_event().await;
         let sub1 = seed_mail_subscriber().await;
@@ -362,13 +342,6 @@ mod tests {
         seed_attendee(event_id, sub1, 2).await;
         seed_attendee(event_id, sub2, 1).await;
         seed_attendee(event_id, sub3, 0).await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::get()
             .uri(&format!("/data/event_attendees_present/{}", event_id))
@@ -394,17 +367,10 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn data_event_attendees_present_event_not_found() {
-        crate::test_utils::set_test_env();
-        let state = web::Data::new(get_test_state().await);
+        crate::test_utils::set_test_env_jwt();
+        let (state, app) = crate::build_test_app!(config_routes);
 
         let not_found = not_found_id(&state.db, "kbr_events").await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::get()
             .uri(&format!(
