@@ -325,7 +325,6 @@ mod tests {
     use actix_web::{test, App};
 
     const TEST_SECRET: &str = "test-secret-key";
-    const TEST_DB_URL: &str = "postgresql://ws@localhost:5432/kbr_test";
 
     fn artist_token() -> String {
         encode_token_with_role(1, TEST_SECRET, 3, Some("artist".to_string()), 1).unwrap()
@@ -338,11 +337,11 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn upload_forbidden_for_non_artist() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let pool = sqlx::PgPool::connect(TEST_DB_URL)
+        let pool = sqlx::PgPool::connect(crate::test_utils::test_db_url())
             .await
             .expect("Failed to connect to test database");
         let state = web::Data::new(crate::test_utils::build_test_state(pool).await);
@@ -369,11 +368,11 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn upload_missing_file_field() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
-        let pool = sqlx::PgPool::connect(TEST_DB_URL)
+        let pool = sqlx::PgPool::connect(crate::test_utils::test_db_url())
             .await
             .expect("Failed to connect to test database");
         let state = web::Data::new(crate::test_utils::build_test_state(pool).await);

@@ -260,10 +260,9 @@ mod tests {
     use actix_web::{test, App};
 
     const TEST_SECRET: &str = "test-secret-key";
-    const TEST_DB_URL: &str = "postgresql://ws@localhost:5432/kbr_test";
 
     async fn get_state() -> AppState {
-        let pool = sqlx::PgPool::connect(TEST_DB_URL)
+        let pool = sqlx::PgPool::connect(crate::test_utils::test_db_url())
             .await
             .expect("Failed to connect to test database");
         crate::test_utils::build_test_state(pool).await
@@ -322,7 +321,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn comment_show_found() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
         let state = get_state().await;
@@ -351,7 +350,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn comment_show_not_found() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
         let state = get_state().await;
@@ -372,7 +371,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn comments_index_public() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
         let state = get_state().await;
@@ -393,7 +392,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn comment_create_authenticated() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
         let state = get_state().await;
@@ -425,7 +424,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn comment_create_empty_content() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
         let state = get_state().await;
@@ -452,7 +451,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn comment_create_invalid_commentable_type() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
         let state = get_state().await;
@@ -479,7 +478,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn comment_create_reply() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
         let state = get_state().await;
@@ -514,7 +513,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn comment_create_reply_empty_content() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
         let state = get_state().await;

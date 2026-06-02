@@ -246,10 +246,8 @@ mod tests {
     use super::*;
     use sqlx::PgPool;
 
-    const TEST_DB_URL: &str = "postgresql://ws@localhost:5432/kbr_test";
-
     async fn get_pool() -> PgPool {
-        PgPool::connect(TEST_DB_URL)
+        PgPool::connect(crate::test_utils::test_db_url())
             .await
             .expect("Failed to connect to test database")
     }

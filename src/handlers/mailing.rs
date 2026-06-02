@@ -489,11 +489,10 @@ mod tests {
     use crate::auth::jwt::encode_token_with_role;
     use actix_web::{test, App};
 
-    const TEST_SECRET: &str = "test-secret-key";
-    const TEST_DB_URL: &str = "postgresql://ws@localhost:5432/kbr_test";
+const TEST_SECRET: &str = "test-secret-key";
 
-async fn get_state() -> AppState {
-        let pool = sqlx::PgPool::connect(TEST_DB_URL)
+ async fn get_state() -> AppState {
+        let pool = sqlx::PgPool::connect(crate::test_utils::test_db_url())
             .await
             .expect("Failed to connect to test database");
         crate::test_utils::build_test_state(pool).await
@@ -613,7 +612,7 @@ async fn get_state() -> AppState {
     #[tokio::test(flavor = "current_thread")]
     async fn mail_subscribers_index_authenticated() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
         let state = web::Data::new(get_state().await);
@@ -635,7 +634,7 @@ async fn get_state() -> AppState {
     #[tokio::test(flavor = "current_thread")]
     async fn mail_subscribers_index_forbidden() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
         let user_token = encode_token_with_role(99, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
@@ -658,7 +657,7 @@ async fn get_state() -> AppState {
     #[tokio::test(flavor = "current_thread")]
     async fn artist_mailing_list_authenticated() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
         let state = web::Data::new(get_state().await);
@@ -692,7 +691,7 @@ async fn get_state() -> AppState {
 
     #[tokio::test(flavor = "current_thread")]
     async fn add_mail_subscriber_public() {
-        unsafe { std::env::set_var("DATABASE_URL", TEST_DB_URL); }
+        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
         let state = web::Data::new(get_state().await);
 
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
@@ -727,7 +726,7 @@ async fn get_state() -> AppState {
 
     #[tokio::test(flavor = "current_thread")]
     async fn add_mail_subscriber_invalid_email() {
-        unsafe { std::env::set_var("DATABASE_URL", TEST_DB_URL); }
+        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
         let state = web::Data::new(get_state().await);
         let app = test::init_service(
             App::new()
@@ -750,7 +749,7 @@ async fn get_state() -> AppState {
     #[tokio::test(flavor = "current_thread")]
     async fn add_mail_subscriber_with_user_authenticated() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
@@ -795,7 +794,7 @@ async fn get_state() -> AppState {
     #[tokio::test(flavor = "current_thread")]
     async fn add_mail_subscriber_duplicate() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
@@ -849,7 +848,7 @@ async fn get_state() -> AppState {
     #[tokio::test(flavor = "current_thread")]
     async fn unsubscribe_authenticated() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
@@ -893,7 +892,7 @@ async fn get_state() -> AppState {
     #[tokio::test(flavor = "current_thread")]
     async fn unsubscribe_not_found() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
@@ -926,7 +925,7 @@ async fn get_state() -> AppState {
 
     #[tokio::test(flavor = "current_thread")]
     async fn request_unsubscribe_public() {
-        unsafe { std::env::set_var("DATABASE_URL", TEST_DB_URL); }
+        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
         let state = web::Data::new(get_state().await);
 
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
@@ -972,7 +971,7 @@ async fn get_state() -> AppState {
 
     #[tokio::test(flavor = "current_thread")]
     async fn request_unsubscribe_not_found_returns_same_response() {
-        unsafe { std::env::set_var("DATABASE_URL", TEST_DB_URL); }
+        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
         let state = web::Data::new(get_state().await);
         let app = test::init_service(
             App::new()
@@ -996,7 +995,7 @@ async fn get_state() -> AppState {
 
     #[tokio::test(flavor = "current_thread")]
     async fn process_unsubscribe_public() {
-        unsafe { std::env::set_var("DATABASE_URL", TEST_DB_URL); }
+        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
         let state = web::Data::new(get_state().await);
 
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
@@ -1044,7 +1043,7 @@ async fn get_state() -> AppState {
 
     #[tokio::test(flavor = "current_thread")]
     async fn process_unsubscribe_invalid_token() {
-        unsafe { std::env::set_var("DATABASE_URL", TEST_DB_URL); }
+        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
         let state = web::Data::new(get_state().await);
         let app = test::init_service(
             App::new()

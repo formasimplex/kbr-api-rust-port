@@ -291,11 +291,10 @@ mod tests {
     use super::*;
     use actix_web::{test, App};
 
-    const TEST_SECRET: &str = "test-secret-key";
-    const TEST_DB_URL: &str = "postgresql://ws@localhost:5432/kbr_test";
+  const TEST_SECRET: &str = "test-secret-key";
 
     async fn get_state() -> AppState {
-        let pool = sqlx::PgPool::connect(TEST_DB_URL)
+        let pool = sqlx::PgPool::connect(crate::test_utils::test_db_url())
             .await
             .expect("Failed to connect to test database");
 
@@ -365,7 +364,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn login_success_with_valid_credentials() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
         let state = get_state().await;
@@ -405,7 +404,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn login_fails_with_invalid_email() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
         let state = web::Data::new(get_state().await);
@@ -432,7 +431,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn login_fails_with_wrong_password() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
         let state = get_state().await;
@@ -468,7 +467,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn session_returns_fresh_token() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
         let state = get_state().await;
@@ -507,7 +506,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn session_rejects_without_token() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
         let state = web::Data::new(get_state().await);
@@ -545,7 +544,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn logout_success() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
         let state = get_state().await;
@@ -582,7 +581,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn logout_rejects_without_token() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
         let state = web::Data::new(get_state().await);
@@ -603,7 +602,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn logout_prevents_further_session_requests() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
         let state = get_state().await;
@@ -647,7 +646,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn logout_idempotent() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
         let state = get_state().await;
@@ -692,7 +691,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn logout_invalidates_all_sessions_for_user() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
         let state = get_state().await;

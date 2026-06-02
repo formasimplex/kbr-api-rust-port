@@ -142,10 +142,9 @@ mod tests {
     use actix_web::{test, App};
 
     const TEST_SECRET: &str = "test-secret-key";
-    const TEST_DB_URL: &str = "postgresql://ws@localhost:5432/kbr_test";
 
     async fn get_state() -> AppState {
-        let pool = sqlx::PgPool::connect(TEST_DB_URL)
+        let pool = sqlx::PgPool::connect(crate::test_utils::test_db_url())
             .await
             .expect("Failed to connect to test database");
         crate::test_utils::build_test_state(pool).await
@@ -184,7 +183,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn songs_index_returns_ok() {
-        unsafe { std::env::set_var("DATABASE_URL", TEST_DB_URL); }
+        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
         let state = web::Data::new(get_state().await);
         let app = test::init_service(
             App::new()
@@ -200,7 +199,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn song_show_found() {
-        unsafe { std::env::set_var("DATABASE_URL", TEST_DB_URL); }
+        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
         let state = web::Data::new(get_state().await);
         let (album_id, artist_id) = seed_album_and_artist(&state.db).await;
 
@@ -240,7 +239,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn song_show_not_found() {
-        unsafe { std::env::set_var("DATABASE_URL", TEST_DB_URL); }
+        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
         let state = web::Data::new(get_state().await);
         let app = test::init_service(
             App::new()
@@ -266,7 +265,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn song_create_admin() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
@@ -308,7 +307,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn song_create_forbidden_non_admin() {
         unsafe {
-            std::env::set_var("DATABASE_URL", TEST_DB_URL);
+            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
             std::env::set_var("JWT_SECRET", TEST_SECRET);
         }
 
