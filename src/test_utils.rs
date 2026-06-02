@@ -3,6 +3,8 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
 
+use actix_web::{test, web, App};
+
 use sqlx::PgPool;
 
 use crate::app::AppState;
@@ -146,4 +148,27 @@ pub async fn build_test_state(pool: PgPool) -> AppState {
         jwt_secret: TEST_SECRET.to_string(),
         cookie_builder,
     }
+}
+
+/// Build a test app with the given route configuration.
+/// Expands to: create state + init_service, returns (state, app).
+///
+/// # Example
+/// ```ignore
+/// let (state, app) = build_test_app!(config_routes);
+/// let req = test::TestRequest::get().uri("/test").to_request();
+/// let resp = test::call_service(&app, req).await;
+/// ```
+#[macro_export]
+macro_rules! build_test_app {
+    ($routes:expr) => {{
+        let state = actix_web::web::Data::new(crate::test_utils::get_test_state().await);
+        let app = actix_web::test::init_service(
+            actix_web::App::new()
+                .app_data(state.clone())
+                .configure($routes),
+        )
+        .await;
+        (state, app)
+    }};
 }

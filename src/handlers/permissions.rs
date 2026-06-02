@@ -234,19 +234,13 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{admin_token, get_test_state, not_found_id, user_token};
-    use actix_web::{test, App};
+    use crate::test_utils::{admin_token, not_found_id, user_token};
+    use actix_web::test;
 
     #[tokio::test(flavor = "current_thread")]
     async fn permissions_index_admin() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/permissions")
@@ -259,13 +253,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn permissions_index_non_admin_forbidden() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/permissions")
@@ -278,13 +266,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn permissions_resources_admin() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/permissions_resources")
@@ -300,13 +282,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn permissions_show_not_found() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
+        let (state, app) = crate::build_test_app!(config_routes);
 
         let not_found = not_found_id(&state.db, "permissions").await;
 
@@ -321,7 +297,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn permissions_create_admin() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
 
         let _ = sqlx::query(
             r"INSERT INTO users (id, email, password_digest, created_at, updated_at)
@@ -329,13 +305,6 @@ mod tests {
                ON CONFLICT (id) DO NOTHING"
         )
         .execute(&state.db)
-        .await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
         .await;
 
         let req = test::TestRequest::post()
@@ -364,13 +333,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn permissions_create_invalid_resource() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/permissions")
@@ -386,13 +349,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn permissions_update_not_found() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
+        let (state, app) = crate::build_test_app!(config_routes);
 
         let not_found = not_found_id(&state.db, "permissions").await;
 
