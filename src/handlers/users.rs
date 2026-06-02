@@ -338,7 +338,7 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 mod tests {
     use super::*;
     use crate::auth::jwt::encode_token_with_role;
-    use crate::test_utils::{admin_token, user_token, TEST_SECRET, get_test_state};
+    use crate::test_utils::{admin_token, get_test_state, user_token, unique_suffix, TEST_SECRET};
     use actix_web::{App, test};
 
     async fn seed_test_user(state: &AppState, email: &str, role: &str) -> i64 {
@@ -419,7 +419,7 @@ mod tests {
     async fn user_show_self() {
         crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
-        let ts = timestamp();
+        let ts = unique_suffix();
         let email = format!("showself{}@example.com", ts);
         let user_id = seed_test_user(&state, &email, "user").await;
         let token =
@@ -446,7 +446,7 @@ mod tests {
     async fn user_show_other_not_admin() {
         crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
-        let ts = timestamp();
+        let ts = unique_suffix();
         let email_a = format!("showa{}@example.com", ts);
         let email_b = format!("showb{}@example.com", ts);
         let other_id = seed_test_user(&state, &email_a, "user").await;
@@ -476,7 +476,7 @@ mod tests {
     async fn user_show_admin_sees_other() {
         crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
-        let ts = timestamp();
+        let ts = unique_suffix();
         let email = format!("showadmin{}@example.com", ts);
         let user_id = seed_test_user(&state, &email, "user").await;
 
@@ -523,7 +523,7 @@ mod tests {
     async fn user_create_success() {
         crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
-        let ts = timestamp();
+        let ts = unique_suffix();
         let email = format!("newuser{}@example.com", ts);
         let username = format!("newuser{}", ts);
         let token = format!("create_success_token_{}", ts);
@@ -555,7 +555,7 @@ mod tests {
     async fn user_create_with_valid_token_consumes_trigger() {
         crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
-        let ts = timestamp();
+        let ts = unique_suffix();
         let email = format!("tokenuser{}@example.com", ts);
         let username = format!("tokenuser{}", ts);
         let token = format!("valid_token_{}", ts);
@@ -602,7 +602,7 @@ mod tests {
     async fn user_create_with_expired_token_fails() {
         crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
-        let ts = timestamp();
+        let ts = unique_suffix();
         let email = format!("expiredtoken{}@example.com", ts);
         let token = format!("expired_token_{}", ts);
         let past = (chrono::Utc::now() - chrono::Duration::days(1)).to_rfc3339();
@@ -631,7 +631,7 @@ mod tests {
     async fn user_create_with_mismatched_email_token_fails() {
         crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
-        let ts = timestamp();
+        let ts = unique_suffix();
         let trigger_email = format!("trigger_email_{}@example.com", ts);
         let request_email = format!("request_email_{}@example.com", ts);
         let token = format!("mismatch_token_{}", ts);
@@ -679,7 +679,7 @@ mod tests {
     async fn user_create_duplicate_email_returns_409() {
         crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
-        let ts = timestamp();
+        let ts = unique_suffix();
         let email = format!("dupemail{}@example.com", ts);
         let username2 = format!("dupuser{}b", ts);
 
@@ -712,7 +712,7 @@ mod tests {
     async fn user_create_email_normalized_on_create() {
         crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
-        let ts = timestamp();
+        let ts = unique_suffix();
         let email_upper = format!("Normalised{}@Example.COM", ts);
         let email_lower = format!("normalised{}@example.com", ts);
 
@@ -747,7 +747,7 @@ mod tests {
     async fn user_update_self() {
         crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
-        let ts = timestamp();
+        let ts = unique_suffix();
         let email = format!("updateself{}@example.com", ts);
         let user_id = seed_test_user(&state, &email, "user").await;
         let token =
@@ -779,7 +779,7 @@ mod tests {
     async fn user_update_other_not_admin() {
         crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
-        let ts = timestamp();
+        let ts = unique_suffix();
         let email_a = format!("updatea{}@example.com", ts);
         let email_b = format!("updateb{}@example.com", ts);
         let other_id = seed_test_user(&state, &email_a, "user").await;
@@ -812,7 +812,7 @@ mod tests {
     async fn user_update_admin_changes_other() {
         crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
-        let ts = timestamp();
+        let ts = unique_suffix();
         let email = format!("updateadmin{}@example.com", ts);
         let user_id = seed_test_user(&state, &email, "user").await;
 
@@ -842,7 +842,7 @@ mod tests {
     async fn user_update_non_admin_cannot_change_role() {
         crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
-        let ts = timestamp();
+        let ts = unique_suffix();
         let email = format!("updaterole{}@example.com", ts);
         let user_id = seed_test_user(&state, &email, "user").await;
         let token =
@@ -874,7 +874,7 @@ mod tests {
     async fn password_change_revokes_old_tokens() {
         crate::test_utils::set_test_env_jwt();
         let state_data = web::Data::new(get_test_state().await);
-        let ts = timestamp();
+        let ts = unique_suffix();
         let email = format!("pwdchange{}@example.com", ts);
         let user_id = seed_test_user(&state_data, &email, "user").await;
         let old_token = encode_token_with_role(user_id, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
@@ -908,12 +908,5 @@ mod tests {
         assert_eq!(resp.status(), 401);
 
         cleanup_user(&state_data, &email).await;
-    }
-
-    fn timestamp() -> u128 {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis()
     }
 }

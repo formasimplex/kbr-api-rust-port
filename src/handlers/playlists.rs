@@ -597,7 +597,7 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{admin_token, user_token, get_test_state};
+    use crate::test_utils::{admin_token, get_test_state, unique_suffix, user_token};
     use actix_web::{test, App};
 
     async fn seed_playlist(state: &AppState, suffix: &str) -> (i64, String) {
@@ -627,10 +627,6 @@ mod tests {
             .await;
     }
 
-    fn suffix() -> String {
-        format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos())
-    }
-
     #[tokio::test(flavor = "current_thread")]
     async fn admin_playlists_index() {
         crate::test_utils::set_test_env_jwt();
@@ -654,7 +650,7 @@ mod tests {
     async fn admin_playlist_show_found() {
         crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
-        let s = suffix();
+        let s = unique_suffix();
         let (playlist_id, name) = seed_playlist(&state, &s).await;
 
         let app = test::init_service(
@@ -706,7 +702,7 @@ mod tests {
     async fn admin_playlist_destroy() {
         crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
-        let s = suffix();
+        let s = unique_suffix();
         let (playlist_id, name) = seed_playlist(&state, &s).await;
 
         let app = test::init_service(
@@ -735,7 +731,7 @@ mod tests {
     async fn dashboard_playlists_index() {
         crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
-        let s = suffix();
+        let s = unique_suffix();
         let (_playlist_id, name) = seed_playlist(&state, &s).await;
 
         let app = test::init_service(
@@ -770,7 +766,7 @@ mod tests {
         )
         .await;
 
-        let s = suffix();
+        let s = unique_suffix();
         let req = test::TestRequest::post()
             .uri("/dashboard/news_playlists")
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
@@ -815,7 +811,7 @@ mod tests {
     async fn dashboard_update_playlist() {
         crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
-        let s = suffix();
+        let s = unique_suffix();
         let (playlist_id, name) = seed_playlist(&state, &s).await;
 
         let app = test::init_service(
@@ -847,7 +843,7 @@ mod tests {
     async fn dashboard_update_forbidden() {
         crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
-        let s = suffix();
+        let s = unique_suffix();
         let (_playlist_id, name) = seed_playlist(&state, &s).await;
 
         let (playlist_id, _) = {
@@ -883,7 +879,7 @@ mod tests {
     async fn dashboard_destroy_playlist() {
         crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
-        let s = suffix();
+        let s = unique_suffix();
         let (playlist_id, name) = seed_playlist(&state, &s).await;
 
         let app = test::init_service(
@@ -912,7 +908,7 @@ mod tests {
     async fn dashboard_destroy_forbidden() {
         crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
-        let s = suffix();
+        let s = unique_suffix();
         let (playlist_id, name) = seed_playlist(&state, &s).await;
 
         let app = test::init_service(

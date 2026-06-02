@@ -1,6 +1,7 @@
 //! Test utilities for building AppState in handler tests.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicI64, Ordering};
 
 use sqlx::PgPool;
 
@@ -33,6 +34,17 @@ pub fn customer_token(user_id: i64) -> String {
 /// Generate a test JWT token with a custom role.
 pub fn token_with_role(user_id: i64, role: &str) -> String {
     encode_token_with_role(user_id, TEST_SECRET, 3, Some(role.to_string()), 1).unwrap()
+}
+
+/// Global counter for generating unique suffixes in tests.
+static TEST_COUNTER: AtomicI64 = AtomicI64::new(0);
+
+/// Generate a unique suffix for test data (emails, names, etc.).
+/// Uses timestamp + atomic counter to avoid collisions across modules.
+pub fn unique_suffix() -> String {
+    let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
+    let count = TEST_COUNTER.fetch_add(1, Ordering::Relaxed);
+    format!("{}_{}", ts, count)
 }
 
 /// Get the test database URL from the `TEST_DB_URL` environment variable.

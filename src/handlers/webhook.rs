@@ -184,19 +184,10 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::get_test_state;
+    use crate::test_utils::{get_test_state, unique_suffix};
     use actix_web::{test, App};
 
-    use std::sync::atomic::{AtomicI64, Ordering};
-    static TEST_COUNTER: AtomicI64 = AtomicI64::new(0);
-
-    fn unique_suffix() -> String {
-        let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
-        let count = TEST_COUNTER.fetch_add(1, Ordering::Relaxed);
-        format!("{}_{}", ts, count)
-    }
-
-   async fn seed_campaign_with_page() -> (i64, i64, String) {
+     async fn seed_campaign_with_page() -> (i64, i64, String) {
         let now = chrono::Utc::now().naive_utc();
         let start = now;
         let end = now + chrono::TimeDelta::days(30);

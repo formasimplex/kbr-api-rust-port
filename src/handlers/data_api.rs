@@ -178,19 +178,10 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
    use super::*;
-    use crate::test_utils::{admin_token, get_test_state};
+    use crate::test_utils::{admin_token, get_test_state, unique_suffix};
     use actix_web::{test, App};
 
-    use std::sync::atomic::{AtomicI64, Ordering};
-    static TEST_COUNTER: AtomicI64 = AtomicI64::new(0);
-
-    fn unique_suffix() -> String {
-        let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
-        let count = TEST_COUNTER.fetch_add(1, Ordering::Relaxed);
-        format!("{}_{}", ts, count)
-   }
-
-    async fn seed_user() -> (i64, String) {
+      async fn seed_user() -> (i64, String) {
         let email = format!("dataapi_user_{}@test.com", unique_suffix());
         let username = format!("dataapi_user_{}", unique_suffix());
         let id: i64 = sqlx::query_scalar(

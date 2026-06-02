@@ -276,18 +276,11 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{admin_token, get_test_state};
+    use crate::test_utils::{admin_token, get_test_state, unique_suffix};
     use actix_web::{test, App};
 
-    fn suffix() -> u128 {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis()
-    }
-
     async fn seed_event(state: &AppState) -> i64 {
-        let name = format!("Test Event {}", suffix());
+        let name = format!("Test Event {}", unique_suffix());
         let id: i64 = sqlx::query_scalar(
             r"INSERT INTO kbr_events (name, created_at, updated_at) VALUES ($1, NOW(), NOW()) RETURNING id"
         )
@@ -355,7 +348,7 @@ mod tests {
         .await;
 
         let event_id = seed_event(&state).await;
-        let sub_id = seed_mail_subscriber(&state, &format!("QRScanTest {}", suffix())).await;
+        let sub_id = seed_mail_subscriber(&state, &format!("QRScanTest {}", unique_suffix())).await;
         let attendee_id = seed_attendee(&state, event_id, sub_id).await;
 
         let req = test::TestRequest::get()
@@ -400,8 +393,8 @@ mod tests {
         .await;
 
         let event_id = seed_event(&state).await;
-        let sub1 = seed_mail_subscriber(&state, &format!("EventSub1 {}", suffix())).await;
-        let sub2 = seed_mail_subscriber(&state, &format!("EventSub2 {}", suffix())).await;
+        let sub1 = seed_mail_subscriber(&state, &format!("EventSub1 {}", unique_suffix())).await;
+        let sub2 = seed_mail_subscriber(&state, &format!("EventSub2 {}", unique_suffix())).await;
         seed_attendee(&state, event_id, sub1).await;
         seed_attendee(&state, event_id, sub2).await;
 
@@ -448,8 +441,8 @@ mod tests {
         .await;
 
         let event_id = seed_event(&state).await;
-        let sub1 = seed_mail_subscriber(&state, &format!("CreateSub1 {}", suffix())).await;
-        let sub2 = seed_mail_subscriber(&state, &format!("CreateSub2 {}", suffix())).await;
+        let sub1 = seed_mail_subscriber(&state, &format!("CreateSub1 {}", unique_suffix())).await;
+        let sub2 = seed_mail_subscriber(&state, &format!("CreateSub2 {}", unique_suffix())).await;
 
         let req = test::TestRequest::post()
             .uri("/kbr_event_attendees")
@@ -503,7 +496,7 @@ mod tests {
         .await;
 
         let event_id = seed_event(&state).await;
-        let sub1 = seed_mail_subscriber(&state, &format!("UpdateSub1 {}", suffix())).await;
+        let sub1 = seed_mail_subscriber(&state, &format!("UpdateSub1 {}", unique_suffix())).await;
         seed_attendee(&state, event_id, sub1).await;
 
         let req = test::TestRequest::post()

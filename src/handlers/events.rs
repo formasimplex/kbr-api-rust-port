@@ -369,19 +369,10 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 mod tests {
     use super::*;
     use crate::auth::jwt::encode_token_with_role;
-    use crate::test_utils::{admin_token, artist_token, get_test_state, TEST_SECRET};
+    use crate::test_utils::{admin_token, artist_token, get_test_state, unique_suffix, TEST_SECRET};
     use actix_web::{App, test};
 
-    use std::sync::atomic::{AtomicI64, Ordering};
-    static TEST_COUNTER: AtomicI64 = AtomicI64::new(0);
-
-    fn unique_suffix() -> String {
-        let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
-        let count = TEST_COUNTER.fetch_add(1, Ordering::Relaxed);
-        format!("{}_{}", ts, count)
-    }
-
-    async fn seed_user() -> (i64, String) {
+     async fn seed_user() -> (i64, String) {
         let email = format!("event_test_{}@test.com", unique_suffix());
         let id: i64 = sqlx::query_scalar(
             r"INSERT INTO users (email, password_digest, role, created_at, updated_at)
