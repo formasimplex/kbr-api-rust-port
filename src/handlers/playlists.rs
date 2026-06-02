@@ -597,7 +597,7 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{admin_token, get_test_state, unique_suffix, user_token};
+    use crate::test_utils::{admin_token, get_test_state, not_found_id, unique_suffix, user_token};
     use actix_web::{test, App};
 
     async fn seed_playlist(state: &AppState, suffix: &str) -> (i64, String) {
@@ -678,10 +678,7 @@ mod tests {
         crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
 
-        let max_id: i64 = sqlx::query_scalar(r"SELECT COALESCE(MAX(id), 0) FROM news_playlists")
-            .fetch_one(&state.db)
-            .await
-            .expect("Failed to get max id");
+        let not_found = not_found_id(&state.db, "news_playlists").await;
 
         let app = test::init_service(
             App::new()
@@ -691,7 +688,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::get()
-            .uri(&format!("/admin/news_playlists/{}", max_id + 9999))
+            .uri(&format!("/admin/news_playlists/{}", not_found))
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .to_request();
         let resp = test::call_service(&app, req).await;

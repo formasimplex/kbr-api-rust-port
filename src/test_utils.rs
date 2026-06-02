@@ -47,6 +47,18 @@ pub fn unique_suffix() -> String {
     format!("{}_{}", ts, count)
 }
 
+/// Generate an ID that doesn't exist in the given table.
+/// Queries MAX(id) and adds 9999 to ensure the ID is not found.
+pub async fn not_found_id(pool: &PgPool, table: &str) -> i64 {
+    let id: i64 = sqlx::query_scalar(&format!(
+        r"SELECT COALESCE(MAX(id), 0) FROM {table}"
+    ))
+    .fetch_one(pool)
+    .await
+    .expect("Failed to get max id");
+    id + 9999
+}
+
 /// Get the test database URL from the `TEST_DB_URL` environment variable.
 /// Falls back to `"postgresql://ws@localhost:5432/kbr_test"` if not set.
 pub fn test_db_url() -> String {

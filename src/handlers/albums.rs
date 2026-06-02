@@ -144,7 +144,7 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 mod tests {
     use super::*;
     use crate::auth::jwt::encode_token_with_role;
-    use crate::test_utils::{TEST_SECRET, get_test_state};
+    use crate::test_utils::{get_test_state, not_found_id, TEST_SECRET};
     use actix_web::{App, test};
 
    #[tokio::test(flavor = "current_thread")]
@@ -202,13 +202,10 @@ mod tests {
         let app =
             test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
 
-        let max_id: i64 = sqlx::query_scalar(r"SELECT COALESCE(MAX(id), 0) FROM albums")
-            .fetch_one(&state.db)
-            .await
-            .expect("Failed to get max id");
+        let not_found = not_found_id(&state.db, "albums").await;
 
         let req = test::TestRequest::get()
-            .uri(&format!("/album/{}", max_id + 9999))
+            .uri(&format!("/album/{}", not_found))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);

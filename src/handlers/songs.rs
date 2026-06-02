@@ -139,7 +139,7 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 mod tests {
     use super::*;
     use crate::auth::jwt::encode_token_with_role;
-    use crate::test_utils::{TEST_SECRET, get_test_state};
+    use crate::test_utils::{get_test_state, not_found_id, TEST_SECRET};
     use actix_web::{test, App};
 
     async fn seed_album_and_artist(pool: &sqlx::PgPool) -> (i64, i64) {
@@ -240,15 +240,10 @@ mod tests {
         )
         .await;
 
-        let max_id: i64 = sqlx::query_scalar(
-            r"SELECT COALESCE(MAX(id), 0) FROM songs"
-        )
-        .fetch_one(&state.db)
-        .await
-        .expect("Failed to get max id");
+        let not_found = not_found_id(&state.db, "songs").await;
 
         let req = test::TestRequest::get()
-            .uri(&format!("/song/{}", max_id + 9999))
+            .uri(&format!("/song/{}", not_found))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);

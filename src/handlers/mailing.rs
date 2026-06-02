@@ -487,7 +487,7 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 mod tests {
     use super::*;
     use crate::auth::jwt::encode_token_with_role;
-    use crate::test_utils::{admin_token, TEST_SECRET, get_test_state};
+    use crate::test_utils::{admin_token, get_test_state, TEST_SECRET};
     use actix_web::{test, App};
 
     async fn seed_user() -> i64 {
@@ -864,13 +864,6 @@ mod tests {
         crate::test_utils::set_test_env_jwt();
 
         let state = web::Data::new(get_test_state().await);
-
-        let _max_id: i64 = sqlx::query_scalar(
-            r"SELECT COALESCE(MAX(id), 0) FROM users",
-        )
-        .fetch_one(&state.db)
-        .await
-        .expect("Failed to get max id");
 
         let app = test::init_service(
             App::new()

@@ -351,7 +351,7 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{admin_token, get_test_state};
+    use crate::test_utils::{admin_token, get_test_state, not_found_id};
     use actix_web::{test, App};
 
     async fn seed_artist_and_producer(pool: &sqlx::PgPool) -> (i64, i64, String, String) {
@@ -466,12 +466,7 @@ mod tests {
         crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
 
-        let max_id: i64 = sqlx::query_scalar(
-            r"SELECT COALESCE(MAX(id), 0) FROM artist_merchandise"
-        )
-        .fetch_one(&state.db)
-        .await
-        .expect("Failed to get max id");
+        let not_found = not_found_id(&state.db, "artist_merchandise").await;
 
         let app = test::init_service(
             App::new()
@@ -481,7 +476,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::get()
-            .uri(&format!("/artist_merchandise/{}", max_id + 9999))
+            .uri(&format!("/artist_merchandise/{}", not_found))
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -655,12 +650,7 @@ mod tests {
         crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
 
-        let max_id: i64 = sqlx::query_scalar(
-            r"SELECT COALESCE(MAX(id), 0) FROM artist_merchandise"
-        )
-        .fetch_one(&state.db)
-        .await
-        .expect("Failed to get max id");
+        let not_found = not_found_id(&state.db, "artist_merchandise").await;
 
         let app = test::init_service(
             App::new()
@@ -670,7 +660,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::put()
-            .uri(&format!("/artist_merchandise/{}", max_id + 9999))
+            .uri(&format!("/artist_merchandise/{}", not_found))
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .set_json(serde_json::json!({
                 "merch_title": "Updated"
@@ -728,12 +718,7 @@ mod tests {
         crate::test_utils::set_test_env_jwt();
         let state = web::Data::new(get_test_state().await);
 
-        let max_id: i64 = sqlx::query_scalar(
-            r"SELECT COALESCE(MAX(id), 0) FROM artist_merchandise"
-        )
-        .fetch_one(&state.db)
-        .await
-        .expect("Failed to get max id");
+        let not_found = not_found_id(&state.db, "artist_merchandise").await;
 
         let app = test::init_service(
             App::new()
@@ -743,7 +728,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::delete()
-            .uri(&format!("/artist_merchandise/{}", max_id + 9999))
+            .uri(&format!("/artist_merchandise/{}", not_found))
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .to_request();
         let resp = test::call_service(&app, req).await;

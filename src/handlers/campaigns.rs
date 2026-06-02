@@ -520,7 +520,7 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 mod tests {
     use super::*;
    use crate::auth::jwt::encode_token_with_role;
-    use crate::test_utils::{admin_token, artist_token, TEST_SECRET, get_test_state};
+    use crate::test_utils::{admin_token, artist_token, get_test_state, not_found_id, TEST_SECRET};
     use actix_web::{App, test};
 
     async fn seed_user() -> i64 {
@@ -671,12 +671,7 @@ mod tests {
         crate::test_utils::set_test_env();
         let state = web::Data::new(get_test_state().await);
 
-        let max_id: i64 = sqlx::query_scalar(
-            r"SELECT COALESCE(MAX(id), 0) FROM campaigns",
-        )
-        .fetch_one(&state.db)
-        .await
-        .expect("Failed to get max id");
+        let not_found = not_found_id(&state.db, "campaigns").await;
 
         let app = test::init_service(
             App::new()
@@ -686,7 +681,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::get()
-            .uri(&format!("/campaign/{}", max_id + 9999))
+            .uri(&format!("/campaign/{}", not_found))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
@@ -828,12 +823,7 @@ mod tests {
 
         let state = web::Data::new(get_test_state().await);
 
-        let max_id: i64 = sqlx::query_scalar(
-            r"SELECT COALESCE(MAX(id), 0) FROM campaigns",
-        )
-        .fetch_one(&state.db)
-        .await
-        .expect("Failed to get max id");
+        let not_found = not_found_id(&state.db, "campaigns").await;
 
         let app = test::init_service(
             App::new()
@@ -843,7 +833,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::post()
-            .uri(&format!("/campaign/{}", max_id + 9999))
+            .uri(&format!("/campaign/{}", not_found))
             .insert_header(("Authorization", format!("Bearer {}", artist_token(2))))
             .set_json(serde_json::json!({
                 "name": "Updated"
@@ -897,12 +887,7 @@ mod tests {
 
         let state = web::Data::new(get_test_state().await);
 
-        let max_id: i64 = sqlx::query_scalar(
-            r"SELECT COALESCE(MAX(id), 0) FROM campaigns",
-        )
-        .fetch_one(&state.db)
-        .await
-        .expect("Failed to get max id");
+        let not_found = not_found_id(&state.db, "campaigns").await;
 
         let app = test::init_service(
             App::new()
@@ -912,7 +897,7 @@ mod tests {
         .await;
 
         let req = test::TestRequest::delete()
-            .uri(&format!("/campaign/{}", max_id + 9999))
+            .uri(&format!("/campaign/{}", not_found))
             .insert_header(("Authorization", format!("Bearer {}", artist_token(2))))
             .to_request();
         let resp = test::call_service(&app, req).await;
@@ -1030,12 +1015,7 @@ mod tests {
 
         let state = web::Data::new(get_test_state().await);
 
-        let max_id: i64 = sqlx::query_scalar(
-            r"SELECT COALESCE(MAX(id), 0) FROM campaigns",
-        )
-        .fetch_one(&state.db)
-        .await
-        .expect("Failed to get max id");
+        let not_found = not_found_id(&state.db, "campaigns").await;
 
         let app = test::init_service(
             App::new()
@@ -1048,7 +1028,7 @@ mod tests {
             .uri("/activate_campaign")
             .insert_header(("Authorization", format!("Bearer {}", artist_token(2))))
             .set_json(serde_json::json!({
-                "campaign_id": max_id + 9999,
+                "campaign_id": not_found,
                 "start_date": "2025-01-15"
             }))
             .to_request();
