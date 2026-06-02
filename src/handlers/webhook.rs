@@ -184,6 +184,7 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::get_test_state;
     use actix_web::{test, App};
 
     use std::sync::atomic::{AtomicI64, Ordering};

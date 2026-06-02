@@ -234,17 +234,8 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::auth::jwt::encode_token_with_role;
-    use crate::test_utils::TEST_SECRET;
+    use crate::test_utils::{admin_token, user_token, get_test_state};
     use actix_web::{test, App};
-
-    fn admin_token() -> String {
-        encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap()
-    }
-
-    fn user_token() -> String {
-        encode_token_with_role(2, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap()
-    }
 
     #[tokio::test(flavor = "current_thread")]
     async fn permissions_index_admin() {
@@ -278,7 +269,7 @@ mod tests {
 
         let req = test::TestRequest::get()
             .uri("/permissions")
-            .insert_header(("Authorization", format!("Bearer {}", user_token())))
+            .insert_header(("Authorization", format!("Bearer {}", user_token(2))))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 403);

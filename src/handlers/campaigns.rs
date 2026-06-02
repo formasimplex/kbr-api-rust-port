@@ -520,16 +520,8 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 mod tests {
     use super::*;
    use crate::auth::jwt::encode_token_with_role;
-    use crate::test_utils::TEST_SECRET;
+    use crate::test_utils::{admin_token, artist_token, TEST_SECRET, get_test_state};
     use actix_web::{App, test};
-
-    fn admin_token() -> String {
-        encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap()
-    }
-
-    fn artist_token() -> String {
-        encode_token_with_role(2, TEST_SECRET, 2, Some("artist".to_string()), 1).unwrap()
-    }
 
     async fn seed_user() -> i64 {
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
@@ -812,7 +804,7 @@ mod tests {
 
         let req = test::TestRequest::post()
             .uri(&format!("/campaign/{}", campaign_id))
-            .insert_header(("Authorization", format!("Bearer {}", artist_token())))
+            .insert_header(("Authorization", format!("Bearer {}", artist_token(2))))
             .set_json(serde_json::json!({
                 "name": "Updated Campaign Name",
                 "vinyl_sold_count": 75
@@ -852,7 +844,7 @@ mod tests {
 
         let req = test::TestRequest::post()
             .uri(&format!("/campaign/{}", max_id + 9999))
-            .insert_header(("Authorization", format!("Bearer {}", artist_token())))
+            .insert_header(("Authorization", format!("Bearer {}", artist_token(2))))
             .set_json(serde_json::json!({
                 "name": "Updated"
             }))
@@ -880,7 +872,7 @@ mod tests {
 
         let req = test::TestRequest::delete()
             .uri(&format!("/campaign/{}", campaign_id))
-            .insert_header(("Authorization", format!("Bearer {}", artist_token())))
+            .insert_header(("Authorization", format!("Bearer {}", artist_token(2))))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
@@ -921,7 +913,7 @@ mod tests {
 
         let req = test::TestRequest::delete()
             .uri(&format!("/campaign/{}", max_id + 9999))
-            .insert_header(("Authorization", format!("Bearer {}", artist_token())))
+            .insert_header(("Authorization", format!("Bearer {}", artist_token(2))))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
@@ -961,7 +953,7 @@ mod tests {
 
         let req = test::TestRequest::post()
             .uri("/activate_campaign")
-            .insert_header(("Authorization", format!("Bearer {}", artist_token())))
+            .insert_header(("Authorization", format!("Bearer {}", artist_token(2))))
             .set_json(serde_json::json!({
                 "campaign_id": campaign_id,
                 "start_date": "2025-01-15"
@@ -994,7 +986,7 @@ mod tests {
 
         let req = test::TestRequest::post()
             .uri("/activate_campaign")
-            .insert_header(("Authorization", format!("Bearer {}", artist_token())))
+            .insert_header(("Authorization", format!("Bearer {}", artist_token(2))))
             .set_json(serde_json::json!({
                 "campaign_id": 99999
             }))
@@ -1019,7 +1011,7 @@ mod tests {
 
         let req = test::TestRequest::post()
             .uri("/activate_campaign")
-            .insert_header(("Authorization", format!("Bearer {}", artist_token())))
+            .insert_header(("Authorization", format!("Bearer {}", artist_token(2))))
             .set_json(serde_json::json!({
                 "campaign_id": 99999,
                 "start_date": "not-a-date"
@@ -1054,7 +1046,7 @@ mod tests {
 
         let req = test::TestRequest::post()
             .uri("/activate_campaign")
-            .insert_header(("Authorization", format!("Bearer {}", artist_token())))
+            .insert_header(("Authorization", format!("Bearer {}", artist_token(2))))
             .set_json(serde_json::json!({
                 "campaign_id": max_id + 9999,
                 "start_date": "2025-01-15"
@@ -1098,7 +1090,7 @@ mod tests {
 
         let req = test::TestRequest::post()
             .uri("/activate_campaign")
-            .insert_header(("Authorization", format!("Bearer {}", artist_token())))
+            .insert_header(("Authorization", format!("Bearer {}", artist_token(2))))
             .set_json(serde_json::json!({
                 "campaign_id": campaign_id,
                 "start_date": "2025-01-15"

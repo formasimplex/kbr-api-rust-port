@@ -338,16 +338,8 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 mod tests {
     use super::*;
     use crate::auth::jwt::encode_token_with_role;
-    use crate::test_utils::TEST_SECRET;
+    use crate::test_utils::{admin_token, user_token, TEST_SECRET, get_test_state};
     use actix_web::{App, test};
-
-    fn admin_token() -> String {
-        encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap()
-    }
-
-    fn user_token(user_id: i64) -> String {
-        encode_token_with_role(user_id, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap()
-    }
 
     async fn seed_test_user(state: &AppState, email: &str, role: &str) -> i64 {
         let password_digest = UserService::hash_password_for_create(&CreateUserRequest {

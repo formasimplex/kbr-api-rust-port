@@ -369,7 +369,7 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 mod tests {
     use super::*;
     use crate::auth::jwt::encode_token_with_role;
-    use crate::test_utils::TEST_SECRET;
+    use crate::test_utils::{admin_token, artist_token, get_test_state, TEST_SECRET};
     use actix_web::{App, test};
 
     use std::sync::atomic::{AtomicI64, Ordering};
@@ -379,14 +379,6 @@ mod tests {
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
         let count = TEST_COUNTER.fetch_add(1, Ordering::Relaxed);
         format!("{}_{}", ts, count)
-    }
-
-    fn admin_token() -> String {
-        encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap()
-    }
-
-    fn artist_token() -> String {
-        encode_token_with_role(2, TEST_SECRET, 2, Some("artist".to_string()), 1).unwrap()
     }
 
     async fn seed_user() -> (i64, String) {
@@ -606,7 +598,7 @@ mod tests {
 
         let req = test::TestRequest::get()
             .uri("/kbr_events_by_user")
-            .insert_header(("Authorization", format!("Bearer {}", artist_token())))
+            .insert_header(("Authorization", format!("Bearer {}", artist_token(2))))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
@@ -652,7 +644,7 @@ mod tests {
 
         let req = test::TestRequest::put()
             .uri(&format!("/kbrevents/{}", event_id))
-            .insert_header(("Authorization", format!("Bearer {}", artist_token())))
+            .insert_header(("Authorization", format!("Bearer {}", artist_token(2))))
             .set_json(serde_json::json!({
                 "name": "Updated Event Name",
                 "active": false
@@ -684,7 +676,7 @@ mod tests {
 
         let req = test::TestRequest::put()
             .uri(&format!("/kbrevents/{}", max_id + 9999))
-            .insert_header(("Authorization", format!("Bearer {}", artist_token())))
+            .insert_header(("Authorization", format!("Bearer {}", artist_token(2))))
             .set_json(serde_json::json!({
                 "name": "Updated"
             }))

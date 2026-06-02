@@ -289,7 +289,7 @@ pub async fn logout(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::TEST_SECRET;
+    use crate::test_utils::{TEST_SECRET, get_test_state};
     use actix_web::{test, App};
 
     async fn seed_test_user(state: &AppState, email: &str, password: &str, role: &str) -> i64 {

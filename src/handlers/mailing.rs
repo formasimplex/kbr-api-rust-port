@@ -487,12 +487,8 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 mod tests {
     use super::*;
     use crate::auth::jwt::encode_token_with_role;
-    use crate::test_utils::TEST_SECRET;
+    use crate::test_utils::{admin_token, TEST_SECRET, get_test_state};
     use actix_web::{test, App};
-
-    fn admin_token() -> String {
-        encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap()
-    }
 
     async fn seed_user() -> i64 {
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);

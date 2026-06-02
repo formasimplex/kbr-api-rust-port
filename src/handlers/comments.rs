@@ -256,17 +256,8 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::auth::jwt::encode_token_with_role;
-    use crate::test_utils::TEST_SECRET;
+    use crate::test_utils::{admin_token, customer_token, get_test_state};
     use actix_web::{test, App};
-
-    fn admin_token() -> String {
-        encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap()
-    }
-
-    fn customer_token() -> String {
-        encode_token_with_role(1, TEST_SECRET, 3, Some("customer".to_string()), 1).unwrap()
-    }
 
     async fn seed_comment(state: &AppState) -> i64 {
         let suffix = std::time::SystemTime::now()
@@ -464,7 +455,7 @@ mod tests {
 
         let req = test::TestRequest::post()
             .uri(&format!("/comments/{}", parent_id))
-            .insert_header(("Authorization", format!("Bearer {}", customer_token())))
+            .insert_header(("Authorization", format!("Bearer {}", customer_token(1))))
             .set_json(serde_json::json!({
                 "content": "Reply content",
                 "commentable_type": "News",
@@ -494,7 +485,7 @@ mod tests {
 
         let req = test::TestRequest::post()
             .uri("/comments/1")
-            .insert_header(("Authorization", format!("Bearer {}", customer_token())))
+            .insert_header(("Authorization", format!("Bearer {}", customer_token(1))))
             .set_json(serde_json::json!({
                 "content": "",
                 "commentable_type": "News",

@@ -114,17 +114,8 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::auth::jwt::encode_token_with_role;
-    use crate::test_utils::TEST_SECRET;
+    use crate::test_utils::{admin_token, user_token, get_test_state};
     use actix_web::{test, App};
-
-    fn admin_token() -> String {
-        encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap()
-    }
-
-    fn user_token() -> String {
-        encode_token_with_role(99, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap()
-    }
 
     async fn seed_user() -> i64 {
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
@@ -276,7 +267,7 @@ mod tests {
 
         let req = test::TestRequest::get()
             .uri("/campaign_pages")
-            .insert_header(("Authorization", format!("Bearer {}", user_token())))
+            .insert_header(("Authorization", format!("Bearer {}", user_token(99))))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 403);

@@ -5,10 +5,35 @@ use std::sync::Arc;
 use sqlx::PgPool;
 
 use crate::app::AppState;
-use crate::auth::jwt::Claims;
+use crate::auth::jwt::{Claims, encode_token_with_role};
 use crate::services::storage_service::{S3Config, create_s3_bucket};
 
 pub const TEST_SECRET: &str = "test-secret-key";
+
+/// Generate a test JWT token for an admin user (user_id=1).
+pub fn admin_token() -> String {
+    encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap()
+}
+
+/// Generate a test JWT token for a regular user.
+pub fn user_token(user_id: i64) -> String {
+    encode_token_with_role(user_id, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap()
+}
+
+/// Generate a test JWT token for an artist user.
+pub fn artist_token(user_id: i64) -> String {
+    encode_token_with_role(user_id, TEST_SECRET, 3, Some("artist".to_string()), 1).unwrap()
+}
+
+/// Generate a test JWT token for a customer user.
+pub fn customer_token(user_id: i64) -> String {
+    encode_token_with_role(user_id, TEST_SECRET, 3, Some("customer".to_string()), 1).unwrap()
+}
+
+/// Generate a test JWT token with a custom role.
+pub fn token_with_role(user_id: i64, role: &str) -> String {
+    encode_token_with_role(user_id, TEST_SECRET, 3, Some(role.to_string()), 1).unwrap()
+}
 
 /// Get the test database URL from the `TEST_DB_URL` environment variable.
 /// Falls back to `"postgresql://ws@localhost:5432/kbr_test"` if not set.
@@ -31,7 +56,7 @@ pub fn set_test_env_jwt() {
 
 /// Connect to the test database and build a full AppState.
 pub async fn get_test_state() -> AppState {
-    let pool = sqlx::PgPool::connect(test_db_url())
+    let pool = sqlx::PgPool::connect(&test_db_url())
         .await
         .expect("Failed to connect to test database");
     build_test_state(pool).await

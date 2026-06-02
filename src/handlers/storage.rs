@@ -321,23 +321,14 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::auth::jwt::encode_token_with_role;
-    use crate::test_utils::TEST_SECRET;
+    use crate::test_utils::{artist_token, user_token};
     use actix_web::{test, App};
-
-    fn artist_token() -> String {
-        encode_token_with_role(1, TEST_SECRET, 3, Some("artist".to_string()), 1).unwrap()
-    }
-
-    fn user_token() -> String {
-        encode_token_with_role(2, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap()
-    }
 
     #[tokio::test(flavor = "current_thread")]
     async fn upload_forbidden_for_non_artist() {
         crate::test_utils::set_test_env_jwt();
 
-        let pool = sqlx::PgPool::connect(crate::test_utils::test_db_url())
+        let pool = sqlx::PgPool::connect(&crate::test_utils::test_db_url())
             .await
             .expect("Failed to connect to test database");
         let state = web::Data::new(crate::test_utils::build_test_state(pool).await);
@@ -351,7 +342,7 @@ mod tests {
 
         let mut builder = actix_web::test::TestRequest::post()
             .uri("/storage/upload")
-            .insert_header(("Authorization", format!("Bearer {}", user_token())));
+            .insert_header(("Authorization", format!("Bearer {}", user_token(2))));
 
         let body = multipart_body();
         builder = builder.set_payload(body);
@@ -365,7 +356,7 @@ mod tests {
     async fn upload_missing_file_field() {
         crate::test_utils::set_test_env_jwt();
 
-        let pool = sqlx::PgPool::connect(crate::test_utils::test_db_url())
+        let pool = sqlx::PgPool::connect(&crate::test_utils::test_db_url())
             .await
             .expect("Failed to connect to test database");
         let state = web::Data::new(crate::test_utils::build_test_state(pool).await);
@@ -381,7 +372,7 @@ mod tests {
 
         let req = actix_web::test::TestRequest::post()
             .uri("/storage/upload")
-            .insert_header(("Authorization", format!("Bearer {}", artist_token())))
+            .insert_header(("Authorization", format!("Bearer {}", artist_token(1))))
             .insert_header(("Content-Type", "multipart/form-data; boundary=boundary456"))
             .set_payload(body)
             .to_request();

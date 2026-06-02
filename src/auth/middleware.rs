@@ -247,7 +247,7 @@ mod tests {
     use sqlx::PgPool;
 
     async fn get_pool() -> PgPool {
-        PgPool::connect(crate::test_utils::test_db_url())
+        PgPool::connect(&crate::test_utils::test_db_url())
             .await
             .expect("Failed to connect to test database")
     }

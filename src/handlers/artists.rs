@@ -525,16 +525,8 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 mod tests {
     use super::*;
    use crate::auth::jwt::encode_token_with_role;
-    use crate::test_utils::TEST_SECRET;
+    use crate::test_utils::{admin_token, artist_token, TEST_SECRET, get_test_state};
     use actix_web::{App, test};
-
-    fn admin_token() -> String {
-        encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap()
-    }
-
-    fn artist_token() -> String {
-        encode_token_with_role(2, TEST_SECRET, 2, Some("artist".to_string()), 1).unwrap()
-    }
 
     async fn seed_user() -> i64 {
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
@@ -709,7 +701,7 @@ mod tests {
 
         let req = test::TestRequest::put()
             .uri(&format!("/artist/{}", artist_id))
-            .insert_header(("Authorization", format!("Bearer {}", artist_token())))
+            .insert_header(("Authorization", format!("Bearer {}", artist_token(2))))
             .set_json(serde_json::json!({
                 "name": "Updated Artist Name"
             }))
@@ -739,7 +731,7 @@ mod tests {
 
         let req = test::TestRequest::put()
             .uri(&format!("/artist/{}", max_id + 9999))
-            .insert_header(("Authorization", format!("Bearer {}", artist_token())))
+            .insert_header(("Authorization", format!("Bearer {}", artist_token(2))))
             .set_json(serde_json::json!({
                 "name": "Updated"
             }))
@@ -762,7 +754,7 @@ mod tests {
 
         let req = test::TestRequest::post()
             .uri("/artist/add_artist_links")
-            .insert_header(("Authorization", format!("Bearer {}", artist_token())))
+            .insert_header(("Authorization", format!("Bearer {}", artist_token(2))))
             .set_json(serde_json::json!({
                 "artist_id": artist_id,
                 "link_type": 1,
@@ -790,7 +782,7 @@ mod tests {
 
         let req = test::TestRequest::post()
             .uri("/artist/add_artist_links")
-            .insert_header(("Authorization", format!("Bearer {}", artist_token())))
+            .insert_header(("Authorization", format!("Bearer {}", artist_token(2))))
             .set_json(serde_json::json!({
                 "artist_id": 1,
                 "link_type": 1,
@@ -830,7 +822,7 @@ mod tests {
 
         let req = test::TestRequest::post()
             .uri("/artist/delete_artist_links")
-            .insert_header(("Authorization", format!("Bearer {}", artist_token())))
+            .insert_header(("Authorization", format!("Bearer {}", artist_token(2))))
             .set_json(serde_json::json!({
                 "id": link_id
             }))
@@ -859,7 +851,7 @@ mod tests {
 
         let req = test::TestRequest::post()
             .uri("/artist/delete_artist_links")
-            .insert_header(("Authorization", format!("Bearer {}", artist_token())))
+            .insert_header(("Authorization", format!("Bearer {}", artist_token(2))))
             .set_json(serde_json::json!({
                 "id": 99999999
             }))

@@ -89,13 +89,8 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::auth::jwt::encode_token_with_role;
-    use crate::test_utils::TEST_SECRET;
+    use crate::test_utils::{user_token, get_test_state};
     use actix_web::{test, App};
-
-    fn user_token(user_id: i64) -> String {
-        encode_token_with_role(user_id, TEST_SECRET, 1, Some("user".to_string()), 1).unwrap()
-    }
 
     async fn seed_user(pool: &sqlx::PgPool) -> i64 {
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
