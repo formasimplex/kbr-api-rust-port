@@ -337,8 +337,8 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::auth::jwt::encode_token_with_role;
-    use crate::test_utils::{admin_token, get_test_state, not_found_id, user_token, unique_suffix, TEST_SECRET};
+use crate::auth::jwt::encode_token_with_role;
+     use crate::test_utils::{admin_token, get_test_state, not_found_id, user_token, unique_suffix, TEST_SECRET};
     use actix_web::{App, test};
 
     async fn seed_test_user(state: &AppState, email: &str, role: &str) -> i64 {
@@ -402,8 +402,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn user_index_non_admin_forbidden() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/users")
@@ -418,19 +417,12 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn user_show_self() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
         let ts = unique_suffix();
         let email = format!("showself{}@example.com", ts);
         let user_id = seed_test_user(&state, &email, "user").await;
         let token =
             encode_token_with_role(user_id, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::get()
             .uri(&format!("/user/{}", user_id))
@@ -445,7 +437,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn user_show_other_not_admin() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
         let ts = unique_suffix();
         let email_a = format!("showa{}@example.com", ts);
         let email_b = format!("showb{}@example.com", ts);
@@ -453,13 +445,6 @@ mod tests {
         let viewer_id = seed_test_user(&state, &email_b, "user").await;
         let viewer_token =
             encode_token_with_role(viewer_id, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::get()
             .uri(&format!("/user/{}", other_id))
@@ -475,17 +460,10 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn user_show_admin_sees_other() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
         let ts = unique_suffix();
         let email = format!("showadmin{}@example.com", ts);
         let user_id = seed_test_user(&state, &email, "user").await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::get()
             .uri(&format!("/user/{}", user_id))
@@ -500,9 +478,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn user_show_not_found() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
-        let app =
-            test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
+        let (state, app) = crate::build_test_app!(config_routes);
 
         let not_found = not_found_id(&state.db, "users").await;
 
@@ -519,16 +495,13 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn user_create_success() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
         let ts = unique_suffix();
         let email = format!("newuser{}@example.com", ts);
         let username = format!("newuser{}", ts);
         let token = format!("create_success_token_{}", ts);
         let future = (chrono::Utc::now() + chrono::Duration::days(1)).to_rfc3339();
         seed_trigger(&state, &email, &token, &future).await;
-
-        let app =
-            test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
 
         let req = test::TestRequest::post()
             .uri("/users")
@@ -551,16 +524,13 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn user_create_with_valid_token_consumes_trigger() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
         let ts = unique_suffix();
         let email = format!("tokenuser{}@example.com", ts);
         let username = format!("tokenuser{}", ts);
         let token = format!("valid_token_{}", ts);
         let future = (chrono::Utc::now() + chrono::Duration::days(1)).to_rfc3339();
         let trigger_id = seed_trigger(&state, &email, &token, &future).await;
-
-        let app =
-            test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
 
         let req = test::TestRequest::post()
             .uri("/users")
@@ -598,15 +568,12 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn user_create_with_expired_token_fails() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
         let ts = unique_suffix();
         let email = format!("expiredtoken{}@example.com", ts);
         let token = format!("expired_token_{}", ts);
         let past = (chrono::Utc::now() - chrono::Duration::days(1)).to_rfc3339();
         seed_trigger(&state, &email, &token, &past).await;
-
-        let app =
-            test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
 
         let req = test::TestRequest::post()
             .uri("/users")
@@ -627,16 +594,13 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn user_create_with_mismatched_email_token_fails() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
         let ts = unique_suffix();
         let trigger_email = format!("trigger_email_{}@example.com", ts);
         let request_email = format!("request_email_{}@example.com", ts);
         let token = format!("mismatch_token_{}", ts);
         let future = (chrono::Utc::now() + chrono::Duration::days(1)).to_rfc3339();
         seed_trigger(&state, &trigger_email, &token, &future).await;
-
-        let app =
-            test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
 
         let req = test::TestRequest::post()
             .uri("/users")
@@ -658,8 +622,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn user_create_without_token_fails() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/users")
@@ -675,7 +638,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn user_create_duplicate_email_returns_409() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
         let ts = unique_suffix();
         let email = format!("dupemail{}@example.com", ts);
         let username2 = format!("dupuser{}b", ts);
@@ -685,9 +648,6 @@ mod tests {
         let token2 = format!("dup_token2_{}", ts);
         let future = (chrono::Utc::now() + chrono::Duration::days(1)).to_rfc3339();
         seed_trigger(&state, &email, &token2, &future).await;
-
-        let app =
-            test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
 
         let req = test::TestRequest::post()
             .uri("/users")
@@ -708,7 +668,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn user_create_email_normalized_on_create() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
         let ts = unique_suffix();
         let email_upper = format!("Normalised{}@Example.COM", ts);
         let email_lower = format!("normalised{}@example.com", ts);
@@ -716,9 +676,6 @@ mod tests {
         let token = format!("norm_token_{}", ts);
         let future = (chrono::Utc::now() + chrono::Duration::days(1)).to_rfc3339();
         seed_trigger(&state, &email_lower, &token, &future).await;
-
-        let app =
-            test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
 
         // Creation with mixed-case email succeeds and returns normalized lowercase
         let req = test::TestRequest::post()
@@ -743,19 +700,12 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn user_update_self() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
         let ts = unique_suffix();
         let email = format!("updateself{}@example.com", ts);
         let user_id = seed_test_user(&state, &email, "user").await;
         let token =
             encode_token_with_role(user_id, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::put()
             .uri(&format!("/user/{}", user_id))
@@ -775,7 +725,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn user_update_other_not_admin() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
         let ts = unique_suffix();
         let email_a = format!("updatea{}@example.com", ts);
         let email_b = format!("updateb{}@example.com", ts);
@@ -783,13 +733,6 @@ mod tests {
         let viewer_id = seed_test_user(&state, &email_b, "user").await;
         let viewer_token =
             encode_token_with_role(viewer_id, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::put()
             .uri(&format!("/user/{}", other_id))
@@ -808,17 +751,10 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn user_update_admin_changes_other() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
         let ts = unique_suffix();
         let email = format!("updateadmin{}@example.com", ts);
         let user_id = seed_test_user(&state, &email, "user").await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::put()
             .uri(&format!("/user/{}", user_id))
@@ -838,19 +774,12 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn user_update_non_admin_cannot_change_role() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
         let ts = unique_suffix();
         let email = format!("updaterole{}@example.com", ts);
         let user_id = seed_test_user(&state, &email, "user").await;
         let token =
             encode_token_with_role(user_id, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::put()
             .uri(&format!("/user/{}", user_id))

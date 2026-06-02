@@ -370,7 +370,7 @@ mod tests {
     use super::*;
     use crate::auth::jwt::encode_token_with_role;
     use crate::test_utils::{admin_token, artist_token, get_test_state, not_found_id, unique_suffix, TEST_SECRET};
-    use actix_web::{App, test};
+    use actix_web::test;
 
      async fn seed_user() -> (i64, String) {
         let email = format!("event_test_{}@test.com", unique_suffix());
@@ -431,8 +431,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn events_index_public() {
         crate::test_utils::set_test_env();
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get().uri("/kbrevents").to_request();
         let resp = test::call_service(&app, req).await;
@@ -448,12 +447,10 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn event_show_found() {
         crate::test_utils::set_test_env();
-        let state = web::Data::new(get_test_state().await);
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let (user_id, user_email) = seed_user().await;
         let event_id = seed_event(user_id as i32).await;
-
-        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::get()
             .uri(&format!("/kbrevent/{}", event_id))
@@ -475,11 +472,9 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn event_show_not_found() {
         crate::test_utils::set_test_env();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
 
         let not_found = not_found_id(&state.db, "kbr_events").await;
-
-        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::get()
             .uri(&format!("/kbrevent/{}", not_found))
@@ -491,10 +486,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn event_create_authenticated() {
         crate::test_utils::set_test_env_jwt();
-
-        let state = web::Data::new(get_test_state().await);
-        let app =
-            test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
+        let (state, app) = crate::build_test_app!(config_routes);
 
         let name = format!("New Event {}", unique_suffix());
         let now = chrono::Utc::now();
@@ -524,11 +516,9 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn event_create_forbidden_non_artist() {
         crate::test_utils::set_test_env_jwt();
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let token = encode_token_with_role(2, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
-        let state = web::Data::new(get_test_state().await);
-
-        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let now = chrono::Utc::now();
         let req = test::TestRequest::post()
@@ -548,13 +538,10 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn events_by_user_admin() {
         crate::test_utils::set_test_env_jwt();
-
-        let state = web::Data::new(get_test_state().await);
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let (user_id, user_email) = seed_user().await;
         let event_id = seed_event(user_id as i32).await;
-
-        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::get()
             .uri("/kbr_events_by_user")
@@ -576,13 +563,10 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn events_by_user_artist() {
         crate::test_utils::set_test_env_jwt();
-
-        let state = web::Data::new(get_test_state().await);
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let (user_id, user_email) = seed_user().await;
         let event_id = seed_event(user_id as i32).await;
-
-        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::get()
             .uri("/kbr_events_by_user")
@@ -604,11 +588,9 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn events_by_user_forbidden() {
         crate::test_utils::set_test_env_jwt();
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let token = encode_token_with_role(2, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
-        let state = web::Data::new(get_test_state().await);
-
-        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::get()
             .uri("/kbr_events_by_user")
@@ -621,14 +603,10 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn event_update_success() {
         crate::test_utils::set_test_env_jwt();
-
-        let state = web::Data::new(get_test_state().await);
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let (user_id, user_email) = seed_user().await;
         let event_id = seed_event(user_id as i32).await;
-
-        let app =
-            test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
 
         let req = test::TestRequest::put()
             .uri(&format!("/kbrevents/{}", event_id))
@@ -652,12 +630,9 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn event_update_not_found() {
         crate::test_utils::set_test_env_jwt();
-
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
 
         let not_found = not_found_id(&state.db, "kbr_events").await;
-
-        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::put()
             .uri(&format!("/kbrevents/{}", not_found))
