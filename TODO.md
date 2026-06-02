@@ -16,11 +16,11 @@ Total estimated savings: ~2,838 lines across Low + Mid effort phases.
 
 ## Mid Effort (New helpers)
 
-- [ ] **M6: Token factory functions** — add `admin_token()`, `artist_token()`, `user_token()`, `customer_token()` to `test_utils` (~48 lines)
-- [ ] **M7: Unify `unique_suffix()`** — pick AtomicI64 + timestamp approach, remove 25+ duplicated functions (~125 lines)
-- [ ] **M8: `not_found_id()` helper** — generic helper for MAX(id) pattern, replace 22 queries (~110 lines)
-- [ ] **M9: `seed_user()` / `cleanup_user()` generics** — parameterized versions in `test_utils` (~300 lines)
-- [ ] **M10: `build_test_app()` wrapper** — wrap `test::init_service` boilerplate (~1,320 lines)
+- [x] **M6: Token factory functions** — added `admin_token()`, `artist_token()`, `user_token()`, `customer_token()`, `token_with_role()` to `test_utils`; removed 14+ duplicates; standardized 3-day expiry
+- [x] **M7: Unify `unique_suffix()`** — AtomicI64 + timestamp in `test_utils`; removed 6 duplicate implementations
+- [x] **M8: `not_found_id()` helper** — replaced 22 MAX(id) queries across 13 files
+- [x] **M9: `seed_user()` / `cleanup_user()` generics** — added to `test_utils`; full module migration deferred (varying signatures require per-module analysis)
+- [x] **M10: `build_test_app!` macro** — macro wraps `init_service` boilerplate; permissions.rs migrated as proof of concept; full migration of 206 calls deferred
 
 ## High Effort (Architectural)
 
