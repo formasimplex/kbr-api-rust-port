@@ -176,13 +176,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn songs_index_returns_ok() {
         crate::test_utils::set_test_env();
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get().uri("/songs").to_request();
         let resp = test::call_service(&app, req).await;
@@ -232,13 +226,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn song_show_not_found() {
         crate::test_utils::set_test_env();
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
+        let (state, app) = crate::build_test_app!(config_routes);
 
         let not_found = not_found_id(&state.db, "songs").await;
 
@@ -254,15 +242,8 @@ mod tests {
         crate::test_utils::set_test_env_jwt();
 
         let token = encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
         let (album_id, artist_id) = seed_album_and_artist(&state.db).await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::post()
             .uri("/songs")
@@ -293,14 +274,7 @@ mod tests {
         crate::test_utils::set_test_env_jwt();
 
         let token = encode_token_with_role(2, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
-        let state = web::Data::new(get_test_state().await);
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/songs")

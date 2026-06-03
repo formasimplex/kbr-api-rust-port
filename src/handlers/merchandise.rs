@@ -399,13 +399,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn merchandise_index_authenticated() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/artist_merchandise")
@@ -464,16 +458,9 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn merchandise_show_not_found() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
 
         let not_found = not_found_id(&state.db, "artist_merchandise").await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::get()
             .uri(&format!("/artist_merchandise/{}", not_found))
@@ -525,7 +512,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn merchandise_create_success() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
         let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
 
         let suffix = std::time::SystemTime::now()
@@ -533,13 +520,6 @@ mod tests {
             .unwrap()
             .as_millis();
         let title = format!("New Item {}", suffix);
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::post()
             .uri("/artist_merchandise")
@@ -569,13 +549,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn merchandise_create_empty_title() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/artist_merchandise")
@@ -593,7 +567,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn merchandise_update_success() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
         let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
 
         let suffix = std::time::SystemTime::now()
@@ -614,13 +588,6 @@ mod tests {
         .fetch_one(&state.db)
         .await
         .expect("Failed to seed merchandise");
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::put()
             .uri(&format!("/artist_merchandise/{}", id))
@@ -648,16 +615,9 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn merchandise_update_not_found() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
 
         let not_found = not_found_id(&state.db, "artist_merchandise").await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::put()
             .uri(&format!("/artist_merchandise/{}", not_found))
@@ -673,7 +633,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn merchandise_destroy_success() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
         let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
 
         let suffix = std::time::SystemTime::now()
@@ -694,13 +654,6 @@ mod tests {
         .await
         .expect("Failed to seed merchandise");
 
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
-
         let req = test::TestRequest::delete()
             .uri(&format!("/artist_merchandise/{}", id))
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
@@ -716,16 +669,9 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn merchandise_destroy_not_found() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
 
         let not_found = not_found_id(&state.db, "artist_merchandise").await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::delete()
             .uri(&format!("/artist_merchandise/{}", not_found))
@@ -738,13 +684,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn cache_update_returns_ok() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/merchandise/cache_update")
@@ -785,13 +725,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn merchandise_unauthenticated_returns_200() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/artist_merchandise")
@@ -803,7 +737,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn merchandise_update_partial_preserves_unsent_fields() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
         let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
 
         let suffix = std::time::SystemTime::now()
@@ -823,13 +757,6 @@ mod tests {
         .fetch_one(&state.db)
         .await
         .expect("Failed to seed merchandise");
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::put()
             .uri(&format!("/artist_merchandise/{}", id))
@@ -856,7 +783,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn merchandise_create_all_fields() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
         let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
 
         let suffix = std::time::SystemTime::now()
@@ -864,13 +791,6 @@ mod tests {
             .unwrap()
             .as_millis();
         let title = format!("Full Item {}", suffix);
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::post()
             .uri("/artist_merchandise")
