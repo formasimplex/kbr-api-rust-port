@@ -486,9 +486,9 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::auth::jwt::encode_token_with_role;
-    use crate::test_utils::{admin_token, get_test_state, TEST_SECRET};
-    use actix_web::{test, App};
+use crate::auth::jwt::encode_token_with_role;
+     use crate::test_utils::{admin_token, get_test_state, TEST_SECRET};
+    use actix_web::test;
 
     async fn seed_user() -> i64 {
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
@@ -600,13 +600,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn mail_subscribers_index_authenticated() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/mail_subscribers")
@@ -620,13 +614,7 @@ mod tests {
     async fn mail_subscribers_index_forbidden() {
         crate::test_utils::set_test_env_jwt();
         let user_token = encode_token_with_role(99, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/mail_subscribers")
@@ -639,17 +627,10 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn artist_mailing_list_authenticated() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
+        let (_state, app) = crate::build_test_app!(config_routes);
         let user_id = seed_user().await;
         let artist_id = seed_artist(user_id).await;
         let (sub_id, _) = seed_subscriber(artist_id, Some(user_id)).await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::get()
             .uri(&format!("/artist_mailing_list?artist_id={}", artist_id))
@@ -671,18 +652,11 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn add_mail_subscriber_public() {
         crate::test_utils::set_test_env();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
 
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
         let pid = std::process::id();
         let email = format!("addmail_{}_{}@test.com", pid, ts);
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::post()
             .uri("/addmailsubscriber")
@@ -706,13 +680,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn add_mail_subscriber_invalid_email() {
         crate::test_utils::set_test_env();
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/addmailsubscriber")
@@ -728,21 +696,13 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn add_mail_subscriber_with_user_authenticated() {
         crate::test_utils::set_test_env_jwt();
-
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
         let user_id = seed_user().await;
         let artist_id = seed_artist(user_id).await;
 
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
         let pid = std::process::id();
         let email = format!("addmailuser_{}_{}@test.com", pid, ts);
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::post()
             .uri("/addmailsubscriber_with_user")
@@ -770,8 +730,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn add_mail_subscriber_duplicate() {
         crate::test_utils::set_test_env_jwt();
-
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
         let user_id = seed_user().await;
         let artist_id = seed_artist(user_id).await;
 
@@ -790,13 +749,6 @@ mod tests {
         .execute(&state.db)
         .await
         .expect("Failed to seed duplicate subscriber");
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::post()
             .uri("/artistmailsubscriber")
@@ -821,19 +773,11 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn unsubscribe_authenticated() {
         crate::test_utils::set_test_env_jwt();
-
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
         let user_id = seed_user().await;
         let artist_id = seed_artist(user_id).await;
         let (sub_id, _) = seed_subscriber(artist_id, Some(user_id)).await;
         let user_token = encode_token_with_role(user_id, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap();
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::post()
             .uri("/mail_subscribers/unsubscribe")
@@ -862,15 +806,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn unsubscribe_not_found() {
         crate::test_utils::set_test_env_jwt();
-
-        let state = web::Data::new(get_test_state().await);
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/mail_subscribers/unsubscribe")
@@ -886,7 +822,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn request_unsubscribe_public() {
         crate::test_utils::set_test_env();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
 
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
         let pid = std::process::id();
@@ -902,13 +838,6 @@ mod tests {
         .execute(&state.db)
         .await
         .expect("Failed to seed subscriber");
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::post()
             .uri("/unsubscribe")
@@ -932,13 +861,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn request_unsubscribe_not_found_returns_same_response() {
         crate::test_utils::set_test_env();
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/unsubscribe")
@@ -956,7 +879,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn process_unsubscribe_public() {
         crate::test_utils::set_test_env();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
 
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
         let pid = std::process::id();
@@ -975,13 +898,6 @@ mod tests {
         .fetch_one(&state.db)
         .await
         .expect("Failed to seed subscriber");
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::get()
             .uri(&format!("/unsubscribe/{}", token))
@@ -1004,13 +920,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn process_unsubscribe_invalid_token() {
         crate::test_utils::set_test_env();
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/unsubscribe/invalidtoken123")

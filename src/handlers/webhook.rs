@@ -185,7 +185,7 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 mod tests {
     use super::*;
     use crate::test_utils::{get_test_state, unique_suffix};
-    use actix_web::{test, App};
+    use actix_web::test;
 
      async fn seed_campaign_with_page() -> (i64, i64, String) {
         let now = chrono::Utc::now().naive_utc();
@@ -257,16 +257,9 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn webhook_update_progress_updates_campaign() {
         crate::test_utils::set_test_env();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
 
         let (campaign_id, _page_id, inventory_item_id) = seed_campaign_with_page().await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::post()
             .uri("/webhook/update_progress")
@@ -298,14 +291,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn webhook_update_progress_no_campaign_page() {
         crate::test_utils::set_test_env();
-        let state = web::Data::new(get_test_state().await);
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/webhook/update_progress")
@@ -326,16 +312,9 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn webhook_update_progress_zero_available() {
         crate::test_utils::set_test_env();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
 
         let (campaign_id, _page_id, inventory_item_id) = seed_campaign_with_page().await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::post()
             .uri("/webhook/update_progress")
@@ -364,14 +343,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn webhook_customers_data_request() {
         crate::test_utils::set_test_env();
-        let state = web::Data::new(get_test_state().await);
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/webhook/customers_data_request")
@@ -386,14 +358,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn webhook_customers_redact() {
         crate::test_utils::set_test_env();
-        let state = web::Data::new(get_test_state().await);
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/webhook/customers_redact")
@@ -408,14 +373,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn webhook_shop_redact() {
         crate::test_utils::set_test_env();
-        let state = web::Data::new(get_test_state().await);
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/webhook/shop_redact")

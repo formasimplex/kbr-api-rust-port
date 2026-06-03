@@ -249,14 +249,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn reset_trigger_create_returns_generic_response() {
         crate::test_utils::set_test_env();
-        let state = web::Data::new(get_test_state().await);
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
+        let (state, app) = crate::build_test_app!(config_routes);
 
         let email = format!("reset_create_{}@example.com", chrono::Utc::now().timestamp_micros());
 
@@ -280,14 +273,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn reset_trigger_create_nonexistent_email_returns_same_response() {
         crate::test_utils::set_test_env();
-        let state = web::Data::new(get_test_state().await);
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
+        let (state, app) = crate::build_test_app!(config_routes);
 
         let nonexistent = format!("nonexistent_{}@example.com", chrono::Utc::now().timestamp_micros());
 
@@ -310,13 +296,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn reset_trigger_create_invalid_email() {
         crate::test_utils::set_test_env();
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/reset_trigger")

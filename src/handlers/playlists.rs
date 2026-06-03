@@ -597,8 +597,8 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{admin_token, get_test_state, not_found_id, unique_suffix, user_token};
-    use actix_web::{test, App};
+    use crate::test_utils::{admin_token, not_found_id, unique_suffix, user_token};
+    use actix_web::test;
 
     async fn seed_playlist(state: &AppState, suffix: &str) -> (i64, String) {
         let name = format!("Test Playlist {}", suffix);
@@ -630,13 +630,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn admin_playlists_index() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/admin/news_playlists")
@@ -649,16 +643,9 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn admin_playlist_show_found() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
         let s = unique_suffix();
         let (playlist_id, name) = seed_playlist(&state, &s).await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::get()
             .uri(&format!("/admin/news_playlists/{}", playlist_id))
@@ -676,16 +663,9 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn admin_playlist_show_not_found() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
 
         let not_found = not_found_id(&state.db, "news_playlists").await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::get()
             .uri(&format!("/admin/news_playlists/{}", not_found))
@@ -698,16 +678,9 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn admin_playlist_destroy() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
         let s = unique_suffix();
         let (playlist_id, name) = seed_playlist(&state, &s).await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::delete()
             .uri(&format!("/admin/news_playlists/{}", playlist_id))
@@ -727,16 +700,9 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn dashboard_playlists_index() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
         let s = unique_suffix();
         let (_playlist_id, name) = seed_playlist(&state, &s).await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::get()
             .uri("/dashboard/news_playlists")
@@ -755,13 +721,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn dashboard_create_playlist() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
+        let (state, app) = crate::build_test_app!(config_routes);
 
         let s = unique_suffix();
         let req = test::TestRequest::post()
@@ -785,13 +745,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn dashboard_create_empty_name() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/dashboard/news_playlists")
@@ -807,16 +761,9 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn dashboard_update_playlist() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
         let s = unique_suffix();
         let (playlist_id, name) = seed_playlist(&state, &s).await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::put()
             .uri(&format!("/dashboard/news_playlists/{}", playlist_id))
@@ -839,7 +786,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn dashboard_update_forbidden() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
         let s = unique_suffix();
         let (_playlist_id, name) = seed_playlist(&state, &s).await;
 
@@ -851,13 +798,6 @@ mod tests {
                 .expect("Failed to find playlist");
             (row.0, name.clone())
         };
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::put()
             .uri(&format!("/dashboard/news_playlists/{}", playlist_id))
@@ -875,16 +815,9 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn dashboard_destroy_playlist() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
         let s = unique_suffix();
         let (playlist_id, name) = seed_playlist(&state, &s).await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::delete()
             .uri(&format!("/dashboard/news_playlists/{}", playlist_id))
@@ -904,16 +837,9 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn dashboard_destroy_forbidden() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
         let s = unique_suffix();
         let (playlist_id, name) = seed_playlist(&state, &s).await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::delete()
             .uri(&format!("/dashboard/news_playlists/{}", playlist_id))

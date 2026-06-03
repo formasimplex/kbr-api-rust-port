@@ -447,8 +447,8 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{admin_token, get_test_state, not_found_id, user_token};
-    use actix_web::{test, App};
+    use crate::test_utils::{admin_token, not_found_id, user_token};
+    use actix_web::test;
 
     async fn seed_news(state: &AppState, suffix: &str) -> i64 {
         let row = sqlx::query_as::<_, NewsRow>(
@@ -510,13 +510,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn news_index_returns_ok() {
         crate::test_utils::set_test_env();
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get().uri("/news").to_request();
         let resp = test::call_service(&app, req).await;
@@ -526,17 +520,10 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn news_show_found() {
         crate::test_utils::set_test_env();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
         let suffix = format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos());
         let news_id = seed_news(&state, &suffix).await;
         let title = format!("Test News {}", suffix);
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::get()
             .uri(&format!("/news/{}", news_id))
@@ -553,16 +540,9 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn news_show_not_found() {
         crate::test_utils::set_test_env();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
 
         let not_found = not_found_id(&state.db, "news").await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::get()
             .uri(&format!("/news/{}", not_found))
@@ -574,14 +554,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn news_create_valid_url() {
         crate::test_utils::set_test_env_jwt();
-
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
+        let (state, app) = crate::build_test_app!(config_routes);
 
         let suffix = format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos());
         let req = test::TestRequest::post()
@@ -604,14 +577,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn news_create_malicious_url() {
         crate::test_utils::set_test_env_jwt();
-
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/news")
@@ -627,18 +593,10 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn news_update_active() {
         crate::test_utils::set_test_env_jwt();
-
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
         let suffix = format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos());
         let news_id = seed_news(&state, &suffix).await;
         let title = format!("Test News {}", suffix);
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::put()
             .uri(&format!("/news/{}", news_id))
@@ -659,18 +617,10 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn news_update_forbidden() {
         crate::test_utils::set_test_env_jwt();
-
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
         let suffix = format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos());
         let news_id = seed_news(&state, &suffix).await;
         let title = format!("Test News {}", suffix);
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::put()
             .uri(&format!("/news/{}", news_id))
@@ -688,18 +638,10 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn news_toggle_comments() {
         crate::test_utils::set_test_env_jwt();
-
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
         let suffix = format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos());
         let news_id = seed_news(&state, &suffix).await;
         let title = format!("Test News {}", suffix);
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::post()
             .uri(&format!("/news/{}/toggle_comments", news_id))
@@ -717,20 +659,12 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn news_add_to_playlist() {
         crate::test_utils::set_test_env_jwt();
-
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
         let suffix = format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos());
         let news_id = seed_news(&state, &suffix).await;
         let news_title = format!("Test News {}", suffix);
         let playlist_id = seed_playlist(&state, &suffix).await;
         let playlist_name = format!("Test Playlist {}", suffix);
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::post()
             .uri("/news/add_to_playlist")
@@ -753,18 +687,10 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn news_create_duplicate_url_returns_409() {
         crate::test_utils::set_test_env_jwt();
-
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
         let suffix = format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos());
         let url = format!("https://example.com/dup-{}", suffix);
         let title = format!("Dup News {}", suffix);
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::post()
             .uri("/news")
@@ -798,20 +724,12 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn news_add_to_playlist_forbidden_wrong_owner() {
         crate::test_utils::set_test_env_jwt();
-
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
         let suffix = format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos());
         let news_id = seed_news(&state, &suffix).await;
         let news_title = format!("Test News {}", suffix);
         let playlist_id = seed_playlist(&state, &suffix).await;
         let playlist_name = format!("Test Playlist {}", suffix);
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::post()
             .uri("/news/add_to_playlist")
@@ -831,15 +749,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn news_add_to_playlist_news_not_found() {
         crate::test_utils::set_test_env_jwt();
-
-        let state = web::Data::new(get_test_state().await);
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/news/add_to_playlist")
@@ -856,20 +766,12 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn news_add_to_playlist_idempotent() {
         crate::test_utils::set_test_env_jwt();
-
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
         let suffix = format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos());
         let news_id = seed_news(&state, &suffix).await;
         let news_title = format!("Test News {}", suffix);
         let playlist_id = seed_playlist(&state, &suffix).await;
         let playlist_name = format!("Test Playlist {}", suffix);
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::post()
             .uri("/news/add_to_playlist")
