@@ -144,8 +144,8 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 mod tests {
     use super::*;
     use crate::auth::jwt::encode_token_with_role;
-    use crate::test_utils::{get_test_state, not_found_id, TEST_SECRET};
-    use actix_web::{App, test};
+    use crate::test_utils::{not_found_id, TEST_SECRET};
+    use actix_web::test;
 
    #[tokio::test(flavor = "current_thread")]
     async fn albums_index_returns_ok() {
@@ -160,7 +160,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn album_show_found() {
         crate::test_utils::set_test_env();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
 
         let seed = sqlx::query_as::<_, AlbumRow>(
             r"INSERT INTO albums (name, release_date, created_at, updated_at)
@@ -168,13 +168,6 @@ mod tests {
               RETURNING id, name, release_date, created_at, updated_at",
         )
         .fetch_one(&state.db)
-        .await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(get_test_state().await))
-                .configure(config_routes),
-        )
         .await;
 
         if let Ok(row) = seed {

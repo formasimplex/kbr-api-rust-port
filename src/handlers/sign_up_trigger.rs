@@ -175,7 +175,7 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 mod tests {
     use super::*;
     use crate::test_utils::get_test_state;
-    use actix_web::{test, App};
+    use actix_web::test;
 
     #[tokio::test(flavor = "current_thread")]
     async fn sign_up_trigger_create_success() {
@@ -217,7 +217,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn sign_up_trigger_create_artist_conflict_returns_403() {
         crate::test_utils::set_test_env();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
 
         let ts = chrono::Utc::now().timestamp_micros();
         let email = format!("artist_conflict_{}@example.com", ts);
@@ -245,13 +245,6 @@ mod tests {
         .fetch_one(&state.db)
         .await
         .expect("Failed to seed artist");
-
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(get_test_state().await))
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::post()
             .uri("/sign_up_trigger")
@@ -329,7 +322,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn sign_up_trigger_show_valid() {
         crate::test_utils::set_test_env();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
 
         let token = format!("rust_test_{}", chrono::Utc::now().timestamp_micros());
     let seed = sqlx::query_as::<_, SignUpTriggerRow>(
@@ -339,13 +332,6 @@ mod tests {
         )
         .bind(&token)
         .fetch_one(&state.db)
-        .await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(get_test_state().await))
-                .configure(config_routes),
-        )
         .await;
 
         if let Ok(_row) = seed {
@@ -379,7 +365,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn sign_up_trigger_show_expired_returns_404() {
         crate::test_utils::set_test_env();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
 
         let token = format!("expired_test_{}", chrono::Utc::now().timestamp_micros());
         let past = (chrono::Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
@@ -391,13 +377,6 @@ mod tests {
         .bind(&token)
         .bind(&past)
         .fetch_one(&state.db)
-        .await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(get_test_state().await))
-                .configure(config_routes),
-        )
         .await;
 
         let req = test::TestRequest::get()

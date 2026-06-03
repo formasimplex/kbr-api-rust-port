@@ -139,8 +139,8 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 mod tests {
     use super::*;
     use crate::auth::jwt::encode_token_with_role;
-    use crate::test_utils::{get_test_state, not_found_id, TEST_SECRET};
-    use actix_web::{test, App};
+    use crate::test_utils::{not_found_id, TEST_SECRET};
+    use actix_web::test;
 
     async fn seed_album_and_artist(pool: &sqlx::PgPool) -> (i64, i64) {
         let suffix = std::time::SystemTime::now()
@@ -186,7 +186,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn song_show_found() {
         crate::test_utils::set_test_env();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
         let (album_id, artist_id) = seed_album_and_artist(&state.db).await;
 
         let seed = sqlx::query_as::<_, SongRow>(
@@ -197,13 +197,6 @@ mod tests {
         .bind(album_id)
         .bind(artist_id)
         .fetch_one(&state.db)
-        .await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(get_test_state().await))
-                .configure(config_routes),
-        )
         .await;
 
         if let Ok(row) = seed {

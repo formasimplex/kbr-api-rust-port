@@ -351,8 +351,8 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{admin_token, get_test_state, not_found_id};
-    use actix_web::{test, App};
+    use crate::test_utils::{admin_token, not_found_id};
+    use actix_web::test;
 
     async fn seed_artist_and_producer(pool: &sqlx::PgPool) -> (i64, i64, String, String) {
         let suffix = std::time::SystemTime::now()
@@ -412,7 +412,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn merchandise_show_found() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
         let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
 
         let seed = sqlx::query_as::<_, ArtistMerchandiseRow>(
@@ -430,13 +430,6 @@ mod tests {
         .fetch_one(&state.db)
         .await
         .expect("Failed to seed merchandise");
-
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(get_test_state().await))
-                .configure(config_routes),
-        )
-        .await;
 
         let id = seed.id;
         let req = test::TestRequest::get()
@@ -473,7 +466,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn merchandise_by_artist() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
         let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
 
         let _ = sqlx::query(
@@ -483,13 +476,6 @@ mod tests {
         .bind(artist_id)
         .bind(producer_id)
         .execute(&state.db)
-        .await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(get_test_state().await))
-                .configure(config_routes),
-        )
         .await;
 
         let req = test::TestRequest::get()
@@ -699,15 +685,8 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn by_artist_returns_empty_when_no_merchandise() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
         let (artist_id, _producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(get_test_state().await))
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::get()
             .uri(&format!("/artist_merchandise/by_artist/{}", artist_id))
@@ -827,7 +806,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn merchandise_show_includes_shopify_json_cache() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
         let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
 
         let cache_json = serde_json::json!({
@@ -860,13 +839,6 @@ mod tests {
         .execute(&state.db)
         .await
         .expect("Failed to seed merchandise");
-
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(get_test_state().await))
-                .configure(config_routes),
-        )
-        .await;
 
         let merch_id_val: i64 = sqlx::query_scalar::<_, i64>(
             r"SELECT id FROM artist_merchandise WHERE merchandise_id = $1"
@@ -905,7 +877,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn merchandise_show_null_shopify_json_cache_when_missing() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
+        let (state, app) = crate::build_test_app!(config_routes);
         let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
 
         let id: i64 = sqlx::query_scalar::<_, i64>(
@@ -918,13 +890,6 @@ mod tests {
         .fetch_one(&state.db)
         .await
         .expect("Failed to seed merchandise");
-
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(get_test_state().await))
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::get()
             .uri(&format!("/artist_merchandise/{}", id))

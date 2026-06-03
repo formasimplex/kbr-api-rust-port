@@ -256,8 +256,8 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{admin_token, customer_token, get_test_state};
-    use actix_web::{test, App};
+    use crate::test_utils::{admin_token, customer_token};
+    use actix_web::test;
 
     async fn seed_comment(state: &AppState) -> i64 {
         let suffix = std::time::SystemTime::now()
@@ -304,15 +304,8 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn comment_show_found() {
         crate::test_utils::set_test_env_jwt();
-        let state = get_test_state().await;
+        let (state, app) = crate::build_test_app!(config_routes);
         let comment_id = seed_comment(&state).await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(state.clone()))
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::get()
             .uri(&format!("/comment/{}", comment_id))
@@ -330,13 +323,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn comment_show_not_found() {
         crate::test_utils::set_test_env_jwt();
-        let state = get_test_state().await;
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(state))
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/comment/99999999")
@@ -348,13 +335,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn comments_index_public() {
         crate::test_utils::set_test_env_jwt();
-        let state = get_test_state().await;
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(state))
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/comments")
@@ -366,13 +347,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn comment_create_authenticated() {
         crate::test_utils::set_test_env_jwt();
-        let state = get_test_state().await;
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(state.clone()))
-                .configure(config_routes),
-        )
-        .await;
+        let (state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/comments")
@@ -395,13 +370,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn comment_create_empty_content() {
         crate::test_utils::set_test_env_jwt();
-        let state = get_test_state().await;
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(state))
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/comments")
@@ -419,13 +388,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn comment_create_invalid_commentable_type() {
         crate::test_utils::set_test_env_jwt();
-        let state = get_test_state().await;
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(state))
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/comments")
@@ -443,15 +406,8 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn comment_create_reply() {
         crate::test_utils::set_test_env_jwt();
-        let state = get_test_state().await;
+        let (state, app) = crate::build_test_app!(config_routes);
         let parent_id = seed_comment(&state).await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(state.clone()))
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::post()
             .uri(&format!("/comments/{}", parent_id))
@@ -475,13 +431,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn comment_create_reply_empty_content() {
         crate::test_utils::set_test_env_jwt();
-        let state = get_test_state().await;
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(state))
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/comments/1")
