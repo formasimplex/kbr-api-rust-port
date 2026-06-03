@@ -322,23 +322,12 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 mod tests {
     use super::*;
     use crate::test_utils::{artist_token, user_token};
-    use actix_web::{test, App};
+    use actix_web::test;
 
     #[tokio::test(flavor = "current_thread")]
     async fn upload_forbidden_for_non_artist() {
         crate::test_utils::set_test_env_jwt();
-
-        let pool = sqlx::PgPool::connect(&crate::test_utils::test_db_url())
-            .await
-            .expect("Failed to connect to test database");
-        let state = web::Data::new(crate::test_utils::build_test_state(pool).await);
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let mut builder = actix_web::test::TestRequest::post()
             .uri("/storage/upload")
@@ -355,18 +344,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn upload_missing_file_field() {
         crate::test_utils::set_test_env_jwt();
-
-        let pool = sqlx::PgPool::connect(&crate::test_utils::test_db_url())
-            .await
-            .expect("Failed to connect to test database");
-        let state = web::Data::new(crate::test_utils::build_test_state(pool).await);
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let body = no_file_body();
 

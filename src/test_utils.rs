@@ -172,3 +172,21 @@ macro_rules! build_test_app {
         (state, app)
     }};
 }
+
+/// Build test app with dual app_data: AppState + cookie builder.
+/// Used by auth tests that need cookie-based session handling.
+#[macro_export]
+macro_rules! build_test_app_with_cookies {
+    ($routes:expr) => {{
+        let state = actix_web::web::Data::new(crate::test_utils::get_test_state().await);
+        let cookie_builder = state.cookie_builder.clone();
+        let app = actix_web::test::init_service(
+            actix_web::App::new()
+                .app_data(state.clone())
+                .app_data(actix_web::web::Data::new(cookie_builder))
+                .configure($routes),
+        )
+        .await;
+        (state, app)
+    }};
+}

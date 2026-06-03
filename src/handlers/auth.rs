@@ -289,8 +289,8 @@ pub async fn logout(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{TEST_SECRET, get_test_state};
-    use actix_web::{test, App};
+    use crate::test_utils::TEST_SECRET;
+    use actix_web::test;
 
     async fn seed_test_user(state: &AppState, email: &str, password: &str, role: &str) -> i64 {
         let password_digest = auth_service::hash_password(password).unwrap();
@@ -323,23 +323,13 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn login_success_with_valid_credentials() {
         crate::test_utils::set_test_env_jwt();
-        let state = get_test_state().await;
+        let (state, app) = crate::build_test_app_with_cookies!(config_routes);
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_millis();
         let email = format!("loginadmin{}@example.com", ts);
         seed_test_user(&state, &email, "correctpassword", "admin").await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(get_test_state().await))
-                .app_data(web::Data::new(
-                    get_test_state().await.cookie_builder.clone()
-                ))
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::post()
             .uri("/login")
@@ -360,13 +350,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn login_fails_with_invalid_email() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/login")
@@ -384,20 +368,13 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn login_fails_with_wrong_password() {
         crate::test_utils::set_test_env_jwt();
-        let state = get_test_state().await;
+        let (state, app) = crate::build_test_app!(config_routes);
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_millis();
         let email = format!("loginwrong{}@example.com", ts);
         seed_test_user(&state, &email, "userpassword123", "user").await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(get_test_state().await))
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::post()
             .uri("/login")
@@ -417,7 +394,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn session_returns_fresh_token() {
         crate::test_utils::set_test_env_jwt();
-        let state = get_test_state().await;
+        let (state, app) = crate::build_test_app_with_cookies!(config_routes);
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -425,16 +402,6 @@ mod tests {
         let email = format!("session{}@example.com", ts);
         let user_id = seed_test_user(&state, &email, "password123", "admin").await;
         let token = crate::auth::jwt::encode_token_with_role(user_id, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap();
-
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(get_test_state().await))
-                .app_data(web::Data::new(
-                    get_test_state().await.cookie_builder.clone()
-                ))
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::get()
             .uri("/session")
@@ -453,13 +420,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn session_rejects_without_token() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/session")
@@ -488,7 +449,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn logout_success() {
         crate::test_utils::set_test_env_jwt();
-        let state = get_test_state().await;
+        let (state, app) = crate::build_test_app_with_cookies!(config_routes);
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -496,16 +457,6 @@ mod tests {
         let email = format!("logout{}@example.com", ts);
         let user_id = seed_test_user(&state, &email, "password123", "user").await;
         let token = crate::auth::jwt::encode_token_with_role(user_id, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
-
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(get_test_state().await))
-                .app_data(web::Data::new(
-                    get_test_state().await.cookie_builder.clone()
-                ))
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::post()
             .uri("/logout")
@@ -522,13 +473,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn logout_rejects_without_token() {
         crate::test_utils::set_test_env_jwt();
-        let state = web::Data::new(get_test_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let (_state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/logout")
@@ -540,7 +485,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn logout_prevents_further_session_requests() {
         crate::test_utils::set_test_env_jwt();
-        let state = get_test_state().await;
+        let (state, app) = crate::build_test_app_with_cookies!(config_routes);
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -548,16 +493,6 @@ mod tests {
         let email = format!("logoutsession{}@example.com", ts);
         let user_id = seed_test_user(&state, &email, "password123", "user").await;
         let token = crate::auth::jwt::encode_token_with_role(user_id, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
-
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(get_test_state().await))
-                .app_data(web::Data::new(
-                    get_test_state().await.cookie_builder.clone()
-                ))
-                .configure(config_routes),
-        )
-        .await;
 
         // Logout first
         let req = test::TestRequest::post()
@@ -581,7 +516,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn logout_idempotent() {
         crate::test_utils::set_test_env_jwt();
-        let state = get_test_state().await;
+        let (state, app) = crate::build_test_app_with_cookies!(config_routes);
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -589,16 +524,6 @@ mod tests {
         let email = format!("logoutidempotent{}@example.com", ts);
         let user_id = seed_test_user(&state, &email, "password123", "user").await;
         let token = crate::auth::jwt::encode_token_with_role(user_id, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
-
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(get_test_state().await))
-                .app_data(web::Data::new(
-                    get_test_state().await.cookie_builder.clone()
-                ))
-                .configure(config_routes),
-        )
-        .await;
 
         // First logout
         let req = test::TestRequest::post()
@@ -623,7 +548,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn logout_invalidates_all_sessions_for_user() {
         crate::test_utils::set_test_env_jwt();
-        let state = get_test_state().await;
+        let (state, app) = crate::build_test_app_with_cookies!(config_routes);
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -632,16 +557,6 @@ mod tests {
         let user_id = seed_test_user(&state, &email, "password123", "user").await;
         let token1 = crate::auth::jwt::encode_token_with_role(user_id, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
         let token2 = crate::auth::jwt::encode_token_with_role(user_id, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
-
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(get_test_state().await))
-                .app_data(web::Data::new(
-                    get_test_state().await.cookie_builder.clone()
-                ))
-                .configure(config_routes),
-        )
-        .await;
 
         // Logout with token1
         let req = test::TestRequest::post()

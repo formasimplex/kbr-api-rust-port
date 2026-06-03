@@ -338,8 +338,8 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 mod tests {
     use super::*;
 use crate::auth::jwt::encode_token_with_role;
-     use crate::test_utils::{admin_token, get_test_state, not_found_id, user_token, unique_suffix, TEST_SECRET};
-    use actix_web::{App, test};
+     use crate::test_utils::{admin_token, not_found_id, user_token, unique_suffix, TEST_SECRET};
+    use actix_web::test;
 
     async fn seed_test_user(state: &AppState, email: &str, role: &str) -> i64 {
         let password_digest = UserService::hash_password_for_create(&CreateUserRequest {
@@ -799,22 +799,15 @@ use crate::auth::jwt::encode_token_with_role;
     #[tokio::test(flavor = "current_thread")]
     async fn password_change_revokes_old_tokens() {
         crate::test_utils::set_test_env_jwt();
-        let state_data = web::Data::new(get_test_state().await);
+        fn auth_and_users_routes(cfg: &mut actix_web::web::ServiceConfig) {
+            cfg.configure(crate::handlers::auth::config_routes)
+               .configure(config_routes);
+        }
+        let (state_data, app) = crate::build_test_app_with_cookies!(auth_and_users_routes);
         let ts = unique_suffix();
         let email = format!("pwdchange{}@example.com", ts);
         let user_id = seed_test_user(&state_data, &email, "user").await;
         let old_token = encode_token_with_role(user_id, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state_data.clone())
-                .app_data(web::Data::new(
-                    state_data.cookie_builder.clone()
-                ))
-                .configure(crate::handlers::auth::config_routes)
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::put()
             .uri(&format!("/user/{}", user_id))
