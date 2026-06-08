@@ -139,7 +139,8 @@ pub async fn create(
     }
     if !User::validate_password(&body.password) {
         return Err(AppError::Validation(
-            "Password must be at least 8 characters with uppercase, lowercase, and a digit".to_string(),
+            "Password must be at least 8 characters with uppercase, lowercase, and a digit"
+                .to_string(),
         ));
     }
     if body.token.is_none() || body.token.as_ref().unwrap().is_empty() {
@@ -152,7 +153,7 @@ pub async fn create(
 
     let token = body.token.as_ref().unwrap();
     let trigger = sqlx::query_as::<_, (Option<String>, Option<String>)>(
-        r"SELECT email, expires_at FROM sign_up_triggers WHERE token = $1 FOR UPDATE"
+        r"SELECT email, expires_at FROM sign_up_triggers WHERE token = $1 FOR UPDATE",
     )
     .bind(token)
     .fetch_optional(&mut *tx)
@@ -181,18 +182,15 @@ pub async fn create(
             }
         }
         None => {
-            return Err(AppError::Validation(
-                "Invalid sign-up token".to_string(),
-            ));
+            return Err(AppError::Validation("Invalid sign-up token".to_string()));
         }
     }
 
-    let email_exists: bool = sqlx::query_scalar(
-        r"SELECT EXISTS(SELECT 1 FROM users WHERE email = $1)"
-    )
-    .bind(&normalized_email)
-    .fetch_one(&mut *tx)
-    .await?;
+    let email_exists: bool =
+        sqlx::query_scalar(r"SELECT EXISTS(SELECT 1 FROM users WHERE email = $1)")
+            .bind(&normalized_email)
+            .fetch_one(&mut *tx)
+            .await?;
 
     if email_exists {
         return Err(AppError::Conflict(
@@ -226,7 +224,7 @@ pub async fn create(
 
     let now_str = chrono::Utc::now().to_rfc3339();
     let _ = sqlx::query(
-        r"UPDATE sign_up_triggers SET expires_at = $1, updated_at = $2 WHERE email = $3"
+        r"UPDATE sign_up_triggers SET expires_at = $1, updated_at = $2 WHERE email = $3",
     )
     .bind(&now_str)
     .bind(now)
@@ -379,7 +377,7 @@ use crate::auth::jwt::encode_token_with_role;
         let now = chrono::Utc::now().naive_utc();
         sqlx::query_scalar(
             r"INSERT INTO sign_up_triggers (email, token, expires_at, role, created_at, updated_at)
-               VALUES ($1, $2, $3, 'user', $4, $4) RETURNING id"
+               VALUES ($1, $2, $3, 'user', $4, $4) RETURNING id",
         )
         .bind(email)
         .bind(token)
@@ -544,13 +542,12 @@ use crate::auth::jwt::encode_token_with_role;
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 201);
 
-        let expired: Option<String> = sqlx::query_scalar(
-            r"SELECT expires_at FROM sign_up_triggers WHERE id = $1"
-        )
-        .bind(trigger_id)
-        .fetch_one(&state.db)
-        .await
-        .expect("Failed to check trigger");
+        let expired: Option<String> =
+            sqlx::query_scalar(r"SELECT expires_at FROM sign_up_triggers WHERE id = $1")
+                .bind(trigger_id)
+                .fetch_one(&state.db)
+                .await
+                .expect("Failed to check trigger");
 
         assert!(
             crate::models::sign_up_trigger::SignUpTrigger::parse_expires_at_for_test(
@@ -807,7 +804,8 @@ use crate::auth::jwt::encode_token_with_role;
         let ts = unique_suffix();
         let email = format!("pwdchange{}@example.com", ts);
         let user_id = seed_test_user(&state_data, &email, "user").await;
-        let old_token = encode_token_with_role(user_id, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
+        let old_token =
+            encode_token_with_role(user_id, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
 
         let req = test::TestRequest::put()
             .uri(&format!("/user/{}", user_id))
