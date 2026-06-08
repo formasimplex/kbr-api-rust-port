@@ -486,6 +486,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn test_verify_signature_tampered() {
+        let _env = ENV_MUTEX.lock().unwrap();
         unsafe {
             std::env::set_var("GITHUB_WEBHOOK_SECRET", "my-secret");
         }
@@ -507,6 +508,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn test_verify_signature_missing_prefix() {
+        let _env = ENV_MUTEX.lock().unwrap();
         unsafe {
             std::env::set_var("GITHUB_WEBHOOK_SECRET", "my-secret");
         }
@@ -520,6 +522,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn test_verify_signature_no_secret() {
+        let _env = ENV_MUTEX.lock().unwrap();
         unsafe {
             std::env::remove_var("GITHUB_WEBHOOK_SECRET");
         }
