@@ -20,10 +20,18 @@ pub async fn setup_web_server() -> std::io::Result<Server> {
         std::io::Error::other(e.to_string())
     })?;
 
-    crate::db::migrate::run_migrations(&pool).await.map_err(|e| {
-        tracing::error!("Failed to run database migrations: {}", e);
+    crate::db::migrate::ensure_schema(&pool).await.map_err(|e| {
+        tracing::error!("Schema health check failed: {}", e);
         std::io::Error::other(e.to_string())
     })?;
+
+    // Auto-migrate is opt-in via KBR_AUTO_MIGRATE env var
+    if std::env::var("KBR_AUTO_MIGRATE").is_ok() {
+        crate::db::migrate::run_migrations(&pool).await.map_err(|e| {
+            tracing::error!("Failed to run database migrations: {}", e);
+            std::io::Error::other(e.to_string())
+        })?;
+    }
 
     let s3_config = S3Config::from_env().map_err(|e| {
         tracing::error!("Failed to load S3 config: {}", e);
