@@ -22,6 +22,15 @@ Total estimated savings: ~2,838 lines across Low + Mid effort phases.
 - [x] **M9: `seed_user()` / `cleanup_user()` generics** — added to `test_utils`; full module migration deferred (varying signatures require per-module analysis)
 - [x] **M10: `build_test_app!` macro** — macro wraps `init_service` boilerplate; ALL 206+ calls migrated across 27 handler test modules; `build_test_app_with_cookies!` variant for dual app_data pattern
 
+## Migration Infrastructure
+
+- [x] **Migration tool** — sqlx::migrate with versioned migrations, kbr-migrate CLI binary
+  - `migrate` — run pending migrations
+  - `rollback [N]` — undo last N migrations
+  - `status` — show applied/pending
+  - `check` — health check (exit 0/1)
+  - Health check on server startup, auto-migrate opt-in via `KBR_AUTO_MIGRATE`
+
 ## High Effort (Architectural)
 
 - [ ] **H11: Shared `PgPool` via `LazyLock`** — single static pool, eliminates ~400 connections
