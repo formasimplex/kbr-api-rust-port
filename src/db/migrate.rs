@@ -6,9 +6,13 @@ use crate::error::AppError;
 /// Create a migrator from the migrations/ directory.
 /// File I/O is cached by the OS, so this is fast on repeated calls.
 async fn get_migrator() -> Migrator {
-    Migrator::new(Path::new("migrations"))
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let migrations_dir = format!("{}/migrations", manifest_dir);
+    let mut migrator = Migrator::new(Path::new(&migrations_dir))
         .await
-        .expect("Failed to load migrations")
+        .expect("Failed to load migrations");
+    migrator.set_locking(false);
+    migrator
 }
 
 /// Run all pending migrations.
@@ -62,11 +66,41 @@ pub struct PendingMigration {
     pub description: String,
 }
 
-/// Query applied migrations from the sqlx_migrations table.
+/// Information about an applied migration.
+#[derive(Debug)]
+pub struct AppliedMigrationStatus {
+    pub version: i64,
+    pub description: String,
+}
+
+/// Get the status of applied migrations (for the status command).
+pub async fn get_applied_migrations_status(
+    pool: &PgPool,
+) -> Result<Vec<AppliedMigrationStatus>, AppError> {
+    let migrations = sqlx::query(
+        r#"
+        SELECT version, description FROM _sqlx_migrations
+        ORDER BY version ASC
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| AppError::MigrationFailed(e.to_string()))?;
+
+    Ok(migrations
+        .into_iter()
+        .map(|r| AppliedMigrationStatus {
+            version: r.try_get("version").unwrap_or(0_i64),
+            description: r.try_get("description").unwrap_or_default(),
+        })
+        .collect())
+}
+
+/// Query applied migrations from the _sqlx_migrations table.
 async fn get_applied_migrations(pool: &PgPool) -> Result<Vec<AppliedMigration>, AppError> {
     let migrations = sqlx::query(
         r#"
-        SELECT version, description, dirty FROM sqlx_migrations
+        SELECT version, description FROM _sqlx_migrations
         ORDER BY version ASC
         "#,
     )
@@ -79,7 +113,6 @@ async fn get_applied_migrations(pool: &PgPool) -> Result<Vec<AppliedMigration>, 
         .map(|r| AppliedMigration {
             version: r.try_get("version").unwrap_or(0_i64),
             description: r.try_get("description").unwrap_or_default(),
-            dirty: r.try_get("dirty").unwrap_or(false),
         })
         .collect())
 }
@@ -88,7 +121,6 @@ async fn get_applied_migrations(pool: &PgPool) -> Result<Vec<AppliedMigration>, 
 struct AppliedMigration {
     version: i64,
     description: String,
-    dirty: bool,
 }
 
 /// Check migration health — returns list of pending migrations.
