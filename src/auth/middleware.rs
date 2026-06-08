@@ -247,9 +247,11 @@ mod tests {
     use sqlx::PgPool;
 
     async fn get_pool() -> PgPool {
-        PgPool::connect(&crate::test_utils::test_db_url())
+        let pool = PgPool::connect(&crate::test_utils::test_db_url())
             .await
-            .expect("Failed to connect to test database")
+            .expect("Failed to connect to test database");
+        let _ = crate::db::migrate::run_migrations(&pool).await;
+        pool
     }
 
     #[tokio::test(flavor = "current_thread")]

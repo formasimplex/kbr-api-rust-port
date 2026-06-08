@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::OnceLock;
 
 use actix_web::{test, web, App};
 
@@ -114,8 +115,19 @@ pub async fn get_test_state() -> AppState {
     build_test_state(pool).await
 }
 
+/// Run test migrations once per process. Idempotent schema.sql ensures safety.
+static TEST_MIGRATED: OnceLock<()> = OnceLock::new();
+
+async fn ensure_migrations(pool: &PgPool) {
+    if TEST_MIGRATED.get().is_none() {
+        let _ = crate::db::migrate::run_migrations(pool).await;
+        TEST_MIGRATED.set(());
+    }
+}
+
 /// Build a test AppState with the given pool.
 pub async fn build_test_state(pool: PgPool) -> AppState {
+    ensure_migrations(&pool).await;
     let config = S3Config::from_env().unwrap_or_else(|_| S3Config {
         access_key: "test".to_string(),
         secret_key: "test".to_string(),
