@@ -56,6 +56,12 @@ pub enum AppError {
 
     #[error("Email error: {0}")]
     Email(String),
+
+    #[error("migration failed: {0}")]
+    MigrationFailed(String),
+
+    #[error("schema out of sync: {0} migration(s) pending. {1}")]
+    SchemaOutOfSync(usize, String),
 }
 
 impl actix_web::ResponseError for AppError {
@@ -79,6 +85,8 @@ impl actix_web::ResponseError for AppError {
             Self::Mailchimp(_) => StatusCode::BAD_GATEWAY,
             Self::SafeBrowsing(_) => StatusCode::BAD_GATEWAY,
             Self::Email(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            Self::MigrationFailed(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            Self::SchemaOutOfSync(_, _) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 

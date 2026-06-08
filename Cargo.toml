@@ -8,6 +8,10 @@ name = "kbr-api-rust"
 path = "src/main.rs"
 
 [[bin]]
+name = "kbr-migrate"
+path = "src/bin/kbr_migrate.rs"
+
+[[bin]]
 name = "deploy_webhook"
 path = "src/bin/deploy_webhook.rs"
 
@@ -22,7 +26,7 @@ actix-web = "4.12.1"
 chrono = { version = "0.4.43", features = ["serde"] }
 dotenvy = "0.15.7"
 serde_json = "1.0.149"
-sqlx = { version = "0.8.6", features = ["runtime-tokio", "postgres", "uuid", "macros", "chrono", "json"] }
+sqlx = { version = "0.8.6", features = ["runtime-tokio", "postgres", "uuid", "macros", "chrono", "json", "migrate"] }
 thiserror = "2.0.17"
 tokio = { version = "1.49.0", features = ["full"] }
 uuid = { version = "1.19.0", features = ["serde", "v4"] }
