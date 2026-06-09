@@ -1,10 +1,9 @@
 //! Test utilities for building AppState in handler tests.
 
+use std::fmt;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::OnceLock;
-
-use actix_web::{test, web, App};
 
 use sqlx::PgPool;
 
@@ -62,6 +61,85 @@ pub async fn not_found_id(pool: &PgPool, table: &str) -> i64 {
     id + 9999
 }
 
+/// Truncate all user tables in the test database.
+/// Queries information_schema for tables in the public schema,
+/// then runs TRUNCATE ... CASCADE to clear all data.
+/// Retries on deadlock (40P01) as other connections may hold locks.
+pub async fn truncate_all(pool: &PgPool) {
+    let tables: Vec<String> = sqlx::query_scalar(
+        r"SELECT table_name FROM information_schema.tables
+           WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+           ORDER BY table_name",
+    )
+    .fetch_all(pool)
+    .await
+    .expect("Failed to query tables for truncation");
+
+    if tables.is_empty() {
+        return;
+    }
+
+    let table_list = tables.join(", ");
+    for attempt in 0..5 {
+        match sqlx::query(&format!(r"TRUNCATE TABLE {} CASCADE", table_list))
+            .execute(pool)
+            .await
+        {
+            Ok(_) => return,
+            Err(e) if e.as_database_error().map(|e| e.code().as_deref() == Some("40P01")).unwrap_or(false) => {
+                // Deadlock detected — wait and retry
+                tokio::time::sleep(std::time::Duration::from_millis(50 * (attempt as u64 + 1))).await;
+            }
+            Err(e) => panic!("Failed to truncate tables: {e}"),
+        }
+    }
+    panic!("Failed to truncate tables after 5 retries (deadlock)");
+}
+
+/// Global mutex that serializes all database-backed tests.
+/// Each TestGuard acquires this lock for its entire lifetime,
+/// preventing any other test from running concurrently.
+static TEST_MUTEX: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+
+/// Guard that serializes and isolates database-backed tests.
+/// Acquires a global mutex on creation (no other test can run concurrently),
+/// truncates all tables, holds the lock until cleanup, then truncates again.
+///
+/// # Usage
+/// ```ignore
+/// let guard = TestGuard::new(&state.db).await;
+/// // ... seed data, run tests ...
+/// guard.cleanup().await;
+/// ```
+pub struct TestGuard {
+    pool: PgPool,
+    _lock: tokio::sync::MutexGuard<'static, ()>,
+}
+
+impl TestGuard {
+    /// Acquire the global test mutex, truncate all tables, and return the guard.
+    pub async fn new(pool: &PgPool) -> Self {
+        let mutex = TEST_MUTEX.get_or_init(|| tokio::sync::Mutex::new(()));
+        let lock = mutex.lock().await;
+        truncate_all(pool).await;
+        Self {
+            pool: pool.clone(),
+            _lock: lock,
+        }
+    }
+
+    pub async fn cleanup(self) {
+        truncate_all(&self.pool).await;
+        // _lock is dropped when self is dropped, releasing the mutex
+    }
+}
+
+impl fmt::Debug for TestGuard {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TestGuard").finish()
+    }
+}
+
 /// Seed a test user with a given email and role.
 /// Uses a dummy password digest (not suitable for auth tests that need real hashing).
 /// Returns the inserted user's ID.
@@ -78,6 +156,24 @@ pub async fn seed_user(pool: &PgPool, email: &str, role: &str) -> i64 {
     .fetch_one(pool)
     .await
     .expect("Failed to seed user")
+}
+
+/// Seed a user with a specific ID. Useful when tests use JWTs with hardcoded
+/// user IDs (e.g., admin_token = user_id 1). Idempotent via ON CONFLICT.
+pub async fn seed_user_with_id(pool: &PgPool, id: i64, email: &str, role: &str) -> i64 {
+    let now = chrono::Utc::now().naive_utc();
+    let _ = sqlx::query(
+        r"INSERT INTO users (id, email, password_digest, role, created_at, updated_at)
+           VALUES ($1, $2, '$2b$12$test', $3, $4, $4)
+           ON CONFLICT (id) DO NOTHING"
+    )
+    .bind(id)
+    .bind(email)
+    .bind(role)
+    .bind(&now)
+    .execute(pool)
+    .await;
+    id
 }
 
 /// Delete a test user by email.
@@ -108,8 +204,11 @@ pub fn set_test_env_jwt() {
 }
 
 /// Connect to the test database and build a full AppState.
+/// Uses a single-connection pool to eliminate concurrent connection issues.
 pub async fn get_test_state() -> AppState {
-    let pool = sqlx::PgPool::connect(&test_db_url())
+    let pool = sqlx::pool::PoolOptions::new()
+        .max_connections(1)
+        .connect(&test_db_url())
         .await
         .expect("Failed to connect to test database");
     build_test_state(pool).await
@@ -163,34 +262,38 @@ pub async fn build_test_state(pool: PgPool) -> AppState {
 }
 
 /// Build a test app with the given route configuration.
-/// Expands to: create state + init_service, returns (state, app).
+/// Expands to: create state + init_service, returns (guard, state, app).
+/// The guard auto-truncates on creation and provides cleanup on drop.
 ///
 /// # Example
 /// ```ignore
-/// let (state, app) = build_test_app!(config_routes);
-/// let req = test::TestRequest::get().uri("/test").to_request();
-/// let resp = test::call_service(&app, req).await;
+/// let (guard, state, app) = build_test_app!(config_routes);
+/// // ... seed data, run tests ...
+/// guard.cleanup().await;
 /// ```
 #[macro_export]
 macro_rules! build_test_app {
     ($routes:expr) => {{
         let state = actix_web::web::Data::new(crate::test_utils::get_test_state().await);
+        let guard = crate::test_utils::TestGuard::new(&state.db).await;
         let app = actix_web::test::init_service(
             actix_web::App::new()
                 .app_data(state.clone())
                 .configure($routes),
         )
         .await;
-        (state, app)
+        (guard, state, app)
     }};
 }
 
 /// Build test app with dual app_data: AppState + cookie builder.
 /// Used by auth tests that need cookie-based session handling.
+/// Returns (guard, state, app).
 #[macro_export]
 macro_rules! build_test_app_with_cookies {
     ($routes:expr) => {{
         let state = actix_web::web::Data::new(crate::test_utils::get_test_state().await);
+        let guard = crate::test_utils::TestGuard::new(&state.db).await;
         let cookie_builder = state.cookie_builder.clone();
         let app = actix_web::test::init_service(
             actix_web::App::new()
@@ -199,6 +302,6 @@ macro_rules! build_test_app_with_cookies {
                 .configure($routes),
         )
         .await;
-        (state, app)
+        (guard, state, app)
     }};
 }

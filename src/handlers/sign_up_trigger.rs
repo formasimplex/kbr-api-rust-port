@@ -180,7 +180,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn sign_up_trigger_create_success() {
         crate::test_utils::set_test_env();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/sign_up_trigger")
@@ -194,15 +194,13 @@ mod tests {
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert_eq!(body["email"], "invited@example.com");
 
-        let _ = sqlx::query(r"DELETE FROM sign_up_triggers WHERE email = 'invited@example.com'")
-            .execute(&state.db)
-            .await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn sign_up_trigger_create_invalid_email() {
         crate::test_utils::set_test_env();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/sign_up_trigger")
@@ -212,12 +210,14 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 422);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn sign_up_trigger_create_artist_conflict_returns_403() {
         crate::test_utils::set_test_env();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let ts = chrono::Utc::now().timestamp_micros();
         let email = format!("artist_conflict_{}@example.com", ts);
@@ -256,20 +256,13 @@ mod tests {
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 403);
 
-        let _ = sqlx::query(r"DELETE FROM artists WHERE user_id = $1")
-            .bind(user_id)
-            .execute(&state.db)
-            .await;
-        let _ = sqlx::query(r"DELETE FROM users WHERE id = $1")
-            .bind(user_id)
-            .execute(&state.db)
-            .await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn sign_up_trigger_create_expires_existing_trigger() {
         crate::test_utils::set_test_env();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let ts = chrono::Utc::now().timestamp_micros();
         let email = format!("existing_trigger_{}@example.com", ts);
 
@@ -313,16 +306,13 @@ mod tests {
             "Old trigger should be expired"
         );
 
-        let _ = sqlx::query(r"DELETE FROM sign_up_triggers WHERE email = $1")
-            .bind(&email)
-            .execute(&state.db)
-            .await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn sign_up_trigger_show_valid() {
         crate::test_utils::set_test_env();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let token = format!("rust_test_{}", chrono::Utc::now().timestamp_micros());
     let seed = sqlx::query_as::<_, SignUpTriggerRow>(
@@ -343,29 +333,29 @@ mod tests {
 
             let body: serde_json::Value = test::read_body_json(resp).await;
             assert_eq!(body["email"], "showtest@example.com");
-
-            let _ = sqlx::query(r"DELETE FROM sign_up_triggers WHERE email = 'showtest@example.com'")
-                .execute(&state.db)
-                .await;
         }
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn sign_up_trigger_show_not_found() {
         crate::test_utils::set_test_env();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/sign_up_trigger/nonexistent-token-xyz")
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn sign_up_trigger_show_expired_returns_404() {
         crate::test_utils::set_test_env();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let token = format!("expired_test_{}", chrono::Utc::now().timestamp_micros());
         let past = (chrono::Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
@@ -385,8 +375,6 @@ mod tests {
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
 
-        let _ = sqlx::query(r"DELETE FROM sign_up_triggers WHERE email = 'expired@example.com'")
-            .execute(&state.db)
-            .await;
+        _guard.cleanup().await;
     }
 }

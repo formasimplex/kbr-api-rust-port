@@ -164,7 +164,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn producers_index_authenticated() {
         crate::test_utils::set_test_env_jwt();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/producers")
@@ -172,12 +172,14 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn producer_create_success() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let suffix = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -198,15 +200,13 @@ mod tests {
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert_eq!(status, 201, "Expected 201, got {}: {:?}", status, body);
 
-        let _ = sqlx::query(&format!(r"DELETE FROM producers WHERE producer_name = '{}'", name))
-            .execute(&state.db)
-            .await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn producer_create_empty_name() {
         crate::test_utils::set_test_env_jwt();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/producers")
@@ -217,12 +217,14 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 422);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn producer_update_success() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let suffix = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -256,15 +258,13 @@ mod tests {
         assert_eq!(body["producer_name"], new_name);
         assert_eq!(body["description"], "Updated desc");
 
-        let _ = sqlx::query(&format!(r"DELETE FROM producers WHERE id = {}", id))
-            .execute(&state.db)
-            .await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn producer_update_not_found() {
         crate::test_utils::set_test_env_jwt();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::put()
             .uri("/producers/99999999")
@@ -275,5 +275,7 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
+
+        _guard.cleanup().await;
     }
 }

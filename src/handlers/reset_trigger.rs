@@ -248,7 +248,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn reset_trigger_create_returns_generic_response() {
         crate::test_utils::set_test_env();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let email = format!("reset_create_{}@example.com", chrono::Utc::now().timestamp_micros());
 
@@ -264,15 +264,13 @@ mod tests {
         assert!(body["message"].is_string());
         assert!(!body["message"].as_str().unwrap().contains("token"));
 
-        let _ = sqlx::query(r"DELETE FROM reset_triggers WHERE user_id IS NOT NULL")
-            .execute(&state.db)
-            .await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn reset_trigger_create_nonexistent_email_returns_same_response() {
         crate::test_utils::set_test_env();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let nonexistent = format!("nonexistent_{}@example.com", chrono::Utc::now().timestamp_micros());
 
@@ -287,15 +285,13 @@ mod tests {
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert!(body["message"].is_string());
 
-        let _ = sqlx::query(r"DELETE FROM reset_triggers WHERE user_id IS NULL")
-            .execute(&state.db)
-            .await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn reset_trigger_create_invalid_email() {
         crate::test_utils::set_test_env();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/reset_trigger")
@@ -305,12 +301,14 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 422);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn reset_trigger_update_success() {
         crate::test_utils::set_test_env();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let email = format!("reset_upd_{}@example.com", chrono::Utc::now().timestamp_micros());
         let old_hash = hash_password("oldpassword").unwrap();
@@ -354,20 +352,13 @@ mod tests {
         .expect("User not found");
         assert_ne!(old_hash, new_hash, "Password should have been updated");
 
-        let _ = sqlx::query(r"DELETE FROM reset_triggers WHERE token = $1")
-            .bind(&token)
-            .execute(&state.db)
-            .await;
-        let _ = sqlx::query(r"DELETE FROM users WHERE id = $1")
-            .bind(user_id)
-            .execute(&state.db)
-            .await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn reset_trigger_update_password_mismatch() {
         crate::test_utils::set_test_env();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let email = format!("reset_mm_{}@example.com", chrono::Utc::now().timestamp_micros());
         let old_hash = hash_password("oldpassword").unwrap();
@@ -411,20 +402,13 @@ mod tests {
         .expect("User not found");
         assert_eq!(old_hash, original_hash, "Password should NOT have changed");
 
-        let _ = sqlx::query(r"DELETE FROM reset_triggers WHERE token = $1")
-            .bind(&token)
-            .execute(&state.db)
-            .await;
-        let _ = sqlx::query(r"DELETE FROM users WHERE id = $1")
-            .bind(user_id)
-            .execute(&state.db)
-            .await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn reset_trigger_update_short_password() {
         crate::test_utils::set_test_env();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let email = format!("reset_sp_{}@example.com", chrono::Utc::now().timestamp_micros());
         let old_hash = hash_password("oldpassword").unwrap();
@@ -468,20 +452,13 @@ mod tests {
         .expect("User not found");
         assert_eq!(old_hash, original_hash, "Password should NOT have changed for invalid input");
 
-        let _ = sqlx::query(r"DELETE FROM reset_triggers WHERE token = $1")
-            .bind(&token)
-            .execute(&state.db)
-            .await;
-        let _ = sqlx::query(r"DELETE FROM users WHERE id = $1")
-            .bind(user_id)
-            .execute(&state.db)
-            .await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn reset_trigger_update_same_password_rejected() {
         crate::test_utils::set_test_env();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let email = format!("reset_same_{}@example.com", chrono::Utc::now().timestamp_micros());
         let current_password = "Currentpass1";
@@ -526,20 +503,13 @@ mod tests {
         .expect("User not found");
         assert_eq!(old_hash, stored_hash, "Password should NOT have changed");
 
-        let _ = sqlx::query(r"DELETE FROM reset_triggers WHERE token = $1")
-            .bind(&token)
-            .execute(&state.db)
-            .await;
-        let _ = sqlx::query(r"DELETE FROM users WHERE id = $1")
-            .bind(user_id)
-            .execute(&state.db)
-            .await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn reset_trigger_update_no_user() {
         crate::test_utils::set_test_env();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let token = format!("rust_reset_nu_{}", chrono::Utc::now().timestamp_micros());
         sqlx::query(
@@ -561,16 +531,13 @@ mod tests {
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
 
-        let _ = sqlx::query(r"DELETE FROM reset_triggers WHERE token = $1")
-            .bind(&token)
-            .execute(&state.db)
-            .await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn reset_trigger_update_expired_token_rejected() {
         crate::test_utils::set_test_env();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let email = format!("reset_exp_{}@example.com", chrono::Utc::now().timestamp_micros());
         let old_hash = hash_password("oldpassword").unwrap();
@@ -616,20 +583,13 @@ mod tests {
         .expect("User not found");
         assert_eq!(old_hash, new_hash, "Password should NOT have changed for expired token");
 
-        let _ = sqlx::query(r"DELETE FROM reset_triggers WHERE token = $1")
-            .bind(&token)
-            .execute(&state.db)
-            .await;
-        let _ = sqlx::query(r"DELETE FROM users WHERE id = $1")
-            .bind(user_id)
-            .execute(&state.db)
-            .await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn reset_trigger_update_token_consumed_once() {
         crate::test_utils::set_test_env();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let email = format!("reset_once_{}@example.com", chrono::Utc::now().timestamp_micros());
         let old_hash = hash_password("oldpassword").unwrap();
@@ -674,13 +634,6 @@ mod tests {
         let resp2 = test::call_service(&app, req2).await;
         assert_eq!(resp2.status(), 404);
 
-        let _ = sqlx::query(r"DELETE FROM reset_triggers WHERE token = $1")
-            .bind(&token)
-            .execute(&state.db)
-            .await;
-        let _ = sqlx::query(r"DELETE FROM users WHERE id = $1")
-            .bind(user_id)
-            .execute(&state.db)
-            .await;
+        _guard.cleanup().await;
     }
 }

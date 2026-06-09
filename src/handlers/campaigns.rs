@@ -520,10 +520,10 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 mod tests {
     use super::*;
 use crate::auth::jwt::encode_token_with_role;
-     use crate::test_utils::{admin_token, artist_token, get_test_state, not_found_id, TEST_SECRET};
+     use crate::test_utils::{admin_token, artist_token, not_found_id, TEST_SECRET};
     use actix_web::test;
 
-    async fn seed_user() -> i64 {
+    async fn seed_user(pool: &sqlx::PgPool) -> i64 {
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
         let pid = std::process::id();
         sqlx::query_scalar::<_, i64>(
@@ -534,12 +534,12 @@ use crate::auth::jwt::encode_token_with_role;
         .bind(format!("campaign_test_user_{}_{}@test.com", pid, ts))
         .bind("hashed_password_test".to_string())
         .bind(Some("artist".to_string()))
-        .fetch_one(&get_test_state().await.db)
+        .fetch_one(pool)
         .await
         .expect("Failed to seed user")
     }
 
-    async fn seed_artist(user_id: i64) -> i64 {
+    async fn seed_artist(pool: &sqlx::PgPool, user_id: i64) -> i64 {
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
         let pid = std::process::id();
         sqlx::query_scalar::<_, i64>(
@@ -552,12 +552,12 @@ use crate::auth::jwt::encode_token_with_role;
         .bind(Some("A test artist for campaigns".to_string()))
         .bind(Some(user_id))
         .bind(Some(false))
-        .fetch_one(&get_test_state().await.db)
+        .fetch_one(pool)
         .await
         .expect("Failed to seed artist")
     }
 
-    async fn seed_campaign(artist_id: i64) -> i64 {
+    async fn seed_campaign(pool: &sqlx::PgPool, artist_id: i64) -> i64 {
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
         let pid = std::process::id();
         sqlx::query_scalar::<_, i64>(
@@ -570,74 +570,31 @@ use crate::auth::jwt::encode_token_with_role;
         .bind(true)
         .bind(25_i32)
         .bind(50_i32)
-        .fetch_one(&get_test_state().await.db)
+        .fetch_one(pool)
         .await
         .expect("Failed to seed campaign")
-    }
-
-    async fn cleanup_campaign(campaign_id: i64) {
-        let _ = sqlx::query(r"DELETE FROM campaign_pages WHERE campaign_id = $1")
-            .bind(campaign_id)
-            .execute(&get_test_state().await.db)
-            .await;
-        let _ = sqlx::query(r"DELETE FROM campaigns WHERE id = $1")
-            .bind(campaign_id)
-            .execute(&get_test_state().await.db)
-            .await;
-    }
-
-    async fn cleanup_artist(artist_id: i64) {
-        let campaigns: Vec<i64> = sqlx::query_scalar(
-            r"SELECT id FROM campaigns WHERE artist_id = $1",
-        )
-        .bind(artist_id)
-        .fetch_all(&get_test_state().await.db)
-        .await
-        .unwrap_or_default();
-        for cid in campaigns {
-            cleanup_campaign(cid).await;
-        }
-        let _ = sqlx::query(r"DELETE FROM artists WHERE id = $1")
-            .bind(artist_id)
-            .execute(&get_test_state().await.db)
-            .await;
-    }
-
-    async fn cleanup_user(user_id: i64) {
-        let artists: Vec<i64> = sqlx::query_scalar(
-            r"SELECT id FROM artists WHERE user_id = $1",
-        )
-        .bind(user_id)
-        .fetch_all(&get_test_state().await.db)
-        .await
-        .unwrap_or_default();
-        for aid in artists {
-            cleanup_artist(aid).await;
-        }
-        let _ = sqlx::query(r"DELETE FROM users WHERE id = $1")
-            .bind(user_id)
-            .execute(&get_test_state().await.db)
-            .await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_index_public() {
         crate::test_utils::set_test_env();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get().uri("/campaigns").to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_show_found() {
         crate::test_utils::set_test_env();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let user_id = seed_user().await;
-        let artist_id = seed_artist(user_id).await;
-        let campaign_id = seed_campaign(artist_id).await;
+        let user_id = seed_user(&state.db).await;
+        let artist_id = seed_artist(&state.db, user_id).await;
+        let campaign_id = seed_campaign(&state.db, artist_id).await;
 
         let req = test::TestRequest::get()
             .uri(&format!("/campaign/{}", campaign_id))
@@ -648,15 +605,13 @@ use crate::auth::jwt::encode_token_with_role;
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert_eq!(body["id"], campaign_id);
 
-        cleanup_campaign(campaign_id).await;
-        cleanup_artist(artist_id).await;
-        cleanup_user(user_id).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_show_not_found() {
         crate::test_utils::set_test_env();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let not_found = not_found_id(&state.db, "campaigns").await;
 
@@ -665,15 +620,17 @@ use crate::auth::jwt::encode_token_with_role;
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_create_admin() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let user_id = seed_user().await;
-        let artist_id = seed_artist(user_id).await;
+        let user_id = seed_user(&state.db).await;
+        let artist_id = seed_artist(&state.db, user_id).await;
 
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
         let pid = std::process::id();
@@ -693,23 +650,18 @@ use crate::auth::jwt::encode_token_with_role;
 
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert_eq!(body["vinyl_sold_count"], 50);
-        assert_eq!(body["active"], false);
+ assert_eq!(body["active"], false);
 
-        let _ = sqlx::query(r"DELETE FROM campaigns WHERE name = $1")
-            .bind(&name)
-            .execute(&state.db)
-            .await;
-        cleanup_artist(artist_id).await;
-        cleanup_user(user_id).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
-async fn campaigns_create_empty_name() {
+ async fn campaigns_create_empty_name() {
         crate::test_utils::set_test_env_jwt();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let user_id = seed_user().await;
-        let artist_id = seed_artist(user_id).await;
+        let user_id = seed_user(&state.db).await;
+        let artist_id = seed_artist(&state.db, user_id).await;
 
         let req = test::TestRequest::post()
             .uri("/campaigns")
@@ -722,31 +674,32 @@ async fn campaigns_create_empty_name() {
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 422);
 
-        cleanup_artist(artist_id).await;
-        cleanup_user(user_id).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_index_by_user_admin() {
         crate::test_utils::set_test_env_jwt();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/campaigns_by_user")
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .to_request();
-        let resp = test::call_service(&app, req).await;
+ let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
-async fn campaigns_update_success() {
+ async fn campaigns_update_success() {
         crate::test_utils::set_test_env_jwt();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let user_id = seed_user().await;
-        let artist_id = seed_artist(user_id).await;
-        let campaign_id = seed_campaign(artist_id).await;
+        let user_id = seed_user(&state.db).await;
+        let artist_id = seed_artist(&state.db, user_id).await;
+        let campaign_id = seed_campaign(&state.db, artist_id).await;
 
         let req = test::TestRequest::post()
             .uri(&format!("/campaign/{}", campaign_id))
@@ -763,15 +716,13 @@ async fn campaigns_update_success() {
         assert_eq!(body["name"], "Updated Campaign Name");
         assert_eq!(body["vinyl_sold_count"], 75);
 
-        cleanup_campaign(campaign_id).await;
-        cleanup_artist(artist_id).await;
-        cleanup_user(user_id).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_update_not_found() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let not_found = not_found_id(&state.db, "campaigns").await;
 
@@ -784,16 +735,18 @@ async fn campaigns_update_success() {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_destroy_success() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let user_id = seed_user().await;
-        let artist_id = seed_artist(user_id).await;
-        let campaign_id = seed_campaign(artist_id).await;
+        let user_id = seed_user(&state.db).await;
+        let artist_id = seed_artist(&state.db, user_id).await;
+        let campaign_id = seed_campaign(&state.db, artist_id).await;
 
         let req = test::TestRequest::delete()
             .uri(&format!("/campaign/{}", campaign_id))
@@ -811,15 +764,13 @@ async fn campaigns_update_success() {
         .expect("Failed to check deletion");
         assert_eq!(deleted, Some(campaign_id));
 
-        cleanup_campaign(campaign_id).await;
-        cleanup_artist(artist_id).await;
-        cleanup_user(user_id).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_destroy_not_found() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let not_found = not_found_id(&state.db, "campaigns").await;
 
@@ -829,15 +780,17 @@ async fn campaigns_update_success() {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_activate_success() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let user_id = seed_user().await;
-        let artist_id = seed_artist(user_id).await;
+        let user_id = seed_user(&state.db).await;
+        let artist_id = seed_artist(&state.db, user_id).await;
 
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
         let pid = std::process::id();
@@ -870,15 +823,13 @@ async fn campaigns_update_success() {
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert!(body["error"].as_str().unwrap().contains("Shopify"));
 
-        cleanup_campaign(campaign_id).await;
-        cleanup_artist(artist_id).await;
-        cleanup_user(user_id).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_activate_missing_start_date() {
         crate::test_utils::set_test_env_jwt();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/activate_campaign")
@@ -890,12 +841,14 @@ async fn campaigns_update_success() {
         let resp = test::call_service(&app, req).await;
         // Missing start_date field — JSON parse fails
         assert_eq!(resp.status(), 400);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_activate_invalid_date_format() {
         crate::test_utils::set_test_env_jwt();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/activate_campaign")
@@ -910,12 +863,14 @@ async fn campaigns_update_success() {
 
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert!(body["error"].as_str().unwrap().contains("YYYY-MM-DD"));
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_activate_campaign_not_found() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let not_found = not_found_id(&state.db, "campaigns").await;
 
@@ -929,15 +884,17 @@ async fn campaigns_update_success() {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 502);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_activate_no_campaign_page() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let user_id = seed_user().await;
-        let artist_id = seed_artist(user_id).await;
+        let user_id = seed_user(&state.db).await;
+        let artist_id = seed_artist(&state.db, user_id).await;
 
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
         let pid = std::process::id();
@@ -967,15 +924,13 @@ async fn campaigns_update_success() {
         // Shopify not configured, so we hit 502 before reaching campaign page check
         assert_eq!(resp.status(), 502);
 
-        cleanup_campaign(campaign_id).await;
-        cleanup_artist(artist_id).await;
-        cleanup_user(user_id).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_create_forbidden() {
         crate::test_utils::set_test_env_jwt();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let token = encode_token_with_role(3, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
 
@@ -989,15 +944,17 @@ async fn campaigns_update_success() {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 403);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_active_only() {
         crate::test_utils::set_test_env();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let user_id = seed_user().await;
-        let artist_id = seed_artist(user_id).await;
+        let user_id = seed_user(&state.db).await;
+        let artist_id = seed_artist(&state.db, user_id).await;
 
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
         let pid = std::process::id();
@@ -1033,9 +990,6 @@ async fn campaigns_update_success() {
         assert!(ids.contains(&active_id));
         assert!(!ids.contains(&inactive_id));
 
-        cleanup_campaign(active_id).await;
-        cleanup_campaign(inactive_id).await;
-        cleanup_artist(artist_id).await;
-        cleanup_user(user_id).await;
+        _guard.cleanup().await;
     }
 }

@@ -369,10 +369,10 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 mod tests {
     use super::*;
     use crate::auth::jwt::encode_token_with_role;
-    use crate::test_utils::{admin_token, artist_token, get_test_state, not_found_id, unique_suffix, TEST_SECRET};
+    use crate::test_utils::{admin_token, artist_token, not_found_id, unique_suffix, TEST_SECRET};
     use actix_web::test;
 
-     async fn seed_user() -> (i64, String) {
+     async fn seed_user(pool: &sqlx::PgPool) -> (i64, String) {
         let email = format!("event_test_{}@test.com", unique_suffix());
         let id: i64 = sqlx::query_scalar(
             r"INSERT INTO users (email, password_digest, role, created_at, updated_at)
@@ -382,13 +382,13 @@ mod tests {
         .bind(&email)
         .bind("hashed_password_test".to_string())
         .bind(Some("artist".to_string()))
-        .fetch_one(&get_test_state().await.db)
+        .fetch_one(pool)
         .await
         .expect("Failed to seed user");
         (id, email)
     }
 
-    async fn seed_event(create_by_user_id: i32) -> i64 {
+    async fn seed_event(pool: &sqlx::PgPool, create_by_user_id: i32) -> i64 {
         let now = chrono::Utc::now().naive_utc();
         sqlx::query_scalar::<_, i64>(
             r"INSERT INTO kbr_events (name, description, active, event_start_date, event_end_date,
@@ -405,33 +405,15 @@ mod tests {
         .bind(Some("https://tickets.com/test".to_string()))
         .bind(&now)
         .bind(&now)
-        .fetch_one(&get_test_state().await.db)
+        .fetch_one(pool)
         .await
         .expect("Failed to seed event")
-    }
-
-    async fn cleanup_event(event_id: i64) {
-        let _ = sqlx::query(r"DELETE FROM kbr_events WHERE id = $1")
-            .bind(event_id)
-            .execute(&get_test_state().await.db)
-            .await;
-    }
-
-    async fn cleanup_user(user_id: i64, email: &str) {
-        let _ = sqlx::query(r"DELETE FROM kbr_events WHERE create_by_user_id = $1")
-            .bind(user_id as i32)
-            .execute(&get_test_state().await.db)
-            .await;
-        let _ = sqlx::query(r"DELETE FROM users WHERE email = $1")
-            .bind(email)
-            .execute(&get_test_state().await.db)
-            .await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn events_index_public() {
         crate::test_utils::set_test_env();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get().uri("/kbrevents").to_request();
         let resp = test::call_service(&app, req).await;
@@ -442,15 +424,17 @@ mod tests {
         if body.as_array().unwrap().len() > 0 {
             assert!(body[0]["comments"].is_array());
         }
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn event_show_found() {
         crate::test_utils::set_test_env();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let (user_id, user_email) = seed_user().await;
-        let event_id = seed_event(user_id as i32).await;
+        let (user_id, user_email) = seed_user(&state.db).await;
+        let event_id = seed_event(&state.db, user_id as i32).await;
 
         let req = test::TestRequest::get()
             .uri(&format!("/kbrevent/{}", event_id))
@@ -465,14 +449,13 @@ mod tests {
             assert!(body["comments"][0]["replies"].is_array());
         }
 
-        cleanup_event(event_id).await;
-        cleanup_user(user_id, &user_email).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn event_show_not_found() {
         crate::test_utils::set_test_env();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let not_found = not_found_id(&state.db, "kbr_events").await;
 
@@ -481,12 +464,14 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn event_create_authenticated() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let name = format!("New Event {}", unique_suffix());
         let now = chrono::Utc::now();
@@ -507,16 +492,13 @@ mod tests {
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert_eq!(body["name"], name);
 
-        let _ = sqlx::query(r"DELETE FROM kbr_events WHERE name = $1")
-            .bind(&name)
-            .execute(&state.db)
-            .await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn event_create_forbidden_non_artist() {
         crate::test_utils::set_test_env_jwt();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let token = encode_token_with_role(2, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
 
@@ -533,15 +515,17 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 403);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn events_by_user_admin() {
         crate::test_utils::set_test_env_jwt();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let (user_id, user_email) = seed_user().await;
-        let event_id = seed_event(user_id as i32).await;
+        let (user_id, user_email) = seed_user(&state.db).await;
+        let event_id = seed_event(&state.db, user_id as i32).await;
 
         let req = test::TestRequest::get()
             .uri("/kbr_events_by_user")
@@ -556,17 +540,16 @@ mod tests {
             assert!(body[0]["comments"].is_array());
         }
 
-        cleanup_event(event_id).await;
-        cleanup_user(user_id, &user_email).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn events_by_user_artist() {
         crate::test_utils::set_test_env_jwt();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let (user_id, user_email) = seed_user().await;
-        let event_id = seed_event(user_id as i32).await;
+        let (user_id, user_email) = seed_user(&state.db).await;
+        let event_id = seed_event(&state.db, user_id as i32).await;
 
         let req = test::TestRequest::get()
             .uri("/kbr_events_by_user")
@@ -581,14 +564,13 @@ mod tests {
             assert!(body[0]["comments"].is_array());
         }
 
-        cleanup_event(event_id).await;
-        cleanup_user(user_id, &user_email).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn events_by_user_forbidden() {
         crate::test_utils::set_test_env_jwt();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let token = encode_token_with_role(2, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
 
@@ -598,15 +580,17 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 403);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn event_update_success() {
         crate::test_utils::set_test_env_jwt();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let (user_id, user_email) = seed_user().await;
-        let event_id = seed_event(user_id as i32).await;
+        let (user_id, user_email) = seed_user(&state.db).await;
+        let event_id = seed_event(&state.db, user_id as i32).await;
 
         let req = test::TestRequest::put()
             .uri(&format!("/kbrevents/{}", event_id))
@@ -623,14 +607,13 @@ mod tests {
         assert_eq!(body["name"], "Updated Event Name");
         assert_eq!(body["active"], false);
 
-        cleanup_event(event_id).await;
-        cleanup_user(user_id, &user_email).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn event_update_not_found() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let not_found = not_found_id(&state.db, "kbr_events").await;
 
@@ -643,5 +626,7 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
+
+        _guard.cleanup().await;
     }
 }

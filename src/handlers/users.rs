@@ -366,13 +366,6 @@ use crate::auth::jwt::encode_token_with_role;
         row.id
     }
 
-    async fn cleanup_user(state: &AppState, email: &str) {
-        let _ = sqlx::query(r"DELETE FROM users WHERE email = $1")
-            .bind(email)
-            .execute(&state.db)
-            .await;
-    }
-
     async fn seed_trigger(state: &AppState, email: &str, token: &str, expires_at: &str) -> i64 {
         let now = chrono::Utc::now().naive_utc();
         sqlx::query_scalar(
@@ -388,19 +381,12 @@ use crate::auth::jwt::encode_token_with_role;
         .expect("Failed to seed trigger")
     }
 
-    async fn cleanup_trigger(state: &AppState, email: &str) {
-        let _ = sqlx::query(r"DELETE FROM sign_up_triggers WHERE email = $1")
-            .bind(email)
-            .execute(&state.db)
-            .await;
-    }
-
     // — index —
 
     #[tokio::test(flavor = "current_thread")]
     async fn user_index_non_admin_forbidden() {
         crate::test_utils::set_test_env_jwt();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/users")
@@ -408,6 +394,8 @@ use crate::auth::jwt::encode_token_with_role;
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 403);
+
+        _guard.cleanup().await;
     }
 
     // — show —
@@ -415,7 +403,7 @@ use crate::auth::jwt::encode_token_with_role;
     #[tokio::test(flavor = "current_thread")]
     async fn user_show_self() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let ts = unique_suffix();
         let email = format!("showself{}@example.com", ts);
         let user_id = seed_test_user(&state, &email, "user").await;
@@ -429,13 +417,13 @@ use crate::auth::jwt::encode_token_with_role;
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
 
-        cleanup_user(&state, &email).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn user_show_other_not_admin() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let ts = unique_suffix();
         let email_a = format!("showa{}@example.com", ts);
         let email_b = format!("showb{}@example.com", ts);
@@ -451,14 +439,13 @@ use crate::auth::jwt::encode_token_with_role;
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 403);
 
-        cleanup_user(&state, &email_a).await;
-        cleanup_user(&state, &email_b).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn user_show_admin_sees_other() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let ts = unique_suffix();
         let email = format!("showadmin{}@example.com", ts);
         let user_id = seed_test_user(&state, &email, "user").await;
@@ -470,13 +457,13 @@ use crate::auth::jwt::encode_token_with_role;
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
 
-        cleanup_user(&state, &email).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn user_show_not_found() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let not_found = not_found_id(&state.db, "users").await;
 
@@ -486,6 +473,8 @@ use crate::auth::jwt::encode_token_with_role;
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
+
+        _guard.cleanup().await;
     }
 
     // — create —
@@ -493,7 +482,7 @@ use crate::auth::jwt::encode_token_with_role;
     #[tokio::test(flavor = "current_thread")]
     async fn user_create_success() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let ts = unique_suffix();
         let email = format!("newuser{}@example.com", ts);
         let username = format!("newuser{}", ts);
@@ -515,14 +504,13 @@ use crate::auth::jwt::encode_token_with_role;
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert_eq!(body["role"], "user");
 
-        cleanup_user(&state, &email).await;
-        cleanup_trigger(&state, &email).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn user_create_with_valid_token_consumes_trigger() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let ts = unique_suffix();
         let email = format!("tokenuser{}@example.com", ts);
         let username = format!("tokenuser{}", ts);
@@ -558,14 +546,13 @@ use crate::auth::jwt::encode_token_with_role;
             "Trigger should be consumed"
         );
 
-        cleanup_user(&state, &email).await;
-        cleanup_trigger(&state, &email).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn user_create_with_expired_token_fails() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let ts = unique_suffix();
         let email = format!("expiredtoken{}@example.com", ts);
         let token = format!("expired_token_{}", ts);
@@ -584,14 +571,13 @@ use crate::auth::jwt::encode_token_with_role;
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 422);
 
-        cleanup_user(&state, &email).await;
-        cleanup_trigger(&state, &email).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn user_create_with_mismatched_email_token_fails() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let ts = unique_suffix();
         let trigger_email = format!("trigger_email_{}@example.com", ts);
         let request_email = format!("request_email_{}@example.com", ts);
@@ -611,15 +597,13 @@ use crate::auth::jwt::encode_token_with_role;
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 422);
 
-        cleanup_user(&state, &trigger_email).await;
-        cleanup_user(&state, &request_email).await;
-        cleanup_trigger(&state, &trigger_email).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn user_create_without_token_fails() {
         crate::test_utils::set_test_env_jwt();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/users")
@@ -630,12 +614,14 @@ use crate::auth::jwt::encode_token_with_role;
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 422);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn user_create_duplicate_email_returns_409() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let ts = unique_suffix();
         let email = format!("dupemail{}@example.com", ts);
         let username2 = format!("dupuser{}b", ts);
@@ -658,14 +644,13 @@ use crate::auth::jwt::encode_token_with_role;
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 409);
 
-        cleanup_user(&state, &email).await;
-        cleanup_trigger(&state, &email).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn user_create_email_normalized_on_create() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let ts = unique_suffix();
         let email_upper = format!("Normalised{}@Example.COM", ts);
         let email_lower = format!("normalised{}@example.com", ts);
@@ -688,8 +673,7 @@ use crate::auth::jwt::encode_token_with_role;
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert_eq!(body["email"], email_lower);
 
-        cleanup_user(&state, &email_lower).await;
-        cleanup_trigger(&state, &email_lower).await;
+        _guard.cleanup().await;
     }
 
     // — update —
@@ -697,7 +681,7 @@ use crate::auth::jwt::encode_token_with_role;
     #[tokio::test(flavor = "current_thread")]
     async fn user_update_self() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let ts = unique_suffix();
         let email = format!("updateself{}@example.com", ts);
         let user_id = seed_test_user(&state, &email, "user").await;
@@ -716,13 +700,13 @@ use crate::auth::jwt::encode_token_with_role;
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert_eq!(body["username"], "updateduser");
 
-        cleanup_user(&state, &email).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn user_update_other_not_admin() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let ts = unique_suffix();
         let email_a = format!("updatea{}@example.com", ts);
         let email_b = format!("updateb{}@example.com", ts);
@@ -741,14 +725,13 @@ use crate::auth::jwt::encode_token_with_role;
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 403);
 
-        cleanup_user(&state, &email_a).await;
-        cleanup_user(&state, &email_b).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn user_update_admin_changes_other() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let ts = unique_suffix();
         let email = format!("updateadmin{}@example.com", ts);
         let user_id = seed_test_user(&state, &email, "user").await;
@@ -765,13 +748,13 @@ use crate::auth::jwt::encode_token_with_role;
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert_eq!(body["username"], "adminupdated");
 
-        cleanup_user(&state, &email).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn user_update_non_admin_cannot_change_role() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let ts = unique_suffix();
         let email = format!("updaterole{}@example.com", ts);
         let user_id = seed_test_user(&state, &email, "user").await;
@@ -788,7 +771,7 @@ use crate::auth::jwt::encode_token_with_role;
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 403);
 
-        cleanup_user(&state, &email).await;
+        _guard.cleanup().await;
     }
 
     // — cross-handler —
@@ -800,7 +783,7 @@ use crate::auth::jwt::encode_token_with_role;
             cfg.configure(crate::handlers::auth::config_routes)
                .configure(config_routes);
         }
-        let (state_data, app) = crate::build_test_app_with_cookies!(auth_and_users_routes);
+        let (_guard, state_data, app) = crate::build_test_app_with_cookies!(auth_and_users_routes);
         let ts = unique_suffix();
         let email = format!("pwdchange{}@example.com", ts);
         let user_id = seed_test_user(&state_data, &email, "user").await;
@@ -824,6 +807,6 @@ use crate::auth::jwt::encode_token_with_role;
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 401);
 
-        cleanup_user(&state_data, &email).await;
+        _guard.cleanup().await;
     }
 }

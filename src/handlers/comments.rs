@@ -256,7 +256,7 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{admin_token, customer_token};
+    use crate::test_utils::{admin_token, customer_token, seed_user_with_id};
     use actix_web::test;
 
     async fn seed_comment(state: &AppState) -> i64 {
@@ -295,16 +295,10 @@ mod tests {
         comment_id
     }
 
-    async fn cleanup_comment(state: &AppState, id: i64) {
-        let _ = sqlx::query(&format!(r"DELETE FROM comments WHERE id = {}", id))
-            .execute(&state.db)
-            .await;
-    }
-
     #[tokio::test(flavor = "current_thread")]
     async fn comment_show_found() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let comment_id = seed_comment(&state).await;
 
         let req = test::TestRequest::get()
@@ -317,37 +311,42 @@ mod tests {
         assert!(body["user"].is_object());
         assert!(body["replies"].is_array());
 
-        cleanup_comment(&state, comment_id).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn comment_show_not_found() {
         crate::test_utils::set_test_env_jwt();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/comment/99999999")
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn comments_index_public() {
         crate::test_utils::set_test_env_jwt();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/comments")
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn comment_create_authenticated() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
+        seed_user_with_id(&state.db, 1, "admin@test.com", "admin").await;
 
         let req = test::TestRequest::post()
             .uri("/comments")
@@ -364,13 +363,13 @@ mod tests {
         assert_eq!(status, 201, "Expected 201, got {}: {:?}", status, body);
 
         let id = body["id"].as_i64().expect("response should have id");
-        cleanup_comment(&state, id).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn comment_create_empty_content() {
         crate::test_utils::set_test_env_jwt();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/comments")
@@ -383,12 +382,14 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 422);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn comment_create_invalid_commentable_type() {
         crate::test_utils::set_test_env_jwt();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/comments")
@@ -401,12 +402,15 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 422);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn comment_create_reply() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
+        seed_user_with_id(&state.db, 1, "admin@test.com", "admin").await;
         let parent_id = seed_comment(&state).await;
 
         let req = test::TestRequest::post()
@@ -424,14 +428,13 @@ mod tests {
         assert_eq!(status, 201, "Expected 201, got {}: {:?}", status, body);
 
         let reply_id = body["id"].as_i64().expect("response should have id");
-        cleanup_comment(&state, reply_id).await;
-        cleanup_comment(&state, parent_id).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn comment_create_reply_empty_content() {
         crate::test_utils::set_test_env_jwt();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/comments/1")
@@ -444,5 +447,7 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 422);
+
+        _guard.cleanup().await;
     }
 }

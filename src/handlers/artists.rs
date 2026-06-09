@@ -525,10 +525,10 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 mod tests {
     use super::*;
 use crate::auth::jwt::encode_token_with_role;
-     use crate::test_utils::{admin_token, artist_token, get_test_state, not_found_id, TEST_SECRET};
+     use crate::test_utils::{admin_token, artist_token, not_found_id, TEST_SECRET};
     use actix_web::test;
 
-    async fn seed_user() -> i64 {
+    async fn seed_user(pool: &sqlx::PgPool) -> i64 {
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
         sqlx::query_scalar::<_, i64>(
             r"INSERT INTO users (email, password_digest, role, created_at, updated_at)
@@ -538,12 +538,12 @@ use crate::auth::jwt::encode_token_with_role;
         .bind(format!("artist_test_{}@test.com", ts))
         .bind("hashed_password_test".to_string())
         .bind(Some("artist".to_string()))
-        .fetch_one(&get_test_state().await.db)
+        .fetch_one(pool)
         .await
         .expect("Failed to seed user")
     }
 
-    async fn seed_artist(user_id: i64) -> i64 {
+    async fn seed_artist(pool: &sqlx::PgPool, user_id: i64) -> i64 {
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
         sqlx::query_scalar::<_, i64>(
             r"INSERT INTO artists (name, genre, bio, user_id, prospect, created_at, updated_at)
@@ -555,50 +555,30 @@ use crate::auth::jwt::encode_token_with_role;
         .bind(Some("A test artist bio".to_string()))
         .bind(Some(user_id))
         .bind(Some(false))
-        .fetch_one(&get_test_state().await.db)
+        .fetch_one(pool)
         .await
         .expect("Failed to seed artist")
-    }
-
-    async fn cleanup_user(user_id: i64) {
-        let _ = sqlx::query(r"DELETE FROM artists WHERE user_id = $1")
-            .bind(user_id)
-            .execute(&get_test_state().await.db)
-            .await;
-        let _ = sqlx::query(r"DELETE FROM users WHERE id = $1")
-            .bind(user_id)
-            .execute(&get_test_state().await.db)
-            .await;
-    }
-
-    async fn cleanup_artist(artist_id: i64) {
-        let _ = sqlx::query(r"DELETE FROM artist_links WHERE artist_id = $1")
-            .bind(artist_id)
-            .execute(&get_test_state().await.db)
-            .await;
-        let _ = sqlx::query(r"DELETE FROM artists WHERE id = $1")
-            .bind(artist_id)
-            .execute(&get_test_state().await.db)
-            .await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn artists_index_public() {
         crate::test_utils::set_test_env();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get().uri("/artists").to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn artist_show_found() {
         crate::test_utils::set_test_env();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let user_id = seed_user().await;
-        let artist_id = seed_artist(user_id).await;
+        let user_id = seed_user(&state.db).await;
+        let artist_id = seed_artist(&state.db, user_id).await;
 
         let req = test::TestRequest::get()
             .uri(&format!("/artist/{}", artist_id))
@@ -610,14 +590,13 @@ use crate::auth::jwt::encode_token_with_role;
         assert_eq!(body["id"], artist_id);
         assert!(body["artist_links"].is_array());
 
-        cleanup_artist(artist_id).await;
-        cleanup_user(user_id).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn artist_show_not_found() {
         crate::test_utils::set_test_env();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let not_found = not_found_id(&state.db, "artists").await;
 
@@ -626,12 +605,14 @@ use crate::auth::jwt::encode_token_with_role;
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn artist_create_admin() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
         let name = format!("New Artist {}", ts);
@@ -650,16 +631,13 @@ use crate::auth::jwt::encode_token_with_role;
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert_eq!(body["genre"], "Jazz");
 
-        let _ = sqlx::query(r"DELETE FROM artists WHERE name = $1")
-            .bind(&name)
-            .execute(&state.db)
-            .await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn artist_create_forbidden_non_admin() {
         crate::test_utils::set_test_env_jwt();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let token = encode_token_with_role(2, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
 
@@ -672,15 +650,17 @@ use crate::auth::jwt::encode_token_with_role;
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 403);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn artist_update_success() {
         crate::test_utils::set_test_env_jwt();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let user_id = seed_user().await;
-        let artist_id = seed_artist(user_id).await;
+        let user_id = seed_user(&state.db).await;
+        let artist_id = seed_artist(&state.db, user_id).await;
 
         let req = test::TestRequest::put()
             .uri(&format!("/artist/{}", artist_id))
@@ -695,14 +675,13 @@ use crate::auth::jwt::encode_token_with_role;
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert_eq!(body["name"], "Updated Artist Name");
 
-        cleanup_artist(artist_id).await;
-        cleanup_user(user_id).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn artist_update_not_found() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let not_found = not_found_id(&state.db, "artists").await;
 
@@ -715,15 +694,17 @@ use crate::auth::jwt::encode_token_with_role;
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn add_artist_link_success() {
         crate::test_utils::set_test_env_jwt();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let user_id = seed_user().await;
-        let artist_id = seed_artist(user_id).await;
+        let user_id = seed_user(&state.db).await;
+        let artist_id = seed_artist(&state.db, user_id).await;
 
         let req = test::TestRequest::post()
             .uri("/artist/add_artist_links")
@@ -741,14 +722,13 @@ use crate::auth::jwt::encode_token_with_role;
         assert_eq!(body["artist_id"], artist_id);
         assert_eq!(body["link_type"], 1);
 
-        cleanup_artist(artist_id).await;
-        cleanup_user(user_id).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn add_artist_link_invalid_url() {
         crate::test_utils::set_test_env_jwt();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/artist/add_artist_links")
@@ -761,15 +741,17 @@ use crate::auth::jwt::encode_token_with_role;
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 422);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn delete_artist_link_success() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let user_id = seed_user().await;
-        let artist_id = seed_artist(user_id).await;
+        let user_id = seed_user(&state.db).await;
+        let artist_id = seed_artist(&state.db, user_id).await;
 
         let now = chrono::Utc::now().naive_utc();
         let link_id: i64 = sqlx::query_scalar(
@@ -803,14 +785,13 @@ use crate::auth::jwt::encode_token_with_role;
             .expect("Failed to check link");
         assert_eq!(remaining, 0);
 
-        cleanup_artist(artist_id).await;
-        cleanup_user(user_id).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn delete_artist_link_not_found() {
         crate::test_utils::set_test_env_jwt();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/artist/delete_artist_links")
@@ -821,12 +802,14 @@ use crate::auth::jwt::encode_token_with_role;
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn available_link_types_public() {
         crate::test_utils::set_test_env();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/available_link_types")
@@ -836,12 +819,14 @@ use crate::auth::jwt::encode_token_with_role;
 
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert_eq!(body.as_array().unwrap().len(), 11);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn artist_sign_up_success() {
         crate::test_utils::set_test_env();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let ts = chrono::Utc::now().timestamp_micros();
         let email = format!("artistsignup{}@example.com", ts);
 
@@ -892,26 +877,13 @@ use crate::auth::jwt::encode_token_with_role;
                 .expect("Failed to check username");
         assert_eq!(user_username, Some("newartist".to_string()));
 
-        let _ = sqlx::query(
-            r"DELETE FROM artists WHERE user_id IN (SELECT id FROM users WHERE email = $1)",
-        )
-        .bind(&email)
-        .execute(&state.db)
-        .await;
-        let _ = sqlx::query(r"DELETE FROM users WHERE email = $1")
-            .bind(&email)
-            .execute(&state.db)
-            .await;
-        let _ = sqlx::query(r"DELETE FROM sign_up_triggers WHERE email = $1")
-            .bind(&email)
-            .execute(&state.db)
-            .await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn artist_sign_up_invalid_token() {
         crate::test_utils::set_test_env();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/artist/sign_up")
@@ -924,12 +896,14 @@ use crate::auth::jwt::encode_token_with_role;
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 422);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn artist_sign_up_duplicate_email_returns_409() {
         crate::test_utils::set_test_env();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let ts = chrono::Utc::now().timestamp_micros();
         let email = format!("artistdup{}@example.com", ts);
 
@@ -972,20 +946,13 @@ use crate::auth::jwt::encode_token_with_role;
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 409);
 
-        let _ = sqlx::query(r"DELETE FROM sign_up_triggers WHERE email = $1")
-            .bind(&email)
-            .execute(&state.db)
-            .await;
-        let _ = sqlx::query(r"DELETE FROM users WHERE id = $1")
-            .bind(existing_user_id)
-            .execute(&state.db)
-            .await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn artist_sign_up_sets_prospect_true() {
         crate::test_utils::set_test_env();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let ts = chrono::Utc::now().timestamp_micros();
         let email = format!("artistprospect{}@example.com", ts);
 
@@ -1025,26 +992,13 @@ use crate::auth::jwt::encode_token_with_role;
         .expect("Failed to check prospect flag");
         assert!(prospect, "Artist should have prospect = true");
 
-        let _ = sqlx::query(
-            r"DELETE FROM artists WHERE user_id IN (SELECT id FROM users WHERE email = $1)",
-        )
-        .bind(&email)
-        .execute(&state.db)
-        .await;
-        let _ = sqlx::query(r"DELETE FROM users WHERE email = $1")
-            .bind(&email)
-            .execute(&state.db)
-            .await;
-        let _ = sqlx::query(r"DELETE FROM sign_up_triggers WHERE email = $1")
-            .bind(&email)
-            .execute(&state.db)
-            .await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn artist_sign_up_expired_token() {
         crate::test_utils::set_test_env();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let ts = chrono::Utc::now().timestamp_micros();
         let email = format!("artistexpired{}@example.com", ts);
 
@@ -1075,16 +1029,13 @@ use crate::auth::jwt::encode_token_with_role;
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 422);
 
-        let _ = sqlx::query(r"DELETE FROM sign_up_triggers WHERE email = $1")
-            .bind(&email)
-            .execute(&state.db)
-            .await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn artist_sign_up_password_mismatch() {
         crate::test_utils::set_test_env();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/artist/sign_up")
@@ -1097,12 +1048,14 @@ use crate::auth::jwt::encode_token_with_role;
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 422);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn artist_sign_up_weak_password() {
         crate::test_utils::set_test_env();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let ts = chrono::Utc::now().timestamp_micros();
         let email = format!("artistweak{}@example.com", ts);
 
@@ -1133,9 +1086,6 @@ use crate::auth::jwt::encode_token_with_role;
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 422);
 
-        let _ = sqlx::query(r"DELETE FROM sign_up_triggers WHERE email = $1")
-            .bind(&email)
-            .execute(&state.db)
-            .await;
+        _guard.cleanup().await;
     }
 }

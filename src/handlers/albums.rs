@@ -150,17 +150,19 @@ mod tests {
    #[tokio::test(flavor = "current_thread")]
     async fn albums_index_returns_ok() {
         crate::test_utils::set_test_env();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get().uri("/albums").to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn album_show_found() {
         crate::test_utils::set_test_env();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let seed = sqlx::query_as::<_, AlbumRow>(
             r"INSERT INTO albums (name, release_date, created_at, updated_at)
@@ -180,17 +182,15 @@ mod tests {
 
             let body: serde_json::Value = test::read_body_json(resp).await;
             assert_eq!(body["name"], "Test Album SQLx");
-
-            let _ = sqlx::query(&format!("DELETE FROM albums WHERE id = {}", id))
-                .execute(&state.db)
-                .await;
         }
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn album_show_not_found() {
         crate::test_utils::set_test_env();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let not_found = not_found_id(&state.db, "albums").await;
 
@@ -199,6 +199,8 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -207,7 +209,7 @@ mod tests {
 
         let token =
             encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/albums")
@@ -224,9 +226,7 @@ mod tests {
         assert_eq!(body["name"], "Rust Test Album");
         assert_eq!(body["release_date"], "2025-06-01");
 
-        let _ = sqlx::query(r"DELETE FROM albums WHERE name = 'Rust Test Album'")
-            .execute(&state.db)
-            .await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -234,7 +234,7 @@ mod tests {
         crate::test_utils::set_test_env_jwt();
 
         let token = encode_token_with_role(2, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/albums")
@@ -245,5 +245,7 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 403);
+
+        _guard.cleanup().await;
     }
 }

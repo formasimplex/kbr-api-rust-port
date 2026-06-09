@@ -134,27 +134,10 @@ mod tests {
         .await;
     }
 
-    async fn cleanup(pool: &sqlx::PgPool, user_id: i64, artist_ids: &[i64]) {
-        let _ = sqlx::query(r"DELETE FROM mail_subscribers WHERE user_id = $1")
-            .bind(user_id)
-            .execute(pool)
-            .await;
-        for artist_id in artist_ids {
-            let _ = sqlx::query(r"DELETE FROM artists WHERE id = $1")
-                .bind(artist_id)
-                .execute(pool)
-                .await;
-        }
-        let _ = sqlx::query(r"DELETE FROM users WHERE id = $1")
-            .bind(user_id)
-            .execute(pool)
-            .await;
-    }
-
     #[tokio::test(flavor = "current_thread")]
     async fn subscribed_artists_returns_subscribed() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let user_id = seed_user(&state.db).await;
         let artist_id = seed_artist(&state.db).await;
@@ -172,13 +155,13 @@ mod tests {
         let found = body.iter().any(|v| v["id"] == artist_id);
         assert!(found, "Expected artist {} in response", artist_id);
 
-        cleanup(&state.db, user_id, &[artist_id]).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn subscribed_artists_excludes_unsubscribed() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let user_id = seed_user(&state.db).await;
         let artist_id = seed_artist(&state.db).await;
@@ -201,13 +184,13 @@ mod tests {
         let found = body.iter().any(|v| v["id"] == artist_id);
         assert!(!found, "Unsubscribed artist should not appear");
 
-        cleanup(&state.db, user_id, &[artist_id]).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn subscribed_artists_empty_when_no_subscriptions() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let user_id = seed_user(&state.db).await;
 
@@ -221,18 +204,20 @@ mod tests {
         let body: Vec<serde_json::Value> = test::read_body_json(resp).await;
         assert!(body.is_empty());
 
-        cleanup(&state.db, user_id, &[]).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn subscribed_artists_requires_auth() {
         crate::test_utils::set_test_env_jwt();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/dashboard/subscribed_artists")
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_ne!(resp.status(), 200);
+
+        _guard.cleanup().await;
     }
 }

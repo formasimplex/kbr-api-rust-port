@@ -247,7 +247,9 @@ mod tests {
     use sqlx::PgPool;
 
     async fn get_pool() -> PgPool {
-        let pool = PgPool::connect(&crate::test_utils::test_db_url())
+        let pool = sqlx::pool::PoolOptions::new()
+            .max_connections(1)
+            .connect(&crate::test_utils::test_db_url())
             .await
             .expect("Failed to connect to test database");
         let _ = crate::db::migrate::run_migrations(&pool).await;
@@ -257,9 +259,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn purge_expired_revoked_tokens_removes_old_entries() {
         let pool = get_pool().await;
-
-        // Clean up any leftover tokens from prior test runs
-        let _ = sqlx::query("DELETE FROM revoked_tokens").execute(&pool).await;
+        let _guard = crate::test_utils::TestGuard::new(&pool).await;
 
         let old_jti = uuid::Uuid::new_v4();
         let new_jti = uuid::Uuid::new_v4();
@@ -300,5 +300,7 @@ mod tests {
         .await
         .expect("Failed to count purged tokens");
         assert_eq!(gone, 0, "Old token should be purged");
+
+        _guard.cleanup().await;
     }
 }

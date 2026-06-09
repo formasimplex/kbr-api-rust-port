@@ -327,7 +327,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn upload_forbidden_for_non_artist() {
         crate::test_utils::set_test_env_jwt();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let mut builder = actix_web::test::TestRequest::post()
             .uri("/storage/upload")
@@ -339,12 +339,14 @@ mod tests {
         let req = builder.to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 403);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn upload_missing_file_field() {
         crate::test_utils::set_test_env_jwt();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let body = no_file_body();
 
@@ -357,6 +359,8 @@ mod tests {
 
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 422);
+
+        _guard.cleanup().await;
     }
 
     fn multipart_body() -> Vec<u8> {

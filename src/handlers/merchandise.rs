@@ -385,21 +385,10 @@ mod tests {
         (artist_id, producer_id, artist_name, producer_name)
     }
 
-    async fn cleanup_by_artist_name(pool: &sqlx::PgPool, artist_name: &str, producer_name: &str) {
-        let _ = sqlx::query(r"DELETE FROM artists WHERE name = $1")
-            .bind(artist_name)
-            .execute(pool)
-            .await;
-        let _ = sqlx::query(r"DELETE FROM producers WHERE producer_name = $1")
-            .bind(producer_name)
-            .execute(pool)
-            .await;
-    }
-
     #[tokio::test(flavor = "current_thread")]
     async fn merchandise_index_authenticated() {
         crate::test_utils::set_test_env_jwt();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/artist_merchandise")
@@ -407,12 +396,14 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn merchandise_show_found() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
 
         let seed = sqlx::query_as::<_, ArtistMerchandiseRow>(
@@ -442,16 +433,13 @@ mod tests {
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert_eq!(body["merch_title"], "Band T-shirt");
 
-        let _ = sqlx::query(&format!(r"DELETE FROM artist_merchandise WHERE id = {}", id))
-            .execute(&state.db)
-            .await;
-        let _ = cleanup_by_artist_name(&state.db, &artist_name, &producer_name).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn merchandise_show_not_found() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let not_found = not_found_id(&state.db, "artist_merchandise").await;
 
@@ -461,12 +449,14 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn merchandise_by_artist() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
 
         let _ = sqlx::query(
@@ -489,16 +479,13 @@ mod tests {
         assert!(!body.is_empty());
         assert_eq!(body[0]["merch_title"], "By Artist Tee");
 
-        let _ = sqlx::query(r"DELETE FROM artist_merchandise WHERE merchandise_id = 'shopify-by-artist'")
-            .execute(&state.db)
-            .await;
-        let _ = cleanup_by_artist_name(&state.db, &artist_name, &producer_name).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn merchandise_create_success() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
 
         let suffix = std::time::SystemTime::now()
@@ -525,17 +512,13 @@ mod tests {
         assert_eq!(body["merch_title"], title);
         assert_eq!(body["set_price"], 19.99);
 
-        let _ = sqlx::query(r"DELETE FROM artist_merchandise WHERE merch_title = $1")
-            .bind(&title)
-            .execute(&state.db)
-            .await;
-        let _ = cleanup_by_artist_name(&state.db, &artist_name, &producer_name).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn merchandise_create_empty_title() {
         crate::test_utils::set_test_env_jwt();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/artist_merchandise")
@@ -548,12 +531,14 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 422);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn merchandise_update_success() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
 
         let suffix = std::time::SystemTime::now()
@@ -592,16 +577,13 @@ mod tests {
         assert_eq!(body["description"], "Updated desc");
         assert_eq!(body["set_price"], 29.99);
 
-        let _ = sqlx::query(&format!(r"DELETE FROM artist_merchandise WHERE id = {}", id))
-            .execute(&state.db)
-            .await;
-        let _ = cleanup_by_artist_name(&state.db, &artist_name, &producer_name).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn merchandise_update_not_found() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let not_found = not_found_id(&state.db, "artist_merchandise").await;
 
@@ -614,12 +596,14 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn merchandise_destroy_success() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
 
         let suffix = std::time::SystemTime::now()
@@ -649,13 +633,14 @@ mod tests {
 
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert_eq!(body["message"], format!("Merchandise #{} deleted", id));
-        let _ = cleanup_by_artist_name(&state.db, &artist_name, &producer_name).await;
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn merchandise_destroy_not_found() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let not_found = not_found_id(&state.db, "artist_merchandise").await;
 
@@ -665,12 +650,14 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn cache_update_returns_ok() {
         crate::test_utils::set_test_env_jwt();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/merchandise/cache_update")
@@ -680,12 +667,14 @@ mod tests {
         assert_eq!(resp.status(), 200);
 
           let _body: Vec<serde_json::Value> = test::read_body_json(resp).await;
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn by_artist_returns_empty_when_no_merchandise() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let (artist_id, _producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
 
         let req = test::TestRequest::get()
@@ -698,25 +687,27 @@ mod tests {
         let body: Vec<serde_json::Value> = test::read_body_json(resp).await;
         assert!(body.is_empty());
 
-        let _ = cleanup_by_artist_name(&state.db, &artist_name, &producer_name).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn merchandise_unauthenticated_returns_200() {
         crate::test_utils::set_test_env_jwt();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/artist_merchandise")
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn merchandise_update_partial_preserves_unsent_fields() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
 
         let suffix = std::time::SystemTime::now()
@@ -753,16 +744,13 @@ mod tests {
         assert_eq!(body["set_price"], 19.99);
         assert_eq!(body["cost_price"], 8.50);
 
-        let _ = sqlx::query(&format!(r"DELETE FROM artist_merchandise WHERE id = {}", id))
-            .execute(&state.db)
-            .await;
-        let _ = cleanup_by_artist_name(&state.db, &artist_name, &producer_name).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn merchandise_create_all_fields() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
 
         let suffix = std::time::SystemTime::now()
@@ -797,16 +785,13 @@ mod tests {
         assert_eq!(body["set_price"], 34.99);
         assert_eq!(body["cost_price"], 15.00);
 
-        let _ = sqlx::query(r"DELETE FROM artist_merchandise WHERE merchandise_id = 'shopify-full-test'")
-            .execute(&state.db)
-            .await;
-        let _ = cleanup_by_artist_name(&state.db, &artist_name, &producer_name).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn merchandise_show_includes_shopify_json_cache() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
 
         let cache_json = serde_json::json!({
@@ -863,21 +848,13 @@ mod tests {
         let parsed: serde_json::Value = serde_json::from_str(json_entry.as_str().unwrap()).unwrap();
         assert_eq!(parsed["node"]["title"], "Shopify Product");
 
-        let _ = sqlx::query(r"DELETE FROM artist_merchandise WHERE merchandise_id = $1")
-            .bind(&merch_id)
-            .execute(&state.db)
-            .await;
-        let _ = sqlx::query(r"DELETE FROM shopify_json_caches WHERE id::text = $1")
-            .bind(&merch_id)
-            .execute(&state.db)
-            .await;
-        let _ = cleanup_by_artist_name(&state.db, &artist_name, &producer_name).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn merchandise_show_null_shopify_json_cache_when_missing() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
 
         let id: i64 = sqlx::query_scalar::<_, i64>(
@@ -902,9 +879,6 @@ mod tests {
         assert_eq!(body["merch_title"], "No Cache Merch");
         assert!(body["shopify_json_cache"].is_null());
 
-        let _ = sqlx::query(&format!(r"DELETE FROM artist_merchandise WHERE id = {}", id))
-            .execute(&state.db)
-            .await;
-        let _ = cleanup_by_artist_name(&state.db, &artist_name, &producer_name).await;
+        _guard.cleanup().await;
     }
 }

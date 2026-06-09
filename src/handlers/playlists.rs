@@ -597,10 +597,11 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{admin_token, not_found_id, unique_suffix, user_token};
+    use crate::test_utils::{admin_token, not_found_id, seed_user_with_id, unique_suffix, user_token};
     use actix_web::test;
 
     async fn seed_playlist(state: &AppState, suffix: &str) -> (i64, String) {
+        seed_user_with_id(&state.db, 1, "admin@test.com", "admin").await;
         let name = format!("Test Playlist {}", suffix);
         let row: (i64,) = sqlx::query_as(
             r"INSERT INTO news_playlists (user_id, name, description, created_at, updated_at)
@@ -616,21 +617,10 @@ mod tests {
         (row.0, name)
     }
 
-    async fn cleanup_playlist(state: &AppState, name: &str) {
-        let _ = sqlx::query(r"DELETE FROM users_news WHERE playlist_id IN (SELECT id FROM news_playlists WHERE name = $1)")
-            .bind(name)
-            .execute(&state.db)
-            .await;
-        let _ = sqlx::query(r"DELETE FROM news_playlists WHERE name = $1")
-            .bind(name)
-            .execute(&state.db)
-            .await;
-    }
-
     #[tokio::test(flavor = "current_thread")]
     async fn admin_playlists_index() {
         crate::test_utils::set_test_env_jwt();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/admin/news_playlists")
@@ -638,12 +628,14 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn admin_playlist_show_found() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let s = unique_suffix();
         let (playlist_id, name) = seed_playlist(&state, &s).await;
 
@@ -657,13 +649,13 @@ mod tests {
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert_eq!(body["name"], name);
 
-        cleanup_playlist(&state, &name).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn admin_playlist_show_not_found() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let not_found = not_found_id(&state.db, "news_playlists").await;
 
@@ -673,12 +665,14 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn admin_playlist_destroy() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let s = unique_suffix();
         let (playlist_id, name) = seed_playlist(&state, &s).await;
 
@@ -695,12 +689,14 @@ mod tests {
             .await
             .expect("Failed to check cleanup");
         assert!(remaining.is_none());
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn dashboard_playlists_index() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let s = unique_suffix();
         let (_playlist_id, name) = seed_playlist(&state, &s).await;
 
@@ -715,13 +711,14 @@ mod tests {
         let found = body.as_array().unwrap().iter().any(|v| v["name"] == name);
         assert!(found, "Created playlist should appear in user's list");
 
-        cleanup_playlist(&state, &name).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn dashboard_create_playlist() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
+        seed_user_with_id(&state.db, 1, "admin@test.com", "admin").await;
 
         let s = unique_suffix();
         let req = test::TestRequest::post()
@@ -739,13 +736,13 @@ mod tests {
         assert_eq!(body["name"], format!("New Playlist {}", s));
         assert_eq!(body["user_id"], 1);
 
-        cleanup_playlist(&state, &format!("New Playlist {}", s)).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn dashboard_create_empty_name() {
         crate::test_utils::set_test_env_jwt();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/dashboard/news_playlists")
@@ -756,12 +753,14 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 422);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn dashboard_update_playlist() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let s = unique_suffix();
         let (playlist_id, name) = seed_playlist(&state, &s).await;
 
@@ -780,13 +779,13 @@ mod tests {
         assert_eq!(body["name"], format!("Updated {}", s));
         assert_eq!(body["description"], "Updated description");
 
-        cleanup_playlist(&state, &name).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn dashboard_update_forbidden() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let s = unique_suffix();
         let (_playlist_id, name) = seed_playlist(&state, &s).await;
 
@@ -809,13 +808,13 @@ mod tests {
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 403);
 
-        cleanup_playlist(&state, &name).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn dashboard_destroy_playlist() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let s = unique_suffix();
         let (playlist_id, name) = seed_playlist(&state, &s).await;
 
@@ -832,12 +831,14 @@ mod tests {
             .await
             .expect("Failed to check cleanup");
         assert!(remaining.is_none());
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn dashboard_destroy_forbidden() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let s = unique_suffix();
         let (playlist_id, name) = seed_playlist(&state, &s).await;
 
@@ -848,6 +849,6 @@ mod tests {
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 403);
 
-        cleanup_playlist(&state, &name).await;
+        _guard.cleanup().await;
     }
 }

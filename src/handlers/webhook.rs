@@ -184,10 +184,10 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{get_test_state, unique_suffix};
+    use crate::test_utils::unique_suffix;
     use actix_web::test;
 
-     async fn seed_campaign_with_page() -> (i64, i64, String) {
+     async fn seed_campaign_with_page(pool: &sqlx::PgPool) -> (i64, i64, String) {
         let now = chrono::Utc::now().naive_utc();
         let start = now;
         let end = now + chrono::TimeDelta::days(30);
@@ -200,7 +200,7 @@ mod tests {
         .bind(&artist_name)
         .bind(&now)
         .bind(&now)
-        .fetch_one(&get_test_state().await.db)
+        .fetch_one(pool)
         .await
         .expect("Failed to seed artist");
 
@@ -218,7 +218,7 @@ mod tests {
         .bind(0i32)
         .bind(&now)
         .bind(&now)
-        .fetch_one(&get_test_state().await.db)
+        .fetch_one(pool)
         .await
         .expect("Failed to seed campaign");
 
@@ -233,33 +233,19 @@ mod tests {
         .bind(&inventory_item_id)
         .bind(&now)
         .bind(&now)
-        .fetch_one(&get_test_state().await.db)
+        .fetch_one(pool)
         .await
         .expect("Failed to seed campaign page");
 
         (campaign_id, page_id, inventory_item_id)
     }
 
-    async fn cleanup_campaign(campaign_id: i64) {
-        let _ = sqlx::query(r#"DELETE FROM campaign_pages WHERE campaign_id = $1"#)
-            .bind(campaign_id)
-            .execute(&get_test_state().await.db)
-            .await;
-        let _ = sqlx::query(r#"DELETE FROM campaigns WHERE id = $1"#)
-            .bind(campaign_id)
-            .execute(&get_test_state().await.db)
-            .await;
-        let _ = sqlx::query(r#"DELETE FROM artists WHERE name LIKE 'Webhook Artist %'"#)
-            .execute(&get_test_state().await.db)
-            .await;
-    }
-
     #[tokio::test(flavor = "current_thread")]
     async fn webhook_update_progress_updates_campaign() {
         crate::test_utils::set_test_env();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let (campaign_id, _page_id, inventory_item_id) = seed_campaign_with_page().await;
+        let (campaign_id, _page_id, inventory_item_id) = seed_campaign_with_page(&state.db).await;
 
         let req = test::TestRequest::post()
             .uri("/webhook/update_progress")
@@ -285,13 +271,13 @@ mod tests {
         .expect("Failed to read campaign");
         assert_eq!(vinyl_sold, 30);
 
-        cleanup_campaign(campaign_id).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn webhook_update_progress_no_campaign_page() {
         crate::test_utils::set_test_env();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/webhook/update_progress")
@@ -307,14 +293,16 @@ mod tests {
 
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert_eq!(body["status"], "ok");
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn webhook_update_progress_zero_available() {
         crate::test_utils::set_test_env();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let (campaign_id, _page_id, inventory_item_id) = seed_campaign_with_page().await;
+        let (campaign_id, _page_id, inventory_item_id) = seed_campaign_with_page(&state.db).await;
 
         let req = test::TestRequest::post()
             .uri("/webhook/update_progress")
@@ -337,13 +325,13 @@ mod tests {
         .expect("Failed to read campaign");
         assert_eq!(vinyl_sold, 100);
 
-        cleanup_campaign(campaign_id).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn webhook_customers_data_request() {
         crate::test_utils::set_test_env();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/webhook/customers_data_request")
@@ -353,12 +341,14 @@ mod tests {
 
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert_eq!(body["status"], "ok");
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn webhook_customers_redact() {
         crate::test_utils::set_test_env();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/webhook/customers_redact")
@@ -368,12 +358,14 @@ mod tests {
 
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert_eq!(body["status"], "ok");
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn webhook_shop_redact() {
         crate::test_utils::set_test_env();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/webhook/shop_redact")
@@ -383,5 +375,7 @@ mod tests {
 
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert_eq!(body["status"], "ok");
+
+        _guard.cleanup().await;
     }
 }

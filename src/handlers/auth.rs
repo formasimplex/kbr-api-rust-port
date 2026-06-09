@@ -313,17 +313,10 @@ mod tests {
         row.id
     }
 
-    async fn cleanup_user(state: &AppState, email: &str) {
-        let _ = sqlx::query(r"DELETE FROM users WHERE email = $1")
-            .bind(email)
-            .execute(&state.db)
-            .await;
-    }
-
     #[tokio::test(flavor = "current_thread")]
     async fn login_success_with_valid_credentials() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app_with_cookies!(config_routes);
+        let (_guard, state, app) = crate::build_test_app_with_cookies!(config_routes);
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -344,13 +337,13 @@ mod tests {
         assert!(body["token"].is_string());
         assert!(body["id"].as_i64().unwrap_or(0) > 0);
 
-        cleanup_user(&state, &email).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn login_fails_with_invalid_email() {
         crate::test_utils::set_test_env_jwt();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/login")
@@ -363,12 +356,14 @@ mod tests {
         assert_eq!(resp.status(), 401);
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert_eq!(body["error"], "Invalid credentials");
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn login_fails_with_wrong_password() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -388,13 +383,13 @@ mod tests {
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert_eq!(body["error"], "Invalid credentials");
 
-        cleanup_user(&state, &email).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn session_returns_fresh_token() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app_with_cookies!(config_routes);
+        let (_guard, state, app) = crate::build_test_app_with_cookies!(config_routes);
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -414,19 +409,21 @@ mod tests {
         assert_eq!(body["role"], "admin");
         assert!(body["token"].is_string());
 
-        cleanup_user(&state, &email).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn session_rejects_without_token() {
         crate::test_utils::set_test_env_jwt();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/session")
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 401);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -449,7 +446,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn logout_success() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app_with_cookies!(config_routes);
+        let (_guard, state, app) = crate::build_test_app_with_cookies!(config_routes);
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -467,25 +464,27 @@ mod tests {
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert_eq!(body["message"], "logged out successfully");
 
-        cleanup_user(&state, &email).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn logout_rejects_without_token() {
         crate::test_utils::set_test_env_jwt();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/logout")
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 401);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn logout_prevents_further_session_requests() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app_with_cookies!(config_routes);
+        let (_guard, state, app) = crate::build_test_app_with_cookies!(config_routes);
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -510,13 +509,13 @@ mod tests {
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 401);
 
-        cleanup_user(&state, &email).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn logout_idempotent() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app_with_cookies!(config_routes);
+        let (_guard, state, app) = crate::build_test_app_with_cookies!(config_routes);
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -542,13 +541,13 @@ mod tests {
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 401);
 
-        cleanup_user(&state, &email).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn logout_invalidates_all_sessions_for_user() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app_with_cookies!(config_routes);
+        let (_guard, state, app) = crate::build_test_app_with_cookies!(config_routes);
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -574,6 +573,6 @@ mod tests {
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 401);
 
-        cleanup_user(&state, &email).await;
+        _guard.cleanup().await;
     }
 }

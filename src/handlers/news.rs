@@ -447,10 +447,11 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{admin_token, not_found_id, user_token};
+    use crate::test_utils::{admin_token, not_found_id, seed_user_with_id, user_token};
     use actix_web::test;
 
     async fn seed_news(state: &AppState, suffix: &str) -> i64 {
+        seed_user_with_id(&state.db, 1, "admin@test.com", "admin").await;
         let row = sqlx::query_as::<_, NewsRow>(
             &format!(
                 r"INSERT INTO news (url, title, user_id, active, comments_enabled, created_at, updated_at)
@@ -470,18 +471,8 @@ mod tests {
         row.id
     }
 
-    async fn cleanup_news(state: &AppState, title: &str) {
-        let _ = sqlx::query(r"DELETE FROM users_news WHERE news_id IN (SELECT id FROM news WHERE title = $1)")
-            .bind(title)
-            .execute(&state.db)
-            .await;
-        let _ = sqlx::query(r"DELETE FROM news WHERE title = $1")
-            .bind(title)
-            .execute(&state.db)
-            .await;
-    }
-
     async fn seed_playlist(state: &AppState, suffix: &str) -> i64 {
+        seed_user_with_id(&state.db, 1, "admin@test.com", "admin").await;
         let row: (i64,) = sqlx::query_as(
             r"INSERT INTO news_playlists (user_id, name, description, created_at, updated_at)
               VALUES ($1, $2, $3, NOW(), NOW())
@@ -496,31 +487,22 @@ mod tests {
         row.0
     }
 
-    async fn cleanup_playlist(state: &AppState, name: &str) {
-        let _ = sqlx::query(r"DELETE FROM users_news WHERE playlist_id IN (SELECT id FROM news_playlists WHERE name = $1)")
-            .bind(name)
-            .execute(&state.db)
-            .await;
-        let _ = sqlx::query(r"DELETE FROM news_playlists WHERE name = $1")
-            .bind(name)
-            .execute(&state.db)
-            .await;
-    }
-
     #[tokio::test(flavor = "current_thread")]
     async fn news_index_returns_ok() {
         crate::test_utils::set_test_env();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get().uri("/news").to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn news_show_found() {
         crate::test_utils::set_test_env();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let suffix = format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos());
         let news_id = seed_news(&state, &suffix).await;
         let title = format!("Test News {}", suffix);
@@ -534,13 +516,13 @@ mod tests {
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert_eq!(body["title"], title);
 
-        cleanup_news(&state, &title).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn news_show_not_found() {
         crate::test_utils::set_test_env();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let not_found = not_found_id(&state.db, "news").await;
 
@@ -549,12 +531,15 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn news_create_valid_url() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
+        seed_user_with_id(&state.db, 1, "admin@test.com", "admin").await;
 
         let suffix = format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos());
         let req = test::TestRequest::post()
@@ -571,13 +556,13 @@ mod tests {
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert_eq!(body["title"], format!("Created News {}", suffix));
 
-        cleanup_news(&state, &format!("Created News {}", suffix)).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn news_create_malicious_url() {
         crate::test_utils::set_test_env_jwt();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/news")
@@ -588,12 +573,14 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 422);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn news_update_active() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let suffix = format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos());
         let news_id = seed_news(&state, &suffix).await;
         let title = format!("Test News {}", suffix);
@@ -611,13 +598,13 @@ mod tests {
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert_eq!(body["active"], false);
 
-        cleanup_news(&state, &title).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn news_update_forbidden() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let suffix = format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos());
         let news_id = seed_news(&state, &suffix).await;
         let title = format!("Test News {}", suffix);
@@ -632,13 +619,13 @@ mod tests {
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 403);
 
-        cleanup_news(&state, &title).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn news_toggle_comments() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let suffix = format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos());
         let news_id = seed_news(&state, &suffix).await;
         let title = format!("Test News {}", suffix);
@@ -653,13 +640,13 @@ mod tests {
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert_eq!(body["comments_enabled"], false);
 
-        cleanup_news(&state, &title).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn news_add_to_playlist() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let suffix = format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos());
         let news_id = seed_news(&state, &suffix).await;
         let news_title = format!("Test News {}", suffix);
@@ -680,14 +667,14 @@ mod tests {
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert!(body["message"].as_str().unwrap().contains(&news_id.to_string()));
 
-        cleanup_news(&state, &news_title).await;
-        cleanup_playlist(&state, &playlist_name).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn news_create_duplicate_url_returns_409() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
+        seed_user_with_id(&state.db, 1, "admin@test.com", "admin").await;
         let suffix = format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos());
         let url = format!("https://example.com/dup-{}", suffix);
         let title = format!("Dup News {}", suffix);
@@ -718,13 +705,13 @@ mod tests {
         assert_eq!(body["error"], "news url already exists");
         assert_eq!(body["data"]["title"], title);
 
-        cleanup_news(&state, &title).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn news_add_to_playlist_forbidden_wrong_owner() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let suffix = format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos());
         let news_id = seed_news(&state, &suffix).await;
         let news_title = format!("Test News {}", suffix);
@@ -742,14 +729,13 @@ mod tests {
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 403);
 
-        cleanup_news(&state, &news_title).await;
-        cleanup_playlist(&state, &playlist_name).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn news_add_to_playlist_news_not_found() {
         crate::test_utils::set_test_env_jwt();
-        let (_state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/news/add_to_playlist")
@@ -761,12 +747,14 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn news_add_to_playlist_idempotent() {
         crate::test_utils::set_test_env_jwt();
-        let (state, app) = crate::build_test_app!(config_routes);
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let suffix = format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos());
         let news_id = seed_news(&state, &suffix).await;
         let news_title = format!("Test News {}", suffix);
@@ -798,7 +786,6 @@ mod tests {
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert!(body["message"].as_str().unwrap().contains("already in playlist"));
 
-        cleanup_news(&state, &news_title).await;
-        cleanup_playlist(&state, &playlist_name).await;
+        _guard.cleanup().await;
     }
 }
