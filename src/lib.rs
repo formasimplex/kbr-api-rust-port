@@ -2,6 +2,7 @@ pub mod app;
 pub mod cors;
 pub mod error;
 pub mod db;
+pub mod data;
 pub mod models;
 pub mod auth;
 pub mod handlers;

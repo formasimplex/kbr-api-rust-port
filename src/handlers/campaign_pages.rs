@@ -11,45 +11,12 @@
 //! | `show` | GET | `/v1/campaign_pages/{id}` | auth | Retrieve a single campaign page by ID |
 
 use actix_web::{web, HttpResponse};
-use sqlx::FromRow;
 
 use crate::app::AppState;
 use crate::auth::middleware::CurrentUser;
+use crate::data::campaign_pages as data;
 use crate::error::AppError;
-use crate::models::campaign_page::{CampaignPage, CampaignPageResponse};
-
-#[derive(Debug, FromRow)]
-struct CampaignPageRow {
-    id: i64,
-    campaign_id: i64,
-    title: Option<String>,
-    description: Option<String>,
-    page_type: Option<i32>,
-    inventory_item_id: Option<String>,
-    inventory_url: Option<String>,
-    created_at: chrono::NaiveDateTime,
-    updated_at: chrono::NaiveDateTime,
-}
-
-impl From<CampaignPageRow> for CampaignPage {
-    fn from(row: CampaignPageRow) -> Self {
-        CampaignPage {
-            id: row.id,
-            campaign_id: row.campaign_id,
-            title: row.title,
-            description: row.description,
-            page_type: row.page_type,
-            inventory_item_id: row.inventory_item_id,
-            inventory_url: row.inventory_url,
-            created_at: row.created_at.and_utc(),
-            updated_at: row.updated_at.and_utc(),
-        }
-    }
-}
-
-const CAMPAIGN_PAGE_SELECT: &str =
-    r#"SELECT id, campaign_id, title, description, page_type,
-       inventory_item_id, inventory_url, created_at, updated_at FROM campaign_pages"#;
+use crate::models::campaign_page::CampaignPageResponse;
 
 /// List all campaign pages.
 ///
@@ -66,13 +33,7 @@ pub async fn index(
     if !user.is_admin() {
         return Err(AppError::Forbidden("Not Authorized".to_string()));
     }
-    let rows = sqlx::query_as::<_, CampaignPageRow>(
-        &format!("{} ORDER BY id", CAMPAIGN_PAGE_SELECT),
-    )
-    .fetch_all(&state.db)
-    .await?;
-
-    let pages: Vec<CampaignPage> = rows.into_iter().map(|r| r.into()).collect();
+    let pages = data::list(&state.db).await?;
     let responses: Vec<CampaignPageResponse> = pages.iter().map(|p| p.to_response()).collect();
     Ok(HttpResponse::Ok().json(responses))
 }
@@ -91,17 +52,8 @@ pub async fn show(
     path: web::Path<i64>,
 ) -> Result<HttpResponse, AppError> {
     let id = path.into_inner();
-    match sqlx::query_as::<_, CampaignPageRow>(
-        &format!("{} WHERE id = $1", CAMPAIGN_PAGE_SELECT),
-    )
-    .bind(id)
-    .fetch_optional(&state.db)
-    .await?
-    {
-        Some(row) => {
-            let page: CampaignPage = row.into();
-            Ok(HttpResponse::Ok().json(page.to_response()))
-        }
+    match data::by_id(&state.db, id).await? {
+        Some(page) => Ok(HttpResponse::Ok().json(page.to_response())),
         None => Err(AppError::NotFound(format!("CampaignPage #{}", id))),
     }
 }
