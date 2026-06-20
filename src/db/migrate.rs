@@ -38,11 +38,11 @@ pub async fn rollback(pool: &PgPool, steps: u32) -> Result<(), AppError> {
         )));
     }
 
-    let target_idx = applied.len() - steps as usize - 1;
-    let target_version = if target_idx >= 0 {
-        applied[target_idx].version
-    } else {
+    let target_version = if steps as usize == applied.len() {
         0
+    } else {
+        let target_idx = applied.len() - steps as usize - 1;
+        applied[target_idx].version
     };
 
     get_migrator()
@@ -100,7 +100,7 @@ pub async fn get_applied_migrations_status(
 async fn get_applied_migrations(pool: &PgPool) -> Result<Vec<AppliedMigration>, AppError> {
     let migrations = sqlx::query(
         r#"
-        SELECT version, description FROM _sqlx_migrations
+        SELECT version FROM _sqlx_migrations
         ORDER BY version ASC
         "#,
     )
@@ -112,7 +112,6 @@ async fn get_applied_migrations(pool: &PgPool) -> Result<Vec<AppliedMigration>, 
         .into_iter()
         .map(|r| AppliedMigration {
             version: r.try_get("version").unwrap_or(0_i64),
-            description: r.try_get("description").unwrap_or_default(),
         })
         .collect())
 }
@@ -120,7 +119,6 @@ async fn get_applied_migrations(pool: &PgPool) -> Result<Vec<AppliedMigration>, 
 #[derive(Debug)]
 struct AppliedMigration {
     version: i64,
-    description: String,
 }
 
 /// Check migration health — returns list of pending migrations.

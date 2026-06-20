@@ -16,6 +16,7 @@
 //! | `delete_artist_links` | POST | `/v1/artist/delete_artist_links` | artist+ | Remove an artist link |
 //! | `available_link_types` | GET | `/v1/available_link_types` | public | List valid link type options |
 
+use actix_multipart::Multipart;
 use actix_web::{HttpResponse, web};
 use sqlx::FromRow;
 use uuid::Uuid;
@@ -356,12 +357,16 @@ pub(crate) async fn sign_up(
 
 /// Update artist details.
 ///
-/// Performs a partial update using COALESCE — only provided fields are changed.
+/// Accepts multipart/form-data with fields prefixed by `artist[` (e.g.,
+/// `artist[name]`, `artist[bio]`, `artist[subHeading]`, `artist[intro]`).
+/// Also accepts image files via `artist[images][]` which are uploaded to S3
+/// and attached to the artist record.
+///
 /// Validates intro (max 300 chars) and bio (max 3000 chars). Requires artist+ role.
 ///
 /// # Response
 ///
-/// `200 OK` — updated `ArtistResponse`
+/// `200 OK` — updated `ArtistResponse` with image URLs
 /// `403 Forbidden` — role below artist
 /// `404 Not Found` — artist does not exist
 /// `422 Unprocessable Entity` — validation error (intro/bio too long)
@@ -369,26 +374,55 @@ pub async fn update(
     state: web::Data<AppState>,
     user: CurrentUser,
     path: web::Path<i64>,
-    body: web::Json<UpdateArtistRequest>,
+    payload: Multipart,
 ) -> Result<HttpResponse, AppError> {
     if !is_artist_or_above(&user.role) {
         return Err(AppError::Forbidden("Not Authorized".to_string()));
     }
     let id = path.into_inner();
 
-    if let Some(ref bio) = body.bio
-        && !Artist::validate_bio(bio)
+    let parsed = UpdateArtistRequest::from_multipart(payload).await?;
+    let UpdateArtistRequest {
+        name,
+        genre,
+        bio,
+        spotify_id,
+        sub_heading,
+        intro,
+    } = parsed.request;
+    let image_files = parsed.image_files;
+
+    // Validate bio
+    if let Some(ref bio_val) = bio
+        && !Artist::validate_bio(bio_val)
     {
         return Err(AppError::Validation(
             "Bio must be 3000 characters or less".to_string(),
         ));
     }
-    if let Some(ref intro) = body.intro
-        && !Artist::validate_intro(intro)
+
+    // Validate intro
+    if let Some(ref intro_val) = intro
+        && !Artist::validate_intro(intro_val)
     {
         return Err(AppError::Validation(
             "Intro must be 300 characters or less".to_string(),
         ));
+    }
+
+    // Upload image files to S3 and attach to artist
+    for (file_data, filename, content_type) in image_files {
+        storage_service::upload_and_attach(
+            &state.s3,
+            &state.db,
+            "Artist",
+            id,
+            "images",
+            &file_data,
+            &filename,
+            &content_type,
+        )
+        .await?;
     }
 
     let now = chrono::Utc::now().naive_utc();
@@ -405,12 +439,12 @@ pub async fn update(
         WHERE id = $8
         RETURNING id, name, genre, bio, user_id, prospect, "spotifyId" AS spotify_id, "subHeading" AS sub_heading, intro, created_at, updated_at"#
     )
-    .bind(body.name.as_deref())
-    .bind(body.genre.as_deref())
-    .bind(body.bio.as_deref())
-    .bind(body.spotify_id.as_deref())
-    .bind(body.sub_heading.as_deref())
-    .bind(body.intro.as_deref())
+    .bind(name.as_deref())
+    .bind(genre.as_deref())
+    .bind(bio.as_deref())
+    .bind(spotify_id.as_deref())
+    .bind(sub_heading.as_deref())
+    .bind(intro.as_deref())
     .bind(now)
     .bind(id)
     .fetch_optional(&state.db)
@@ -418,7 +452,16 @@ pub async fn update(
     .ok_or_else(|| AppError::NotFound(format!("Artist #{}", id)))?;
 
     let artist: Artist = row.into();
-    Ok(HttpResponse::Ok().json(artist.to_response(Vec::new(), Vec::new(), Vec::new())))
+
+    let (image_urls, thumbnail_urls) =
+        storage_service::get_image_urls(&state.s3, &state.db, "Artist", artist.id)
+            .await
+            .unwrap_or_else(|_| (Vec::new(), Vec::new()));
+
+    let links_map = fetch_artist_links_batch(&state.db, &[artist.id]).await;
+    let links = links_map.get(&artist.id).cloned().unwrap_or_default();
+
+    Ok(HttpResponse::Ok().json(artist.to_response(image_urls, thumbnail_urls, links)))
 }
 
 /// Add a social/streaming link for an artist.
@@ -662,18 +705,24 @@ use crate::auth::jwt::encode_token_with_role;
         let user_id = seed_user(&state.db).await;
         let artist_id = seed_artist(&state.db, user_id).await;
 
+        let body = artist_update_multipart_body(
+            "Updated Artist Name",
+            "test bio",
+            "test subheading",
+            "test intro",
+        );
+
         let req = test::TestRequest::put()
             .uri(&format!("/artist/{}", artist_id))
             .insert_header(("Authorization", format!("Bearer {}", artist_token(2))))
-            .set_json(serde_json::json!({
-                "name": "Updated Artist Name"
-            }))
+            .insert_header(("Content-Type", "multipart/form-data; boundary=artist_boundary"))
+            .set_payload(body)
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
 
-        let body: serde_json::Value = test::read_body_json(resp).await;
-        assert_eq!(body["name"], "Updated Artist Name");
+        let response_body: serde_json::Value = test::read_body_json(resp).await;
+        assert_eq!(response_body["name"], "Updated Artist Name");
 
         _guard.cleanup().await;
     }
@@ -685,15 +734,54 @@ use crate::auth::jwt::encode_token_with_role;
 
         let not_found = not_found_id(&state.db, "artists").await;
 
+        let body = artist_update_multipart_body(
+            "Updated",
+            "test bio",
+            "test subheading",
+            "test intro",
+        );
+
         let req = test::TestRequest::put()
             .uri(&format!("/artist/{}", not_found))
             .insert_header(("Authorization", format!("Bearer {}", artist_token(2))))
-            .set_json(serde_json::json!({
-                "name": "Updated"
-            }))
+            .insert_header(("Content-Type", "multipart/form-data; boundary=artist_boundary"))
+            .set_payload(body)
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
+
+        _guard.cleanup().await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn artist_update_multipart_fields() {
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
+
+        let user_id = seed_user(&state.db).await;
+        let artist_id = seed_artist(&state.db, user_id).await;
+
+        let body = artist_update_multipart_body(
+            "Updated Name",
+            "Updated Bio",
+            "Updated Subheading",
+            "Updated Intro",
+        );
+
+        let req = test::TestRequest::put()
+            .uri(&format!("/artist/{}", artist_id))
+            .insert_header(("Authorization", format!("Bearer {}", artist_token(2))))
+            .insert_header(("Content-Type", "multipart/form-data; boundary=artist_boundary"))
+            .set_payload(body)
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 200);
+
+        let response_body: serde_json::Value = test::read_body_json(resp).await;
+        assert_eq!(response_body["name"], "Updated Name");
+        assert_eq!(response_body["bio"], "Updated Bio");
+        assert_eq!(response_body["sub_heading"], "Updated Subheading");
+        assert_eq!(response_body["intro"], "Updated Intro");
 
         _guard.cleanup().await;
     }
@@ -1087,5 +1175,38 @@ use crate::auth::jwt::encode_token_with_role;
         assert_eq!(resp.status(), 422);
 
         _guard.cleanup().await;
+    }
+
+    fn artist_update_multipart_body(
+        name: &str,
+        bio: &str,
+        sub_heading: &str,
+        intro: &str,
+    ) -> Vec<u8> {
+        let boundary = "artist_boundary";
+        let mut body = Vec::new();
+
+        body.extend_from_slice(format!(
+            "--{}\r\nContent-Disposition: form-data; name=\"artist[name]\"\r\n\r\n{}\r\n",
+            boundary, name
+        ).as_bytes());
+
+        body.extend_from_slice(format!(
+            "--{}\r\nContent-Disposition: form-data; name=\"artist[bio]\"\r\n\r\n{}\r\n",
+            boundary, bio
+        ).as_bytes());
+
+        body.extend_from_slice(format!(
+            "--{}\r\nContent-Disposition: form-data; name=\"artist[subHeading]\"\r\n\r\n{}\r\n",
+            boundary, sub_heading
+        ).as_bytes());
+
+        body.extend_from_slice(format!(
+            "--{}\r\nContent-Disposition: form-data; name=\"artist[intro]\"\r\n\r\n{}\r\n",
+            boundary, intro
+        ).as_bytes());
+
+        body.extend_from_slice(format!("\r\n--{}--\r\n", boundary).as_bytes());
+        body
     }
 }
