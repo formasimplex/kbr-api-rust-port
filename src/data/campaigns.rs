@@ -198,7 +198,7 @@ pub async fn activate(
 pub async fn destroy(pool: &sqlx::PgPool, id: i64, now: chrono::NaiveDateTime) -> Result<bool, sqlx::Error> {
     let result = sqlx::query(
         r#"UPDATE campaigns SET deleted_at = $1, updated_at = $2
-           WHERE id = $3 AND deleted_at IS NULL"#,
+            WHERE id = $3 AND deleted_at IS NULL"#,
     )
     .bind(now)
     .bind(now)
@@ -207,4 +207,24 @@ pub async fn destroy(pool: &sqlx::PgPool, id: i64, now: chrono::NaiveDateTime) -
     .await?;
 
     Ok(result.rows_affected() > 0)
+}
+
+pub async fn update_progress(
+    pool: &sqlx::PgPool,
+    id: i64,
+    vinyl_sold_count: i32,
+    progress: i32,
+    now: chrono::NaiveDateTime,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"UPDATE campaigns SET vinyl_sold_count = $1, progress = $2, updated_at = $3 WHERE id = $4"#,
+    )
+    .bind(vinyl_sold_count)
+    .bind(progress)
+    .bind(now)
+    .bind(id)
+    .execute(pool)
+    .await?;
+
+    Ok(())
 }

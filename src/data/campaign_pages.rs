@@ -55,3 +55,17 @@ pub async fn by_id(pool: &sqlx::PgPool, id: i64) -> Result<Option<CampaignPage>,
 
     Ok(row.map(|r| r.into()))
 }
+
+pub async fn find_by_inventory_item_id(
+    pool: &sqlx::PgPool,
+    inventory_item_id: &str,
+) -> Result<Option<CampaignPage>, sqlx::Error> {
+    let row = sqlx::query_as::<_, CampaignPageRow>(
+        &format!("{} WHERE inventory_item_id = $1", CAMPAIGN_PAGE_SELECT),
+    )
+    .bind(inventory_item_id)
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(row.map(|r| r.into()))
+}

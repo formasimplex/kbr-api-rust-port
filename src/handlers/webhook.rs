@@ -15,9 +15,9 @@
 
 use actix_web::{web, HttpResponse};
 use serde::Deserialize;
-use sqlx::FromRow;
 
 use crate::app::AppState;
+use crate::data::{campaign_pages, campaigns};
 use crate::error::AppError;
 
 /// Top-level webhook request body containing inventory data.
@@ -35,31 +35,6 @@ pub struct WebhookPayload {
     available: Option<String>,
     #[allow(dead_code)]
     updated_at: Option<String>,
-}
-
-#[derive(Debug, FromRow)]
-#[allow(dead_code)]
-struct CampaignPageRow {
-    id: i64,
-    campaign_id: i64,
-    inventory_item_id: Option<String>,
-}
-
-#[derive(Debug, FromRow)]
-#[allow(dead_code)]
-struct CampaignRow {
-    id: i64,
-    artist_id: i64,
-    name: Option<String>,
-    active: Option<bool>,
-    vinyl_sold_count: Option<i32>,
-    campaign_start_date: Option<chrono::NaiveDateTime>,
-    campaign_end_date: Option<chrono::NaiveDateTime>,
-    progress: Option<i32>,
-    album_id: Option<i64>,
-    deleted_at: Option<chrono::NaiveDateTime>,
-    created_at: chrono::NaiveDateTime,
-    updated_at: chrono::NaiveDateTime,
 }
 
 /// Update campaign progress from a Shopify inventory webhook.
@@ -84,27 +59,11 @@ pub async fn update_progress(
         .parse()
         .unwrap_or(0);
 
-    let campaign_page = sqlx::query_as::<_, CampaignPageRow>(
-        r#"SELECT id, campaign_id, inventory_item_id FROM campaign_pages WHERE inventory_item_id = $1"#
-    )
-    .bind(inventory_item_id)
-    .fetch_optional(&state.db)
-    .await?;
-
-    let Some(page) = campaign_page else {
+    let Some(page) = campaign_pages::find_by_inventory_item_id(&state.db, inventory_item_id).await? else {
         return Ok(HttpResponse::Ok().json(serde_json::json!({ "status": "ok" })));
     };
 
-    let campaign = sqlx::query_as::<_, CampaignRow>(
-        r#"SELECT id, artist_id, name, active, vinyl_sold_count, campaign_start_date,
-           campaign_end_date, progress, album_id, deleted_at, created_at, updated_at
-           FROM campaigns WHERE id = $1"#
-    )
-    .bind(page.campaign_id)
-    .fetch_optional(&state.db)
-    .await?;
-
-    let Some(campaign) = campaign else {
+    let Some(campaign) = campaigns::by_id(&state.db, page.campaign_id).await? else {
         return Ok(HttpResponse::Ok().json(serde_json::json!({ "status": "ok" })));
     };
 
@@ -115,6 +74,8 @@ pub async fn update_progress(
         (campaign.campaign_start_date, campaign.campaign_end_date)
     {
         let today = chrono::Utc::now().naive_utc();
+        let start = start.naive_utc();
+        let end = end.naive_utc();
         let total_days = (end - start).num_days().max(1);
         let days_passed = (today - start).num_days().max(0);
         let vinyl_progress = (vinyl_sold as f64 / target as f64) * 100.0;
@@ -128,15 +89,7 @@ pub async fn update_progress(
 
     let now = chrono::Utc::now().naive_utc();
 
-    sqlx::query(
-        r#"UPDATE campaigns SET vinyl_sold_count = $1, progress = $2, updated_at = $3 WHERE id = $4"#
-    )
-    .bind(vinyl_sold)
-    .bind(progress)
-    .bind(now)
-    .bind(campaign.id)
-    .execute(&state.db)
-    .await?;
+    campaigns::update_progress(&state.db, campaign.id, vinyl_sold, progress, now).await?;
 
     Ok(HttpResponse::Ok().json(serde_json::json!({ "status": "ok" })))
 }
