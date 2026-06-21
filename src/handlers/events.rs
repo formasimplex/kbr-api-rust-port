@@ -259,24 +259,8 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 mod tests {
     use super::*;
     use crate::auth::jwt::encode_token_with_role;
-    use crate::test_utils::{admin_token, artist_token, not_found_id, unique_suffix, TEST_SECRET};
+    use crate::test_utils::{admin_token, artist_token, not_found_id, seed_test_user, unique_suffix, TEST_SECRET};
     use actix_web::test;
-
-     async fn seed_user(pool: &sqlx::PgPool) -> (i64, String) {
-        let email = format!("event_test_{}@test.com", unique_suffix());
-        let id: i64 = sqlx::query_scalar(
-            r"INSERT INTO users (email, password_digest, role, created_at, updated_at)
-               VALUES ($1, $2, $3, NOW(), NOW())
-               RETURNING id",
-        )
-        .bind(&email)
-        .bind("hashed_password_test".to_string())
-        .bind(Some("artist".to_string()))
-        .fetch_one(pool)
-        .await
-        .expect("Failed to seed user");
-        (id, email)
-    }
 
     async fn seed_event(pool: &sqlx::PgPool, create_by_user_id: i32) -> i64 {
         let now = chrono::Utc::now().naive_utc();
@@ -323,7 +307,7 @@ mod tests {
         crate::test_utils::set_test_env();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let (user_id, user_email) = seed_user(&state.db).await;
+        let (user_id, user_email) = seed_test_user(&state.db, "event_test", "artist").await;
         let event_id = seed_event(&state.db, user_id as i32).await;
 
         let req = test::TestRequest::get()
@@ -414,7 +398,7 @@ mod tests {
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let (user_id, user_email) = seed_user(&state.db).await;
+        let (user_id, user_email) = seed_test_user(&state.db, "event_test", "artist").await;
         let event_id = seed_event(&state.db, user_id as i32).await;
 
         let req = test::TestRequest::get()
@@ -438,7 +422,7 @@ mod tests {
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let (user_id, user_email) = seed_user(&state.db).await;
+        let (user_id, user_email) = seed_test_user(&state.db, "event_test", "artist").await;
         let event_id = seed_event(&state.db, user_id as i32).await;
 
         let req = test::TestRequest::get()
@@ -479,7 +463,7 @@ mod tests {
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let (user_id, user_email) = seed_user(&state.db).await;
+        let (user_id, user_email) = seed_test_user(&state.db, "event_test", "artist").await;
         let event_id = seed_event(&state.db, user_id as i32).await;
 
         let req = test::TestRequest::put()

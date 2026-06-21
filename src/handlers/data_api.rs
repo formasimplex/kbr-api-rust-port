@@ -125,11 +125,11 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 
 #[cfg(test)]
 mod tests {
-   use super::*;
-    use crate::test_utils::{admin_token, not_found_id, unique_suffix};
+    use super::*;
+    use crate::test_utils::{admin_token, not_found_id, seed_attendee, seed_event, seed_mail_subscriber, unique_suffix};
     use actix_web::test;
 
-      async fn seed_user(pool: &sqlx::PgPool) -> (i64, String) {
+    async fn seed_user_with_username(pool: &sqlx::PgPool) -> (i64, String) {
         let email = format!("dataapi_user_{}@test.com", unique_suffix());
         let username = format!("dataapi_user_{}", unique_suffix());
         let id: i64 = sqlx::query_scalar(
@@ -145,53 +145,6 @@ mod tests {
         .await
         .expect("Failed to seed user");
         (id, email)
-    }
-
-    async fn seed_event(pool: &sqlx::PgPool) -> i64 {
-        let now = chrono::Utc::now().naive_utc();
-        sqlx::query_scalar::<_, i64>(
-            r#"INSERT INTO kbr_events (name, description, active, event_start_date, event_end_date, created_at, updated_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7)
-               RETURNING id"#
-        )
-        .bind(format!("DataApi Event {}", unique_suffix()))
-        .bind("A test event for data api")
-        .bind(true)
-        .bind(&now)
-        .bind(&now)
-        .bind(&now)
-        .bind(&now)
-        .fetch_one(pool)
-        .await
-        .expect("Failed to seed event")
-    }
-
-    async fn seed_mail_subscriber(pool: &sqlx::PgPool) -> i64 {
-        let email = format!("dataapi_sub_{}@test.com", unique_suffix());
-        sqlx::query_scalar::<_, i64>(
-            r#"INSERT INTO mail_subscribers (full_name, email, created_at, updated_at)
-               VALUES ($1, $2, NOW(), NOW())
-               RETURNING id"#
-        )
-        .bind(format!("Subscriber {}", unique_suffix()))
-        .bind(&email)
-        .fetch_one(pool)
-        .await
-        .expect("Failed to seed mail subscriber")
-    }
-
-    async fn seed_attendee(pool: &sqlx::PgPool, event_id: i64, subscriber_id: i64, scan_count: i32) -> i64 {
-        sqlx::query_scalar::<_, i64>(
-            r#"INSERT INTO kbr_event_attendees (kbr_event_id, mail_subscriber_id, scan_count, created_at, updated_at)
-               VALUES ($1, $2, $3, NOW(), NOW())
-               RETURNING id"#
-        )
-        .bind(event_id as i32)
-        .bind(subscriber_id as i32)
-        .bind(scan_count)
-        .fetch_one(pool)
-        .await
-        .expect("Failed to seed attendee")
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -224,7 +177,7 @@ mod tests {
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let (user_id, user_email) = seed_user(&state.db).await;
+        let (user_id, user_email) = seed_user_with_username(&state.db).await;
 
         let req = test::TestRequest::get()
             .uri(&format!("/data/last_logins/{}", user_id))
@@ -268,10 +221,10 @@ mod tests {
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let event_id = seed_event(&state.db).await;
-        let sub1 = seed_mail_subscriber(&state.db).await;
-        let sub2 = seed_mail_subscriber(&state.db).await;
-        let sub3 = seed_mail_subscriber(&state.db).await;
+        let event_id = seed_event(&state.db, None).await;
+        let sub1 = seed_mail_subscriber(&state.db, None, None).await;
+        let sub2 = seed_mail_subscriber(&state.db, None, None).await;
+        let sub3 = seed_mail_subscriber(&state.db, None, None).await;
 
         seed_attendee(&state.db, event_id, sub1, 2).await;
         seed_attendee(&state.db, event_id, sub2, 1).await;

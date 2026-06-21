@@ -261,7 +261,7 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{admin_token, not_found_id, seed_user_with_id, user_token};
+    use crate::test_utils::{admin_token, not_found_id, seed_news_playlist, seed_user_with_id, user_token};
     use actix_web::test;
 
     async fn seed_news(state: &AppState, suffix: &str) -> i64 {
@@ -279,22 +279,6 @@ mod tests {
         .fetch_one(&state.db)
         .await
         .expect("Failed to seed news")
-    }
-
-    async fn seed_playlist(state: &AppState, suffix: &str) -> i64 {
-        seed_user_with_id(&state.db, 1, "admin@test.com", "admin").await;
-        let row: (i64,) = sqlx::query_as(
-            r"INSERT INTO news_playlists (user_id, name, description, created_at, updated_at)
-              VALUES ($1, $2, $3, NOW(), NOW())
-              RETURNING id",
-        )
-        .bind(1i64)
-        .bind(format!("Test Playlist {}", suffix))
-        .bind(format!("Playlist desc {}", suffix))
-        .fetch_one(&state.db)
-        .await
-        .expect("Failed to seed playlist");
-        row.0
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -460,8 +444,8 @@ mod tests {
         let suffix = format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos());
         let news_id = seed_news(&state, &suffix).await;
         let news_title = format!("Test News {}", suffix);
-        let playlist_id = seed_playlist(&state, &suffix).await;
         let playlist_name = format!("Test Playlist {}", suffix);
+        let playlist_id = seed_news_playlist(&state.db, 1, &playlist_name).await;
 
         let req = test::TestRequest::post()
             .uri("/news/add_to_playlist")
@@ -525,8 +509,8 @@ mod tests {
         let suffix = format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos());
         let news_id = seed_news(&state, &suffix).await;
         let news_title = format!("Test News {}", suffix);
-        let playlist_id = seed_playlist(&state, &suffix).await;
         let playlist_name = format!("Test Playlist {}", suffix);
+        let playlist_id = seed_news_playlist(&state.db, 1, &playlist_name).await;
 
         let req = test::TestRequest::post()
             .uri("/news/add_to_playlist")
@@ -568,8 +552,8 @@ mod tests {
         let suffix = format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos());
         let news_id = seed_news(&state, &suffix).await;
         let news_title = format!("Test News {}", suffix);
-        let playlist_id = seed_playlist(&state, &suffix).await;
         let playlist_name = format!("Test Playlist {}", suffix);
+        let playlist_id = seed_news_playlist(&state.db, 1, &playlist_name).await;
 
         let req = test::TestRequest::post()
             .uri("/news/add_to_playlist")

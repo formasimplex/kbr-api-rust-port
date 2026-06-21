@@ -1,4 +1,4 @@
-use sqlx::FromRow;
+use sqlx::{FromRow, Transaction};
 
 use crate::models::sign_up_trigger::SignUpTrigger;
 
@@ -102,4 +102,18 @@ pub async fn by_token(pool: &sqlx::PgPool, token: &str) -> Result<Option<SignUpT
     .await?;
 
     Ok(row.map(|r| r.into()))
+}
+
+pub async fn by_token_for_update(
+    tx: &mut Transaction<'_, sqlx::Postgres>,
+    token: &str,
+) -> Result<Option<(Option<String>, Option<String>)>, sqlx::Error> {
+    let row = sqlx::query_as::<_, (Option<String>, Option<String>)>(
+        r"SELECT email, expires_at FROM sign_up_triggers WHERE token = $1 FOR UPDATE",
+    )
+    .bind(token)
+    .fetch_optional(&mut **tx)
+    .await?;
+
+    Ok(row)
 }

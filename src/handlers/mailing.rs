@@ -336,43 +336,9 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-use crate::auth::jwt::encode_token_with_role;
-     use crate::test_utils::{admin_token, TEST_SECRET};
+ use crate::auth::jwt::encode_token_with_role;
+     use crate::test_utils::{admin_token, seed_artist, seed_test_user, unique_suffix, TEST_SECRET};
     use actix_web::test;
-
-    async fn seed_user(pool: &sqlx::PgPool) -> i64 {
-        let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
-        let pid = std::process::id();
-        sqlx::query_scalar::<_, i64>(
-            r"INSERT INTO users (email, password_digest, role, created_at, updated_at)
-               VALUES ($1, $2, $3, NOW(), NOW())
-               RETURNING id",
-        )
-        .bind(format!("mailing_test_user_{}_{}@test.com", pid, ts))
-        .bind("hashed_password_test".to_string())
-        .bind(Some("admin".to_string()))
-        .fetch_one(pool)
-        .await
-        .expect("Failed to seed user")
-    }
-
-    async fn seed_artist(pool: &sqlx::PgPool, user_id: i64) -> i64 {
-        let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
-        let pid = std::process::id();
-        sqlx::query_scalar::<_, i64>(
-            r"INSERT INTO artists (name, genre, bio, user_id, prospect, created_at, updated_at)
-               VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
-               RETURNING id",
-        )
-        .bind(format!("Mailing Test Artist {}_{}", pid, ts))
-        .bind(Some("Electronic".to_string()))
-        .bind(Some("A test artist for mailing".to_string()))
-        .bind(Some(user_id))
-        .bind(Some(false))
-        .fetch_one(pool)
-        .await
-        .expect("Failed to seed artist")
-    }
 
     async fn seed_subscriber(pool: &sqlx::PgPool, artist_id: i64, user_id: Option<i64>) -> (i64, String) {
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
@@ -431,8 +397,8 @@ use crate::auth::jwt::encode_token_with_role;
     async fn artist_mailing_list_authenticated() {
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
-        let user_id = seed_user(&state.db).await;
-        let artist_id = seed_artist(&state.db, user_id).await;
+        let (user_id, _) = seed_test_user(&state.db, "mailing_test", "admin").await;
+        let artist_id = seed_artist(&state.db, Some(user_id)).await;
         let (sub_id, _) = seed_subscriber(&state.db, artist_id, Some(user_id)).await;
 
         let req = test::TestRequest::get()
@@ -497,12 +463,10 @@ use crate::auth::jwt::encode_token_with_role;
     async fn add_mail_subscriber_with_user_authenticated() {
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
-        let user_id = seed_user(&state.db).await;
-        let artist_id = seed_artist(&state.db, user_id).await;
+        let (user_id, _) = seed_test_user(&state.db, "mailing_test", "admin").await;
+        let artist_id = seed_artist(&state.db, Some(user_id)).await;
 
-        let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
-        let pid = std::process::id();
-        let email = format!("addmailuser_{}_{}@test.com", pid, ts);
+        let email = format!("addmailuser_{}@test.com", unique_suffix());
 
         let req = test::TestRequest::post()
             .uri("/addmailsubscriber_with_user")
@@ -526,12 +490,10 @@ use crate::auth::jwt::encode_token_with_role;
     async fn add_mail_subscriber_duplicate() {
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
-        let user_id = seed_user(&state.db).await;
-        let artist_id = seed_artist(&state.db, user_id).await;
+        let (user_id, _) = seed_test_user(&state.db, "mailing_test", "admin").await;
+        let artist_id = seed_artist(&state.db, Some(user_id)).await;
 
-        let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
-        let pid = std::process::id();
-        let email = format!("dupmail_{}_{}@test.com", pid, ts);
+        let email = format!("dupmail_{}@test.com", unique_suffix());
 
         sqlx::query(
             r"INSERT INTO mail_subscribers (full_name, email, active, artist_id, created_at, updated_at)
@@ -564,8 +526,8 @@ use crate::auth::jwt::encode_token_with_role;
     async fn unsubscribe_authenticated() {
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
-        let user_id = seed_user(&state.db).await;
-        let artist_id = seed_artist(&state.db, user_id).await;
+        let (user_id, _) = seed_test_user(&state.db, "mailing_test", "admin").await;
+        let artist_id = seed_artist(&state.db, Some(user_id)).await;
         let (sub_id, _) = seed_subscriber(&state.db, artist_id, Some(user_id)).await;
         let user_token = encode_token_with_role(user_id, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap();
 

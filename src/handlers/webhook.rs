@@ -137,58 +137,38 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::unique_suffix;
+    use crate::test_utils::{seed_artist, seed_campaign, seed_campaign_page, unique_suffix};
     use actix_web::test;
 
-     async fn seed_campaign_with_page(pool: &sqlx::PgPool) -> (i64, i64, String) {
+    async fn seed_campaign_with_page(pool: &sqlx::PgPool) -> (i64, i64, String) {
         let now = chrono::Utc::now().naive_utc();
         let start = now;
         let end = now + chrono::TimeDelta::days(30);
         let inventory_item_id = format!("shopify_item_{}", unique_suffix());
-        let artist_name = format!("Webhook Artist {}", unique_suffix());
 
-        let artist_id: i64 = sqlx::query_scalar::<_, i64>(
-            r#"INSERT INTO artists (name, created_at, updated_at) VALUES ($1, $2, $3) RETURNING id"#
-        )
-        .bind(&artist_name)
-        .bind(&now)
-        .bind(&now)
-        .fetch_one(pool)
-        .await
-        .expect("Failed to seed artist");
+        let artist_id = seed_artist(pool, None).await;
+        let campaign_id = seed_campaign(pool, artist_id).await;
 
-        let campaign_id: i64 = sqlx::query_scalar::<_, i64>(
-            r#"INSERT INTO campaigns (artist_id, name, active, vinyl_sold_count, campaign_start_date, campaign_end_date, progress, created_at, updated_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-               RETURNING id"#
+        // Update campaign with date range for webhook tests
+        let _ = sqlx::query(
+            r#"UPDATE campaigns SET campaign_start_date = $1, campaign_end_date = $2 WHERE id = $3"#
         )
-        .bind(artist_id)
-        .bind(format!("Test Campaign {}", unique_suffix()))
-        .bind(true)
-        .bind(0i32)
         .bind(&start)
         .bind(&end)
-        .bind(0i32)
-        .bind(&now)
-        .bind(&now)
-        .fetch_one(pool)
-        .await
-        .expect("Failed to seed campaign");
-
-        let page_id: i64 = sqlx::query_scalar::<_, i64>(
-            r#"INSERT INTO campaign_pages (campaign_id, title, description, inventory_item_id, created_at, updated_at)
-               VALUES ($1, $2, $3, $4, $5, $6)
-               RETURNING id"#
-        )
         .bind(campaign_id)
-        .bind(format!("Test Page {}", unique_suffix()))
-        .bind("Test page description")
+        .execute(pool)
+        .await;
+
+        let page_id = seed_campaign_page(pool, campaign_id).await;
+
+        // Update page with inventory_item_id for webhook tests
+        let _ = sqlx::query(
+            r#"UPDATE campaign_pages SET inventory_item_id = $1 WHERE id = $2"#
+        )
         .bind(&inventory_item_id)
-        .bind(&now)
-        .bind(&now)
-        .fetch_one(pool)
-        .await
-        .expect("Failed to seed campaign page");
+        .bind(page_id)
+        .execute(pool)
+        .await;
 
         (campaign_id, page_id, inventory_item_id)
     }

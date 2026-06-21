@@ -1,6 +1,73 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
+
+#[derive(Debug, FromRow)]
+pub struct UserRow {
+    pub id: i64,
+    pub email: String,
+    pub password_digest: String,
+    pub role: Option<String>,
+    pub session_token: Option<String>,
+    pub username: Option<String>,
+    pub token_version: i64,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+}
+
+#[derive(Debug, FromRow)]
+pub struct UserRowNoPassword {
+    pub id: i64,
+    pub email: String,
+    pub role: Option<String>,
+    pub session_token: Option<String>,
+    pub username: Option<String>,
+    pub token_version: i64,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+}
+
+impl From<UserRow> for User {
+    fn from(row: UserRow) -> Self {
+        User {
+            id: row.id,
+            email: row.email,
+            password_digest: row.password_digest,
+            role: row.role,
+            session_token: row.session_token,
+            username: row.username,
+            first_name: None,
+            last_name: None,
+            token_version: row.token_version,
+            created_at: row.created_at.and_utc(),
+            updated_at: row.updated_at.and_utc(),
+        }
+    }
+}
+
+impl From<UserRowNoPassword> for User {
+    fn from(row: UserRowNoPassword) -> Self {
+        User {
+            id: row.id,
+            email: row.email,
+            password_digest: String::new(),
+            role: row.role,
+            session_token: row.session_token,
+            username: row.username,
+            first_name: None,
+            last_name: None,
+            token_version: row.token_version,
+            created_at: row.created_at.and_utc(),
+            updated_at: row.updated_at.and_utc(),
+        }
+    }
+}
+
+pub const USER_COLUMNS: &str =
+    "id, email, password_digest, role, session_token, username, COALESCE(token_version, 1) as token_version, created_at, updated_at";
+
+pub const USER_COLUMNS_NO_PASSWORD: &str =
+    "id, email, role, session_token, username, COALESCE(token_version, 1) as token_version, created_at, updated_at";
 
 #[derive(Debug, Clone, FromRow, PartialEq, Eq)]
 pub struct User {

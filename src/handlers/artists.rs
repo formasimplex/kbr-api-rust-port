@@ -470,41 +470,9 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-use crate::auth::jwt::encode_token_with_role;
-     use crate::test_utils::{admin_token, artist_token, not_found_id, TEST_SECRET};
+ use crate::auth::jwt::encode_token_with_role;
+     use crate::test_utils::{admin_token, artist_token, not_found_id, seed_artist, seed_test_user, TEST_SECRET};
     use actix_web::test;
-
-    async fn seed_user(pool: &sqlx::PgPool) -> i64 {
-        let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
-        sqlx::query_scalar::<_, i64>(
-            r"INSERT INTO users (email, password_digest, role, created_at, updated_at)
-               VALUES ($1, $2, $3, NOW(), NOW())
-               RETURNING id",
-        )
-        .bind(format!("artist_test_{}@test.com", ts))
-        .bind("hashed_password_test".to_string())
-        .bind(Some("artist".to_string()))
-        .fetch_one(pool)
-        .await
-        .expect("Failed to seed user")
-    }
-
-    async fn seed_artist(pool: &sqlx::PgPool, user_id: i64) -> i64 {
-        let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
-        sqlx::query_scalar::<_, i64>(
-            r"INSERT INTO artists (name, genre, bio, user_id, prospect, created_at, updated_at)
-               VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
-               RETURNING id",
-        )
-        .bind(format!("Test Artist {}", ts))
-        .bind(Some("Electronic".to_string()))
-        .bind(Some("A test artist bio".to_string()))
-        .bind(Some(user_id))
-        .bind(Some(false))
-        .fetch_one(pool)
-        .await
-        .expect("Failed to seed artist")
-    }
 
     #[tokio::test(flavor = "current_thread")]
     async fn artists_index_public() {
@@ -523,8 +491,8 @@ use crate::auth::jwt::encode_token_with_role;
         crate::test_utils::set_test_env();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let user_id = seed_user(&state.db).await;
-        let artist_id = seed_artist(&state.db, user_id).await;
+        let (user_id, _) = seed_test_user(&state.db, "artist_test", "artist").await;
+        let artist_id = seed_artist(&state.db, Some(user_id)).await;
 
         let req = test::TestRequest::get()
             .uri(&format!("/artist/{}", artist_id))
@@ -605,8 +573,8 @@ use crate::auth::jwt::encode_token_with_role;
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let user_id = seed_user(&state.db).await;
-        let artist_id = seed_artist(&state.db, user_id).await;
+        let (user_id, _) = seed_test_user(&state.db, "artist_test", "artist").await;
+        let artist_id = seed_artist(&state.db, Some(user_id)).await;
 
         let body = artist_update_multipart_body(
             "Updated Artist Name",
@@ -661,8 +629,8 @@ use crate::auth::jwt::encode_token_with_role;
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let user_id = seed_user(&state.db).await;
-        let artist_id = seed_artist(&state.db, user_id).await;
+        let (user_id, _) = seed_test_user(&state.db, "artist_test", "artist").await;
+        let artist_id = seed_artist(&state.db, Some(user_id)).await;
 
         let body = artist_update_multipart_body(
             "Updated Name",
@@ -694,8 +662,8 @@ use crate::auth::jwt::encode_token_with_role;
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let user_id = seed_user(&state.db).await;
-        let artist_id = seed_artist(&state.db, user_id).await;
+        let (user_id, _) = seed_test_user(&state.db, "artist_test", "artist").await;
+        let artist_id = seed_artist(&state.db, Some(user_id)).await;
 
         let req = test::TestRequest::post()
             .uri("/artist/add_artist_links")
@@ -741,8 +709,8 @@ use crate::auth::jwt::encode_token_with_role;
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let user_id = seed_user(&state.db).await;
-        let artist_id = seed_artist(&state.db, user_id).await;
+        let (user_id, _) = seed_test_user(&state.db, "artist_test", "artist").await;
+        let artist_id = seed_artist(&state.db, Some(user_id)).await;
 
         let now = chrono::Utc::now().naive_utc();
         let link_id: i64 = sqlx::query_scalar(

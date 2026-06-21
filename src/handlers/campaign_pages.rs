@@ -66,77 +66,8 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{admin_token, not_found_id, user_token};
+    use crate::test_utils::{admin_token, not_found_id, seed_artist, seed_campaign, seed_campaign_page, seed_test_user, user_token};
     use actix_web::test;
-
-    async fn seed_user(pool: &sqlx::PgPool) -> i64 {
-        let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
-        let pid = std::process::id();
-        sqlx::query_scalar::<_, i64>(
-            r"INSERT INTO users (email, password_digest, role, created_at, updated_at)
-               VALUES ($1, $2, $3, NOW(), NOW())
-               RETURNING id",
-        )
-        .bind(format!("cpage_test_user_{}_{}@test.com", pid, ts))
-        .bind("hashed_password_test".to_string())
-        .bind(Some("artist".to_string()))
-        .fetch_one(pool)
-        .await
-        .expect("Failed to seed user")
-    }
-
-    async fn seed_artist(pool: &sqlx::PgPool, user_id: i64) -> i64 {
-        let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
-        let pid = std::process::id();
-        sqlx::query_scalar::<_, i64>(
-            r"INSERT INTO artists (name, genre, bio, user_id, prospect, created_at, updated_at)
-               VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
-               RETURNING id",
-        )
-        .bind(format!("CPage Test Artist {}_{}", pid, ts))
-        .bind(Some("Electronic".to_string()))
-        .bind(Some("A test artist for campaign pages".to_string()))
-        .bind(Some(user_id))
-        .bind(Some(false))
-        .fetch_one(pool)
-        .await
-        .expect("Failed to seed artist")
-    }
-
-    async fn seed_campaign(pool: &sqlx::PgPool, artist_id: i64) -> i64 {
-        let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
-        let pid = std::process::id();
-        sqlx::query_scalar::<_, i64>(
-            r"INSERT INTO campaigns (artist_id, name, active, vinyl_sold_count, progress, created_at, updated_at)
-               VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
-               RETURNING id",
-        )
-        .bind(artist_id)
-        .bind(format!("CPage Campaign {}_{}", pid, ts))
-        .bind(true)
-        .bind(25_i32)
-        .bind(50_i32)
-        .fetch_one(pool)
-        .await
-        .expect("Failed to seed campaign")
-    }
-
-    async fn seed_campaign_page(pool: &sqlx::PgPool, campaign_id: i64) -> i64 {
-        let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
-        let pid = std::process::id();
-        sqlx::query_scalar::<_, i64>(
-            r"INSERT INTO campaign_pages (campaign_id, title, description, page_type, created_at, updated_at)
-               VALUES ($1, $2, $3, $4, NOW(), NOW())
-               RETURNING id",
-        )
-        .bind(campaign_id)
-        .bind(format!("CPage Test {}_{}", pid, ts))
-        .bind(Some("A test campaign page".to_string()))
-        .bind(Some(0_i32))
-        .fetch_one(pool)
-        .await
-        .expect("Failed to seed campaign page")
-    }
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaign_pages_index_admin() {
@@ -173,8 +104,8 @@ mod tests {
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let user_id = seed_user(&state.db).await;
-        let artist_id = seed_artist(&state.db, user_id).await;
+        let (user_id, _) = seed_test_user(&state.db, "cpage_test", "artist").await;
+        let artist_id = seed_artist(&state.db, Some(user_id)).await;
         let campaign_id = seed_campaign(&state.db, artist_id).await;
         let page_id = seed_campaign_page(&state.db, campaign_id).await;
 

@@ -70,59 +70,17 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::user_token;
+    use crate::test_utils::{seed_artist, seed_mail_subscriber, seed_test_user, user_token};
     use actix_web::test;
-
-    async fn seed_user(pool: &sqlx::PgPool) -> i64 {
-        let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
-        sqlx::query_scalar::<_, i64>(
-            r"INSERT INTO users (email, password_digest, role, created_at, updated_at)
-               VALUES ($1, $2, $3, NOW(), NOW())
-               RETURNING id"
-        )
-        .bind(format!("dash_test_{}@test.com", ts))
-        .bind("hashed_password_test".to_string())
-        .bind(Some("user".to_string()))
-        .fetch_one(pool)
-        .await
-        .expect("Failed to seed user")
-    }
-
-    async fn seed_artist(pool: &sqlx::PgPool) -> i64 {
-        let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
-        sqlx::query_scalar::<_, i64>(
-            r"INSERT INTO artists (name, intro, created_at, updated_at)
-               VALUES ($1, $2, NOW(), NOW())
-               RETURNING id"
-        )
-        .bind(format!("Dash Artist {}", ts))
-        .bind(Some("An intro for the dashboard artist".to_string()))
-        .fetch_one(pool)
-        .await
-        .expect("Failed to seed artist")
-    }
-
-    async fn seed_mail_subscriber(pool: &sqlx::PgPool, user_id: i64, artist_id: i64) {
-        let _ = sqlx::query(
-            r"INSERT INTO mail_subscribers (full_name, user_id, email, artist_id, created_at, updated_at)
-               VALUES ($1, $2, $3, $4, NOW(), NOW())"
-        )
-        .bind("Test Subscriber".to_string())
-        .bind(user_id)
-        .bind(format!("sub_{}@test.com", artist_id))
-        .bind(artist_id)
-        .execute(pool)
-        .await;
-    }
 
     #[tokio::test(flavor = "current_thread")]
     async fn subscribed_artists_returns_subscribed() {
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let user_id = seed_user(&state.db).await;
-        let artist_id = seed_artist(&state.db).await;
-        seed_mail_subscriber(&state.db, user_id, artist_id).await;
+        let (user_id, _) = seed_test_user(&state.db, "dash_test", "user").await;
+        let artist_id = seed_artist(&state.db, None).await;
+        seed_mail_subscriber(&state.db, Some(user_id), Some(artist_id)).await;
 
         let req = test::TestRequest::get()
             .uri("/dashboard/subscribed_artists")
@@ -144,9 +102,9 @@ mod tests {
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let user_id = seed_user(&state.db).await;
-        let artist_id = seed_artist(&state.db).await;
-        seed_mail_subscriber(&state.db, user_id, artist_id).await;
+        let (user_id, _) = seed_test_user(&state.db, "dash_test", "user").await;
+        let artist_id = seed_artist(&state.db, None).await;
+        seed_mail_subscriber(&state.db, Some(user_id), Some(artist_id)).await;
 
         let _ = sqlx::query(r"UPDATE mail_subscribers SET unsubscribed_at = NOW() WHERE user_id = $1 AND artist_id = $2")
             .bind(user_id)
@@ -173,7 +131,7 @@ mod tests {
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let user_id = seed_user(&state.db).await;
+        let (user_id, _) = seed_test_user(&state.db, "dash_test", "user").await;
 
         let req = test::TestRequest::get()
             .uri("/dashboard/subscribed_artists")

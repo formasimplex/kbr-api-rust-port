@@ -370,61 +370,9 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-use crate::auth::jwt::encode_token_with_role;
-     use crate::test_utils::{admin_token, artist_token, not_found_id, TEST_SECRET};
+ use crate::auth::jwt::encode_token_with_role;
+     use crate::test_utils::{admin_token, artist_token, not_found_id, seed_artist, seed_campaign, seed_test_user, unique_suffix, TEST_SECRET};
     use actix_web::test;
-
-    async fn seed_user(pool: &sqlx::PgPool) -> i64 {
-        let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
-        let pid = std::process::id();
-        sqlx::query_scalar::<_, i64>(
-            r"INSERT INTO users (email, password_digest, role, created_at, updated_at)
-               VALUES ($1, $2, $3, NOW(), NOW())
-               RETURNING id",
-        )
-        .bind(format!("campaign_test_user_{}_{}@test.com", pid, ts))
-        .bind("hashed_password_test".to_string())
-        .bind(Some("artist".to_string()))
-        .fetch_one(pool)
-        .await
-        .expect("Failed to seed user")
-    }
-
-    async fn seed_artist(pool: &sqlx::PgPool, user_id: i64) -> i64 {
-        let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
-        let pid = std::process::id();
-        sqlx::query_scalar::<_, i64>(
-            r"INSERT INTO artists (name, genre, bio, user_id, prospect, created_at, updated_at)
-               VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
-               RETURNING id",
-        )
-        .bind(format!("Campaign Test Artist {}_{}", pid, ts))
-        .bind(Some("Electronic".to_string()))
-        .bind(Some("A test artist for campaigns".to_string()))
-        .bind(Some(user_id))
-        .bind(Some(false))
-        .fetch_one(pool)
-        .await
-        .expect("Failed to seed artist")
-    }
-
-    async fn seed_campaign(pool: &sqlx::PgPool, artist_id: i64) -> i64 {
-        let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
-        let pid = std::process::id();
-        sqlx::query_scalar::<_, i64>(
-            r"INSERT INTO campaigns (artist_id, name, active, vinyl_sold_count, progress, created_at, updated_at)
-               VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
-               RETURNING id",
-        )
-        .bind(artist_id)
-        .bind(format!("Campaign Test {}_{}", pid, ts))
-        .bind(true)
-        .bind(25_i32)
-        .bind(50_i32)
-        .fetch_one(pool)
-        .await
-        .expect("Failed to seed campaign")
-    }
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_index_public() {
@@ -443,8 +391,8 @@ use crate::auth::jwt::encode_token_with_role;
         crate::test_utils::set_test_env();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let user_id = seed_user(&state.db).await;
-        let artist_id = seed_artist(&state.db, user_id).await;
+        let (user_id, _) = seed_test_user(&state.db, "campaign_test", "artist").await;
+        let artist_id = seed_artist(&state.db, Some(user_id)).await;
         let campaign_id = seed_campaign(&state.db, artist_id).await;
 
         let req = test::TestRequest::get()
@@ -480,8 +428,8 @@ use crate::auth::jwt::encode_token_with_role;
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let user_id = seed_user(&state.db).await;
-        let artist_id = seed_artist(&state.db, user_id).await;
+        let (user_id, _) = seed_test_user(&state.db, "campaign_test", "artist").await;
+        let artist_id = seed_artist(&state.db, Some(user_id)).await;
 
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
         let pid = std::process::id();
@@ -511,8 +459,8 @@ use crate::auth::jwt::encode_token_with_role;
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let user_id = seed_user(&state.db).await;
-        let artist_id = seed_artist(&state.db, user_id).await;
+        let (user_id, _) = seed_test_user(&state.db, "campaign_test", "artist").await;
+        let artist_id = seed_artist(&state.db, Some(user_id)).await;
 
         let req = test::TestRequest::post()
             .uri("/campaigns")
@@ -548,8 +496,8 @@ use crate::auth::jwt::encode_token_with_role;
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let user_id = seed_user(&state.db).await;
-        let artist_id = seed_artist(&state.db, user_id).await;
+        let (user_id, _) = seed_test_user(&state.db, "campaign_test", "artist").await;
+        let artist_id = seed_artist(&state.db, Some(user_id)).await;
         let campaign_id = seed_campaign(&state.db, artist_id).await;
 
         let req = test::TestRequest::post()
@@ -595,8 +543,8 @@ use crate::auth::jwt::encode_token_with_role;
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let user_id = seed_user(&state.db).await;
-        let artist_id = seed_artist(&state.db, user_id).await;
+        let (user_id, _) = seed_test_user(&state.db, "campaign_test", "artist").await;
+        let artist_id = seed_artist(&state.db, Some(user_id)).await;
         let campaign_id = seed_campaign(&state.db, artist_id).await;
 
         let req = test::TestRequest::delete()
@@ -640,24 +588,15 @@ use crate::auth::jwt::encode_token_with_role;
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let user_id = seed_user(&state.db).await;
-        let artist_id = seed_artist(&state.db, user_id).await;
+        let (user_id, _) = seed_test_user(&state.db, "campaign_test", "artist").await;
+        let artist_id = seed_artist(&state.db, Some(user_id)).await;
 
-        let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
-        let pid = std::process::id();
-        let campaign_id: i64 = sqlx::query_scalar(
-            r"INSERT INTO campaigns (artist_id, name, active, vinyl_sold_count, progress, created_at, updated_at)
-               VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
-               RETURNING id",
-        )
-        .bind(artist_id)
-        .bind(format!("Inactive Campaign {}_{}", pid, ts))
-        .bind(false)
-        .bind(0_i32)
-        .bind(0_i32)
-        .fetch_one(&state.db)
-        .await
-        .expect("Failed to seed inactive campaign");
+        let campaign_id = seed_campaign(&state.db, artist_id).await;
+        let _ = sqlx::query(r"UPDATE campaigns SET active = false WHERE id = $1")
+            .bind(campaign_id)
+            .execute(&state.db)
+            .await
+            .expect("Failed to deactivate campaign");
 
         let req = test::TestRequest::post()
             .uri("/activate_campaign")
@@ -744,24 +683,15 @@ use crate::auth::jwt::encode_token_with_role;
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let user_id = seed_user(&state.db).await;
-        let artist_id = seed_artist(&state.db, user_id).await;
+        let (user_id, _) = seed_test_user(&state.db, "campaign_test", "artist").await;
+        let artist_id = seed_artist(&state.db, Some(user_id)).await;
 
-        let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
-        let pid = std::process::id();
-        let campaign_id: i64 = sqlx::query_scalar(
-            r"INSERT INTO campaigns (artist_id, name, active, vinyl_sold_count, progress, created_at, updated_at)
-               VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
-               RETURNING id",
-        )
-        .bind(artist_id)
-        .bind(format!("No Page Campaign {}_{}", pid, ts))
-        .bind(false)
-        .bind(0_i32)
-        .bind(0_i32)
-        .fetch_one(&state.db)
-        .await
-        .expect("Failed to seed campaign");
+        let campaign_id = seed_campaign(&state.db, artist_id).await;
+        let _ = sqlx::query(r"UPDATE campaigns SET active = false WHERE id = $1")
+            .bind(campaign_id)
+            .execute(&state.db)
+            .await
+            .expect("Failed to deactivate campaign");
 
         let req = test::TestRequest::post()
             .uri("/activate_campaign")
@@ -804,21 +734,10 @@ use crate::auth::jwt::encode_token_with_role;
         crate::test_utils::set_test_env();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let user_id = seed_user(&state.db).await;
-        let artist_id = seed_artist(&state.db, user_id).await;
+        let (user_id, _) = seed_test_user(&state.db, "campaign_test", "artist").await;
+        let artist_id = seed_artist(&state.db, Some(user_id)).await;
 
-        let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
-        let pid = std::process::id();
-        let active_id: i64 = sqlx::query_scalar(
-            r"INSERT INTO campaigns (artist_id, name, active, created_at, updated_at)
-               VALUES ($1, $2, true, NOW(), NOW())
-               RETURNING id",
-        )
-        .bind(artist_id)
-        .bind(format!("Active Only {}_{}", pid, ts))
-        .fetch_one(&state.db)
-        .await
-        .expect("Failed to seed active campaign");
+        let active_id = seed_campaign(&state.db, artist_id).await;
 
         let inactive_id: i64 = sqlx::query_scalar(
             r"INSERT INTO campaigns (artist_id, name, active, created_at, updated_at)
@@ -826,7 +745,7 @@ use crate::auth::jwt::encode_token_with_role;
                RETURNING id",
         )
         .bind(artist_id)
-        .bind(format!("Inactive Only {}_{}", pid, ts))
+        .bind(format!("Inactive Only {}", unique_suffix()))
         .fetch_one(&state.db)
         .await
         .expect("Failed to seed inactive campaign");

@@ -215,7 +215,7 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{admin_token, unique_suffix};
+    use crate::test_utils::{admin_token, seed_attendee, unique_suffix};
     use actix_web::test;
 
     async fn seed_event(state: &AppState) -> i64 {
@@ -243,19 +243,6 @@ mod tests {
         id
     }
 
-    async fn seed_attendee(state: &AppState, event_id: i64, subscriber_id: i64) -> i64 {
-        let id: i64 = sqlx::query_scalar(
-            r"INSERT INTO kbr_event_attendees (kbr_event_id, mail_subscriber_id, scan_count, created_at, updated_at)
-               VALUES ($1, $2, 0, NOW(), NOW()) RETURNING id"
-        )
-        .bind(event_id)
-        .bind(subscriber_id)
-        .fetch_one(&state.db)
-        .await
-        .expect("Failed to seed attendee");
-        id
-    }
-
     #[tokio::test(flavor = "current_thread")]
     async fn qr_scan_found() {
         crate::test_utils::set_test_env_jwt();
@@ -263,7 +250,7 @@ mod tests {
 
         let event_id = seed_event(&state).await;
         let sub_id = seed_mail_subscriber(&state, &format!("QRScanTest {}", unique_suffix())).await;
-        let attendee_id = seed_attendee(&state, event_id, sub_id).await;
+        let attendee_id = seed_attendee(&state.db, event_id, sub_id, 0).await;
 
         let req = test::TestRequest::get()
             .uri(&format!("/qr_scan/{}", attendee_id))
@@ -299,8 +286,8 @@ mod tests {
         let event_id = seed_event(&state).await;
         let sub1 = seed_mail_subscriber(&state, &format!("EventSub1 {}", unique_suffix())).await;
         let sub2 = seed_mail_subscriber(&state, &format!("EventSub2 {}", unique_suffix())).await;
-        seed_attendee(&state, event_id, sub1).await;
-        seed_attendee(&state, event_id, sub2).await;
+        seed_attendee(&state.db, event_id, sub1, 0).await;
+        seed_attendee(&state.db, event_id, sub2, 0).await;
 
         let req = test::TestRequest::get()
             .uri(&format!("/kbr_event_attendees?kbr_event_id={}", event_id))
@@ -381,7 +368,7 @@ mod tests {
 
         let event_id = seed_event(&state).await;
         let sub1 = seed_mail_subscriber(&state, &format!("UpdateSub1 {}", unique_suffix())).await;
-        seed_attendee(&state, event_id, sub1).await;
+        seed_attendee(&state.db, event_id, sub1, 0).await;
 
         let req = test::TestRequest::post()
             .uri("/kbr_event_update_txt")

@@ -440,25 +440,8 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{admin_token, not_found_id, seed_user_with_id, unique_suffix, user_token};
+    use crate::test_utils::{admin_token, not_found_id, seed_news_playlist, seed_user_with_id, unique_suffix, user_token};
     use actix_web::test;
-
-    async fn seed_playlist(state: &AppState, suffix: &str) -> (i64, String) {
-        seed_user_with_id(&state.db, 1, "admin@test.com", "admin").await;
-        let name = format!("Test Playlist {}", suffix);
-        let row: (i64,) = sqlx::query_as(
-            r"INSERT INTO news_playlists (user_id, name, description, created_at, updated_at)
-              VALUES ($1, $2, $3, NOW(), NOW())
-              RETURNING id",
-        )
-        .bind(1i64)
-        .bind(&name)
-        .bind(Some(format!("Playlist desc {}", suffix)))
-        .fetch_one(&state.db)
-        .await
-        .expect("Failed to seed playlist");
-        (row.0, name)
-    }
 
     #[tokio::test(flavor = "current_thread")]
     async fn admin_playlists_index() {
@@ -480,7 +463,8 @@ mod tests {
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
         let s = unique_suffix();
-        let (playlist_id, name) = seed_playlist(&state, &s).await;
+        let name = format!("Test Playlist {}", s);
+        let playlist_id = seed_news_playlist(&state.db, 1, &name).await;
 
         let req = test::TestRequest::get()
             .uri(&format!("/admin/news_playlists/{}", playlist_id))
@@ -517,7 +501,8 @@ mod tests {
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
         let s = unique_suffix();
-        let (playlist_id, name) = seed_playlist(&state, &s).await;
+        let name = format!("Test Playlist {}", s);
+        let playlist_id = seed_news_playlist(&state.db, 1, &name).await;
 
         let req = test::TestRequest::delete()
             .uri(&format!("/admin/news_playlists/{}", playlist_id))
@@ -541,7 +526,8 @@ mod tests {
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
         let s = unique_suffix();
-        let (_playlist_id, name) = seed_playlist(&state, &s).await;
+        let name = format!("Test Playlist {}", s);
+        let _playlist_id = seed_news_playlist(&state.db, 1, &name).await;
 
         let req = test::TestRequest::get()
             .uri("/dashboard/news_playlists")
@@ -605,7 +591,8 @@ mod tests {
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
         let s = unique_suffix();
-        let (playlist_id, name) = seed_playlist(&state, &s).await;
+        let name = format!("Test Playlist {}", s);
+        let playlist_id = seed_news_playlist(&state.db, 1, &name).await;
 
         let req = test::TestRequest::put()
             .uri(&format!("/dashboard/news_playlists/{}", playlist_id))
@@ -630,7 +617,8 @@ mod tests {
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
         let s = unique_suffix();
-        let (_playlist_id, name) = seed_playlist(&state, &s).await;
+        let name = format!("Test Playlist {}", s);
+        let _playlist_id = seed_news_playlist(&state.db, 1, &name).await;
 
         let (playlist_id, _) = {
             let row: (i64,) = sqlx::query_as(r"SELECT id FROM news_playlists WHERE name = $1")
@@ -659,7 +647,8 @@ mod tests {
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
         let s = unique_suffix();
-        let (playlist_id, name) = seed_playlist(&state, &s).await;
+        let name = format!("Test Playlist {}", s);
+        let playlist_id = seed_news_playlist(&state.db, 1, &name).await;
 
         let req = test::TestRequest::delete()
             .uri(&format!("/dashboard/news_playlists/{}", playlist_id))
@@ -683,7 +672,8 @@ mod tests {
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
         let s = unique_suffix();
-        let (playlist_id, name) = seed_playlist(&state, &s).await;
+        let name = format!("Test Playlist {}", s);
+        let playlist_id = seed_news_playlist(&state.db, 1, &name).await;
 
         let req = test::TestRequest::delete()
             .uri(&format!("/dashboard/news_playlists/{}", playlist_id))

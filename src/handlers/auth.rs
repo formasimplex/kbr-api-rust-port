@@ -209,7 +209,7 @@ pub async fn logout(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data::auth::UserRow;
+    use crate::models::user::UserRow;
     use crate::test_utils::TEST_SECRET;
     use actix_web::test;
 
