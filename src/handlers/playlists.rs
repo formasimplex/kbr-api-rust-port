@@ -21,14 +21,13 @@
 //! | `dashboard_remove_news` | POST | `/v1/dashboard/news_playlists/{playlist_id}/remove_news/{news_id}` | auth | Remove a news item from a playlist (owner or admin only) |
 
 use actix_web::{web, HttpResponse};
-use sqlx::FromRow;
 
 use crate::app::AppState;
 use crate::auth::middleware::CurrentUser;
 use crate::data::playlists as data;
 use crate::error::AppError;
 use crate::models::news_playlist::{
-    CreateNewsPlaylistRequest, NewsPlaylist, NewsPlaylistResponse, UpdateNewsPlaylistRequest,
+    CreateNewsPlaylistRequest, NewsPlaylistResponse, UpdateNewsPlaylistRequest,
 };
 
 /// List all playlists.

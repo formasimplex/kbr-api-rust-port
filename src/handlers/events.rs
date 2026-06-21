@@ -14,7 +14,6 @@
 //! | `update` | PUT | `/v1/kbrevents/{id}` | artist+ | Update an existing event |
 
 use actix_web::{HttpResponse, web};
-use sqlx::FromRow;
 
 use crate::app::AppState;
 use crate::auth::middleware::CurrentUser;

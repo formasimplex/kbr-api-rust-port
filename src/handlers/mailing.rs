@@ -18,7 +18,6 @@
 //! | `process_unsubscribe` | GET | `/v1/unsubscribe/{token}` | public | Process an unsubscribe request with verification token |
 
 use actix_web::{web, HttpResponse};
-use sqlx::FromRow;
 use uuid::Uuid;
 
 use crate::app::AppState;
@@ -133,7 +132,7 @@ pub async fn artist_mail_subscriber(
 /// # Response
 ///
 /// `201 Created` — `MailSubscriberResponse` for the new subscriber
-/// `200 OK` — subscriber created but Mailchimp sync failed (includes `mailchimp_error: true`)
+/// `502 Bad Gateway` — subscriber created but Mailchimp sync failed (includes `mailchimp_error: true`)
 /// `403 Forbidden` — insufficient role
 /// `400 Bad Request` — missing artist_id
 /// `422 Unprocessable` — invalid email or duplicate subscription
@@ -167,8 +166,8 @@ pub async fn add_mail_subscriber_with_user(
         && let Err(e) = mc.subscribe(&body.email, &body.full_name).await
     {
         tracing::warn!(error = %e, email = %body.email, "Mailchimp subscribe failed");
-        return Ok(HttpResponse::Ok().json(serde_json::json!({
-            "status": 500,
+        return Ok(HttpResponse::BadGateway().json(serde_json::json!({
+            "success": false,
             "message": e.to_string(),
             "subscriber": subscriber.to_response(),
             "mailchimp_error": true
@@ -186,7 +185,7 @@ pub async fn add_mail_subscriber_with_user(
 /// # Response
 ///
 /// `201 Created` — `MailSubscriberResponse` for the new subscriber
-/// `200 OK` — subscriber created but Mailchimp sync failed (includes `mailchimp_error: true`)
+/// `502 Bad Gateway` — subscriber created but Mailchimp sync failed (includes `mailchimp_error: true`)
 /// `422 Unprocessable` — invalid email
 pub async fn add_mail_subscriber(
     state: web::Data<AppState>,
@@ -204,8 +203,8 @@ pub async fn add_mail_subscriber(
         && let Err(e) = mc.subscribe(&body.email, &body.full_name).await
     {
         tracing::warn!(error = %e, email = %body.email, "Mailchimp subscribe failed");
-        return Ok(HttpResponse::Ok().json(serde_json::json!({
-            "status": 500,
+        return Ok(HttpResponse::BadGateway().json(serde_json::json!({
+            "success": false,
             "message": e.to_string(),
             "subscriber": subscriber.to_response(),
             "mailchimp_error": true
