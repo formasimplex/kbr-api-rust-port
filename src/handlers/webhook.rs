@@ -67,7 +67,7 @@ pub async fn update_progress(
         return Ok(HttpResponse::Ok().json(serde_json::json!({ "status": "ok" })));
     };
 
-    let target = 100i32;
+    let target = crate::constants::VINYL_TARGET;
     let vinyl_sold = target - available;
 
     let progress = if let (Some(start), Some(end)) =
@@ -256,7 +256,7 @@ mod tests {
         .fetch_one(&state.db)
         .await
         .expect("Failed to read campaign");
-        assert_eq!(vinyl_sold, 100);
+        assert_eq!(vinyl_sold, crate::constants::VINYL_TARGET);
 
         _guard.cleanup().await;
     }

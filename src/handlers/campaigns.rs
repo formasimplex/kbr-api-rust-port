@@ -25,22 +25,8 @@ use crate::auth::roles::is_artist_or_above;
 use crate::data::campaigns as data;
 use crate::error::AppError;
 use crate::models::campaign::{Campaign, CampaignResponse, CreateCampaignRequest, UpdateCampaignRequest, ActivateCampaignRequest};
+use crate::services::campaign_activation::{ActivationContext, CampaignActivationService};
 use crate::services::campaign_service::CampaignService;
-use crate::services::shopify_graph_ql::ShopifyGraphQl;
-use crate::services::storage_service::get_image_urls;
-
-#[derive(Debug, sqlx::FromRow)]
-struct CampaignPageRow {
-    id: i64,
-    _campaign_id: i64,
-    title: Option<String>,
-    description: Option<String>,
-    _page_type: Option<i32>,
-    _inventory_item_id: Option<String>,
-    _inventory_url: Option<String>,
-    _created_at: chrono::NaiveDateTime,
-    _updated_at: chrono::NaiveDateTime,
-}
 
 /// List all non-deleted campaigns.
 ///
@@ -142,7 +128,7 @@ pub async fn create(
 
 /// Update an existing campaign.
 ///
-/// Requires artist+ role. Validates `vinyl_sold_count` is between 0 and 100.
+/// Requires artist+ role. Validates `vinyl_sold_count` is between 0 and VINYL_TARGET.
 /// Uses COALESCE to only update provided fields.
 ///
 /// # Response
@@ -165,7 +151,7 @@ pub async fn update(
     if let Some(vinyl) = body.vinyl_sold_count
         && !Campaign::validate_vinyl_sold_count(vinyl) {
             return Err(AppError::Validation(
-                "vinyl_sold_count must be between 0 and 100".to_string(),
+                format!("vinyl_sold_count must be between 0 and {}", crate::constants::VINYL_TARGET),
             ));
         }
 
@@ -213,11 +199,11 @@ pub async fn destroy(
 /// 1. Validates the campaign exists and has an associated campaign page
 /// 2. Retrieves the campaign page image URL from S3
 /// 3. Creates a Shopify product via GraphQL with title, description, and image
-/// 4. Creates a product variant ($23.00, 100 units inventory)
+/// 4. Creates a product variant with configured price and inventory
 /// 5. Publishes the product to the online store
 /// 6. Fetches final product details
 /// 7. Updates the campaign page with Shopify inventory_item_id and inventory_url
-/// 8. Updates the campaign with start_date, end_date (start + 45 days), and active = true
+/// 8. Updates the campaign with start_date, end_date (start + CAMPAIGN_DURATION_DAYS), and active = true
 ///
 /// All Shopify calls are sequential with fail-fast semantics — if any call fails,
 /// the database remains unchanged.
@@ -244,116 +230,14 @@ pub async fn activate_campaign(
         return Err(AppError::Forbidden("Not Authorized".to_string()));
     }
 
-    let campaign_id = body.campaign_id;
-    let start_date_str = &body.start_date;
+    let ctx = ActivationContext {
+        db: &state.db,
+        s3: &*state.s3,
+        shopify: &state.shopify,
+    };
 
-    // Parse start_date
-    let start_date = chrono::NaiveDate::parse_from_str(start_date_str, "%Y-%m-%d")
-        .map_err(|_| AppError::Validation("start_date must be in YYYY-MM-DD format".to_string()))?
-        .and_hms_opt(0, 0, 0)
-        .ok_or_else(|| AppError::Validation("Invalid start_date".to_string()))?;
-
-    let end_date = start_date
-        + chrono::TimeDelta::days(45);
-
-    // Verify Shopify client is configured
-    let shopify = state.shopify.as_ref().ok_or_else(|| {
-        AppError::Shopify("Shopify client not configured".to_string())
-    })?;
-    let sg = ShopifyGraphQl::new(shopify.clone());
-
-    // Find the campaign
-    let _campaign = data::find_active(&state.db, campaign_id).await?
-        .ok_or_else(|| AppError::NotFound(format!("Campaign #{}", campaign_id)))?;
-
-    // Find the campaign page
-    let campaign_page = sqlx::query_as::<_, CampaignPageRow>(
-        r#"SELECT id, campaign_id, title, description, page_type,
-           inventory_item_id, inventory_url, created_at, updated_at
-           FROM campaign_pages WHERE campaign_id = $1"#,
-    )
-    .bind(campaign_id)
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or_else(|| {
-        AppError::NotFound(format!("CampaignPage for campaign #{}", campaign_id))
-    })?;
-
-    let page_title = campaign_page.title.as_deref().unwrap_or("Campaign");
-    let page_description = campaign_page.description.as_deref().unwrap_or("");
-
-    // Get image URL from S3
-    let (image_urls, _) = get_image_urls(
-        &state.s3,
-        &state.db,
-        "CampaignPage",
-        campaign_page.id,
-    )
-    .await
-    .map_err(|e| AppError::Shopify(format!("Failed to get campaign page image: {}", e)))?;
-
-    let image_url = image_urls.first().ok_or_else(|| {
-        AppError::Shopify("Campaign page has no images attached".to_string())
-    })?;
-
-    // 1. Create Shopify product
-    let product_resp = sg
-        .create_campaign_product(page_title, page_description, image_url)
-        .await?;
-
-    let product_id = product_resp
-        .pointer("/data/productCreate/product/id")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| AppError::Shopify("Failed to get product ID from creation response".to_string()))?;
-
-    let option_id = product_resp
-        .pointer("/data/productCreate/product/options/0/id")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| AppError::Shopify("Failed to get product option ID".to_string()))?;
-
-    // 2. Get location ID
-    let location_id = sg.get_location_id().await?;
-
-    // 3. Create product variant
-    sg.create_product_variant(product_id, option_id, &location_id)
-        .await?;
-
-    // 4. Get publication ID
-    let publication_id = sg.get_publications_id().await?;
-
-    // 5. Publish product
-    sg.publish_product(product_id, &publication_id).await?;
-
-    // 6. Get final product details
-    let final_product = sg.get_product(product_id).await?;
-
-    let inventory_url = final_product
-        .pointer("/data/product/onlineStorePreviewUrl")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
-
-    let inventory_item_id = Some(product_id.to_string());
-
-    // 7. Update campaign page
-    let now = chrono::Utc::now().naive_utc();
-
-    sqlx::query(
-        r#"UPDATE campaign_pages SET
-               inventory_item_id = $1,
-               inventory_url = $2,
-               updated_at = $3
-           WHERE id = $4"#,
-    )
-    .bind(&inventory_item_id)
-    .bind(&inventory_url)
-    .bind(now)
-    .bind(campaign_page.id)
-    .execute(&state.db)
-    .await?;
-
-    // 8. Update campaign
-    let campaign = data::activate(&state.db, campaign_id, start_date, end_date, now).await?;
-    Ok(HttpResponse::Ok().json(campaign.to_response()))
+    let result = CampaignActivationService::activate(&ctx, body.campaign_id, &body.start_date).await?;
+    Ok(HttpResponse::Ok().json(result.campaign.to_response()))
 }
 
 pub fn config_routes(cfg: &mut web::ServiceConfig) {

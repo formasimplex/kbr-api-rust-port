@@ -56,7 +56,7 @@ pub struct UpdateCampaignRequest {
 /// Request body for campaign activation.
 ///
 /// Contains the campaign ID to activate and the desired start date.
-/// The end date is computed as `start_date + 45 days`.
+/// The end date is computed as `start_date + CAMPAIGN_DURATION_DAYS`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ActivateCampaignRequest {
     pub campaign_id: i64,
@@ -98,7 +98,7 @@ impl Campaign {
     }
 
     pub fn validate_vinyl_sold_count(count: i32) -> bool {
-        (0..=100).contains(&count)
+        (0..=crate::constants::VINYL_TARGET).contains(&count)
     }
 }
 
@@ -145,8 +145,8 @@ mod tests {
     fn validate_vinyl_sold_count() {
         assert!(Campaign::validate_vinyl_sold_count(0));
         assert!(Campaign::validate_vinyl_sold_count(50));
-        assert!(Campaign::validate_vinyl_sold_count(100));
-        assert!(!Campaign::validate_vinyl_sold_count(101));
+        assert!(Campaign::validate_vinyl_sold_count(crate::constants::VINYL_TARGET));
+        assert!(!Campaign::validate_vinyl_sold_count(crate::constants::VINYL_TARGET + 1));
         assert!(!Campaign::validate_vinyl_sold_count(-1));
     }
 
