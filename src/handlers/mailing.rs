@@ -24,50 +24,12 @@ use uuid::Uuid;
 use crate::app::AppState;
 use crate::auth::middleware::CurrentUser;
 use crate::auth::roles::is_admin;
+use crate::data::mailing as data;
 use crate::error::AppError;
 use crate::jobs::Job;
 use crate::models::mail_subscriber::{
     CreateMailSubscriberRequest, MailSubscriber, MailSubscriberResponse,
 };
-
-#[derive(Debug, FromRow)]
-struct MailSubscriberRow {
-    id: i64,
-    full_name: String,
-    email: String,
-    active: Option<bool>,
-    artist_id: Option<i64>,
-    unsubscribed_at: Option<chrono::NaiveDateTime>,
-    unsubscribe_token: Option<String>,
-    unsubscribe_token_expires_at: Option<chrono::NaiveDateTime>,
-    user_id: Option<i64>,
-    created_at: chrono::NaiveDateTime,
-    updated_at: chrono::NaiveDateTime,
-}
-
-impl From<MailSubscriberRow> for MailSubscriber {
-    fn from(row: MailSubscriberRow) -> Self {
-        MailSubscriber {
-            id: row.id,
-            full_name: row.full_name,
-            email: row.email,
-            active: row.active,
-            artist_id: row.artist_id,
-            unsubscribed_at: row.unsubscribed_at.map(|dt| dt.and_utc()),
-            unsubscribe_token: row.unsubscribe_token,
-            unsubscribe_token_expires_at: row.unsubscribe_token_expires_at.map(|dt| dt.and_utc()),
-            user_id: row.user_id,
-            first_name: None,
-            last_name: None,
-            created_at: row.created_at.and_utc(),
-            updated_at: row.updated_at.and_utc(),
-        }
-    }
-}
-
-const SUBSCRIBER_SELECT: &str =
-    r#"SELECT id, full_name, email, active, artist_id, unsubscribed_at,
-       unsubscribe_token, unsubscribe_token_expires_at, user_id, created_at, updated_at FROM mail_subscribers"#;
 
 /// List all mail subscribers.
 ///
@@ -84,13 +46,7 @@ pub async fn index(
     if !is_admin(&user.role) {
         return Err(AppError::Forbidden("Not Authorized".to_string()));
     }
-    let rows = sqlx::query_as::<_, MailSubscriberRow>(
-        &format!("{} ORDER BY id", SUBSCRIBER_SELECT),
-    )
-    .fetch_all(&state.db)
-    .await?;
-
-    let subscribers: Vec<MailSubscriber> = rows.into_iter().map(|r| r.into()).collect();
+    let subscribers = data::list(&state.db).await?;
     let responses: Vec<MailSubscriberResponse> =
         subscribers.iter().map(|s| s.to_response()).collect();
     Ok(HttpResponse::Ok().json(responses))
@@ -123,14 +79,7 @@ pub async fn index_artist_subscribers(
         _ => return Err(AppError::BadRequest("artist_id is required".to_string())),
     };
 
-    let rows = sqlx::query_as::<_, MailSubscriberRow>(
-        &format!("{} WHERE artist_id = $1 ORDER BY id", SUBSCRIBER_SELECT),
-    )
-    .bind(artist_id)
-    .fetch_all(&state.db)
-    .await?;
-
-    let subscribers: Vec<MailSubscriber> = rows.into_iter().map(|r| r.into()).collect();
+    let subscribers = data::list_by_artist(&state.db, artist_id).await?;
     let responses: Vec<MailSubscriberResponse> =
         subscribers.iter().map(|s| s.to_response()).collect();
     Ok(HttpResponse::Ok().json(responses))
@@ -163,41 +112,15 @@ pub async fn artist_mail_subscriber(
         return Err(AppError::Validation("Invalid email".to_string()));
     }
 
-    let existing = sqlx::query_as::<_, MailSubscriberRow>(
-        &format!("{} WHERE email = $1 AND artist_id = $2", SUBSCRIBER_SELECT),
-    )
-    .bind(&body.email)
-    .bind(artist_id)
-    .fetch_optional(&state.db)
-    .await?;
-
-    if existing.is_some() {
+    if data::find_by_email_and_artist(&state.db, &body.email, artist_id).await?.is_some() {
         return Err(AppError::UnprocessableEntity(
             "Email already subscribed to this artist".to_string(),
         ));
     }
 
-    let token = MailSubscriber::generate_unsubscribe_token();
     let now = chrono::Utc::now().naive_utc();
 
-    let row = sqlx::query_as::<_, MailSubscriberRow>(
-        r#"INSERT INTO mail_subscribers (full_name, email, active, artist_id, unsubscribe_token, user_id, created_at, updated_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-               RETURNING id, full_name, email, active, artist_id, unsubscribed_at,
-               unsubscribe_token, unsubscribe_token_expires_at, user_id, created_at, updated_at"#,
-    )
-    .bind(&body.full_name)
-    .bind(&body.email)
-    .bind(true)
-    .bind(artist_id)
-    .bind(&token)
-    .bind(user.id)
-    .bind(now)
-    .bind(now)
-    .fetch_one(&state.db)
-    .await?;
-
-    let subscriber: MailSubscriber = row.into();
+    let subscriber = data::create(&state.db, &body.full_name, &body.email, Some(artist_id), Some(user.id), now).await?;
     Ok(HttpResponse::Created().json(subscriber.to_response()))
 }
 
@@ -230,41 +153,15 @@ pub async fn add_mail_subscriber_with_user(
         return Err(AppError::Validation("Invalid email".to_string()));
     }
 
-    let existing = sqlx::query_as::<_, MailSubscriberRow>(
-        &format!("{} WHERE email = $1 AND artist_id = $2", SUBSCRIBER_SELECT),
-    )
-    .bind(&body.email)
-    .bind(artist_id)
-    .fetch_optional(&state.db)
-    .await?;
-
-    if existing.is_some() {
+    if data::find_by_email_and_artist(&state.db, &body.email, artist_id).await?.is_some() {
         return Err(AppError::UnprocessableEntity(
             "Email already subscribed to this artist".to_string(),
         ));
     }
 
-    let token = MailSubscriber::generate_unsubscribe_token();
     let now = chrono::Utc::now().naive_utc();
 
-    let row = sqlx::query_as::<_, MailSubscriberRow>(
-        r#"INSERT INTO mail_subscribers (full_name, email, active, artist_id, unsubscribe_token, user_id, created_at, updated_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-               RETURNING id, full_name, email, active, artist_id, unsubscribed_at,
-               unsubscribe_token, unsubscribe_token_expires_at, user_id, created_at, updated_at"#,
-    )
-    .bind(&body.full_name)
-    .bind(&body.email)
-    .bind(true)
-    .bind(artist_id)
-    .bind(&token)
-    .bind(user.id)
-    .bind(now)
-    .bind(now)
-    .fetch_one(&state.db)
-    .await?;
-
-    let subscriber: MailSubscriber = row.into();
+    let subscriber = data::create(&state.db, &body.full_name, &body.email, Some(artist_id), Some(user.id), now).await?;
 
     if let Some(ref mc) = state.mailchimp
         && let Err(e) = mc.subscribe(&body.email, &body.full_name).await
@@ -299,26 +196,9 @@ pub async fn add_mail_subscriber(
         return Err(AppError::Validation("Invalid email".to_string()));
     }
 
-    let token = MailSubscriber::generate_unsubscribe_token();
     let now = chrono::Utc::now().naive_utc();
 
-    let row = sqlx::query_as::<_, MailSubscriberRow>(
-        r#"INSERT INTO mail_subscribers (full_name, email, active, artist_id, unsubscribe_token, created_at, updated_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7)
-               RETURNING id, full_name, email, active, artist_id, unsubscribed_at,
-               unsubscribe_token, unsubscribe_token_expires_at, user_id, created_at, updated_at"#,
-    )
-    .bind(&body.full_name)
-    .bind(&body.email)
-    .bind(true)
-    .bind(body.artist_id)
-    .bind(&token)
-    .bind(now)
-    .bind(now)
-    .fetch_one(&state.db)
-    .await?;
-
-    let subscriber: MailSubscriber = row.into();
+    let subscriber = data::create(&state.db, &body.full_name, &body.email, body.artist_id, None, now).await?;
 
     if let Some(ref mc) = state.mailchimp
         && let Err(e) = mc.subscribe(&body.email, &body.full_name).await
@@ -359,18 +239,7 @@ pub async fn unsubscribe(
 
     let now = chrono::Utc::now().naive_utc();
 
-    let result = sqlx::query(
-        r#"UPDATE mail_subscribers SET unsubscribed_at = $1, updated_at = $2
-           WHERE user_id = $3 AND artist_id = $4 AND unsubscribed_at IS NULL"#,
-    )
-    .bind(now)
-    .bind(now)
-    .bind(user.id)
-    .bind(artist_id)
-    .execute(&state.db)
-    .await?;
-
-    if result.rows_affected() == 0 {
+    if !data::unsubscribe(&state.db, user.id, artist_id, now).await? {
         return Err(AppError::NotFound("Subscription not found".to_string()));
     }
 
@@ -402,14 +271,7 @@ pub async fn request_unsubscribe(
         return Err(AppError::Validation("Invalid email".to_string()));
     }
 
-    let existing = sqlx::query_as::<_, MailSubscriberRow>(
-        &format!("{} WHERE email = $1", SUBSCRIBER_SELECT),
-    )
-    .bind(&email)
-    .fetch_optional(&state.db)
-    .await?;
-
-    if existing.is_some() {
+    if data::find_by_email(&state.db, &email).await?.is_some() {
         let job_id = Uuid::new_v4();
         let email_clone = email.clone();
         if let Err(e) = state.job_handle.send(Job::SendUnsubscribeEmail { job_id, email }).await {
@@ -445,20 +307,8 @@ pub async fn process_unsubscribe(
 
     let now = chrono::Utc::now().naive_utc();
 
-    let row = sqlx::query_as::<_, (String,)>(
-        r#"UPDATE mail_subscribers SET unsubscribed_at = $1, updated_at = $2, unsubscribe_token = NULL
-           WHERE unsubscribe_token = $3 AND unsubscribed_at IS NULL
-             AND (unsubscribe_token_expires_at IS NULL OR unsubscribe_token_expires_at > $1)
-           RETURNING email"#,
-    )
-    .bind(now)
-    .bind(now)
-    .bind(&token)
-    .fetch_optional(&state.db)
-    .await?;
-
-    match row {
-        Some((email,)) => {
+    match data::process_unsubscribe(&state.db, &token, now).await? {
+        Some(email) => {
             if let Some(ref mc) = state.mailchimp
                 && let Err(e) = mc.unsubscribe(&email).await {
                     tracing::warn!(error = %e, email = %email, "Mailchimp unsubscribe failed");

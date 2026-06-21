@@ -18,56 +18,16 @@
 //! | `activate_campaign` | POST | `/v1/activate_campaign` | artist+ | Activate campaign with Shopify product creation |
 
 use actix_web::{web, HttpResponse};
-use sqlx::FromRow;
 
 use crate::app::AppState;
 use crate::auth::middleware::CurrentUser;
 use crate::auth::roles::is_artist_or_above;
+use crate::data::campaigns as data;
 use crate::error::AppError;
 use crate::models::campaign::{Campaign, CampaignResponse, CreateCampaignRequest, UpdateCampaignRequest, ActivateCampaignRequest};
 use crate::services::campaign_service::CampaignService;
 use crate::services::shopify_graph_ql::ShopifyGraphQl;
 use crate::services::storage_service::get_image_urls;
-
-#[derive(Debug, FromRow)]
-struct CampaignRow {
-    id: i64,
-    artist_id: i64,
-    name: Option<String>,
-    active: Option<bool>,
-    vinyl_sold_count: Option<i32>,
-    campaign_start_date: Option<chrono::NaiveDateTime>,
-    campaign_end_date: Option<chrono::NaiveDateTime>,
-    progress: Option<i32>,
-    album_id: Option<i64>,
-    deleted_at: Option<chrono::NaiveDateTime>,
-    created_at: chrono::NaiveDateTime,
-    updated_at: chrono::NaiveDateTime,
-}
-
-impl From<CampaignRow> for Campaign {
-    fn from(row: CampaignRow) -> Self {
-        Campaign {
-            id: row.id,
-            artist_id: row.artist_id,
-            name: row.name,
-            active: row.active,
-            vinyl_sold_count: row.vinyl_sold_count,
-            campaign_start_date: row.campaign_start_date.map(|dt| dt.and_utc()),
-            campaign_end_date: row.campaign_end_date.map(|dt| dt.and_utc()),
-            progress: row.progress,
-            album_id: row.album_id,
-            deleted_at: row.deleted_at.map(|dt| dt.and_utc()),
-            created_at: row.created_at.and_utc(),
-            updated_at: row.updated_at.and_utc(),
-        }
-    }
-}
-
-const CAMPAIGN_SELECT: &str =
-    r#"SELECT id, artist_id, name, active, vinyl_sold_count,
-       campaign_start_date, campaign_end_date, progress, album_id,
-       deleted_at, created_at, updated_at FROM campaigns"#;
 
 #[derive(Debug, sqlx::FromRow)]
 struct CampaignPageRow {
@@ -91,13 +51,7 @@ struct CampaignPageRow {
 ///
 /// `200 OK` — JSON array of `CampaignResponse`
 pub async fn index(state: web::Data<AppState>) -> Result<HttpResponse, AppError> {
-    let rows = sqlx::query_as::<_, CampaignRow>(
-        &format!("{} WHERE deleted_at IS NULL ORDER BY id", CAMPAIGN_SELECT),
-    )
-    .fetch_all(&state.db)
-    .await?;
-
-    let campaigns: Vec<Campaign> = rows.into_iter().map(|r| r.into()).collect();
+    let campaigns = data::list(&state.db).await?;
     let responses: Vec<CampaignResponse> = campaigns.iter().map(|c| c.to_response()).collect();
     Ok(HttpResponse::Ok().json(responses))
 }
@@ -116,23 +70,13 @@ pub async fn index_by_user(
     user: CurrentUser,
 ) -> Result<HttpResponse, AppError> {
     let campaigns = if user.is_admin() {
-        sqlx::query_as::<_, CampaignRow>(
-            &format!("{} WHERE deleted_at IS NULL ORDER BY id", CAMPAIGN_SELECT),
-        )
-        .fetch_all(&state.db)
-        .await?
+        data::list(&state.db).await?
     } else if is_artist_or_above(&user.role) {
-        sqlx::query_as::<_, CampaignRow>(
-            &format!("{} WHERE artist_id = $1 AND deleted_at IS NULL ORDER BY id", CAMPAIGN_SELECT),
-        )
-        .bind(user.id)
-        .fetch_all(&state.db)
-        .await?
+        data::list_by_artist(&state.db, user.id).await?
     } else {
         return Err(AppError::Forbidden("Not Authorized".to_string()));
     };
 
-    let campaigns: Vec<Campaign> = campaigns.into_iter().map(|r| r.into()).collect();
     let responses: Vec<CampaignResponse> = campaigns.iter().map(|c| c.to_response()).collect();
     Ok(HttpResponse::Ok().json(responses))
 }
@@ -146,13 +90,7 @@ pub async fn index_by_user(
 ///
 /// `200 OK` — JSON array of `CampaignResponse`
 pub async fn active_campaigns(state: web::Data<AppState>) -> Result<HttpResponse, AppError> {
-    let rows = sqlx::query_as::<_, CampaignRow>(
-        &format!("{} WHERE active = true AND deleted_at IS NULL ORDER BY id", CAMPAIGN_SELECT),
-    )
-    .fetch_all(&state.db)
-    .await?;
-
-    let campaigns: Vec<Campaign> = rows.into_iter().map(|r| r.into()).collect();
+    let campaigns = data::active(&state.db).await?;
     let responses: Vec<CampaignResponse> = campaigns.iter().map(|c| c.to_response()).collect();
     Ok(HttpResponse::Ok().json(responses))
 }
@@ -170,17 +108,8 @@ pub async fn show(
     path: web::Path<i64>,
 ) -> Result<HttpResponse, AppError> {
     let id = path.into_inner();
-    match sqlx::query_as::<_, CampaignRow>(
-        &format!("{} WHERE id = $1", CAMPAIGN_SELECT),
-    )
-    .bind(id)
-    .fetch_optional(&state.db)
-    .await?
-    {
-        Some(row) => {
-            let campaign: Campaign = row.into();
-            Ok(HttpResponse::Ok().json(campaign.to_response()))
-        }
+    match data::by_id(&state.db, id).await? {
+        Some(campaign) => Ok(HttpResponse::Ok().json(campaign.to_response())),
         None => Err(AppError::NotFound(format!("Campaign #{}", id))),
     }
 }
@@ -207,27 +136,7 @@ pub async fn create(
 
     let now = chrono::Utc::now().naive_utc();
 
-    let row = sqlx::query_as::<_, CampaignRow>(
-        r#"INSERT INTO campaigns (artist_id, name, active, vinyl_sold_count, campaign_start_date, campaign_end_date, progress, album_id, created_at, updated_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-               RETURNING id, artist_id, name, active, vinyl_sold_count,
-               campaign_start_date, campaign_end_date, progress, album_id,
-               deleted_at, created_at, updated_at"#,
-    )
-    .bind(body.artist_id)
-    .bind(&body.name)
-    .bind(false)
-    .bind(body.vinyl_sold_count)
-    .bind::<Option<chrono::NaiveDateTime>>(None)
-    .bind::<Option<chrono::NaiveDateTime>>(None)
-    .bind(0_i32)
-    .bind::<Option<i64>>(None)
-    .bind(now)
-    .bind(now)
-    .fetch_one(&state.db)
-    .await?;
-
-    let campaign: Campaign = row.into();
+    let campaign = data::create(&state.db, body.artist_id, &body.name, body.vinyl_sold_count, now).await?;
     Ok(HttpResponse::Created().json(campaign.to_response()))
 }
 
@@ -262,33 +171,8 @@ pub async fn update(
 
     let now = chrono::Utc::now().naive_utc();
 
-    let row = sqlx::query_as::<_, CampaignRow>(
-        r#"UPDATE campaigns SET
-                name = COALESCE($1, name),
-                active = COALESCE($2, active),
-                vinyl_sold_count = COALESCE($3, vinyl_sold_count),
-                progress = COALESCE($4, progress),
-                campaign_start_date = COALESCE($5, campaign_start_date),
-                campaign_end_date = COALESCE($6, campaign_end_date),
-                updated_at = $7
-            WHERE id = $8
-            RETURNING id, artist_id, name, active, vinyl_sold_count,
-            campaign_start_date, campaign_end_date, progress, album_id,
-            deleted_at, created_at, updated_at"#,
-    )
-    .bind(body.name.as_deref())
-    .bind(body.active)
-    .bind(body.vinyl_sold_count)
-    .bind(body.progress)
-    .bind(body.campaign_start_date.map(|dt| dt.naive_utc()))
-    .bind(body.campaign_end_date.map(|dt| dt.naive_utc()))
-    .bind(now)
-    .bind(id)
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or_else(|| AppError::NotFound(format!("Campaign #{}", id)))?;
-
-    let campaign: Campaign = row.into();
+    let campaign = data::update(&state.db, id, &body.name, body.active, body.vinyl_sold_count, body.progress, body.campaign_start_date.map(|dt| dt.naive_utc()), body.campaign_end_date.map(|dt| dt.naive_utc()), now).await?
+        .ok_or_else(|| AppError::NotFound(format!("Campaign #{}", id)))?;
     Ok(HttpResponse::Ok().json(campaign.to_response()))
 }
 
@@ -314,17 +198,7 @@ pub async fn destroy(
 
     let now = chrono::Utc::now().naive_utc();
 
-    let result = sqlx::query(
-        r#"UPDATE campaigns SET deleted_at = $1, updated_at = $2
-           WHERE id = $3 AND deleted_at IS NULL"#,
-    )
-    .bind(now)
-    .bind(now)
-    .bind(id)
-    .execute(&state.db)
-    .await?;
-
-    if result.rows_affected() == 0 {
+    if !data::destroy(&state.db, id, now).await? {
         return Err(AppError::NotFound(format!("Campaign #{}", id)));
     }
 
@@ -389,13 +263,8 @@ pub async fn activate_campaign(
     let sg = ShopifyGraphQl::new(shopify.clone());
 
     // Find the campaign
-    let _campaign = sqlx::query_as::<_, CampaignRow>(
-        &format!("{} WHERE id = $1 AND deleted_at IS NULL", CAMPAIGN_SELECT),
-    )
-    .bind(campaign_id)
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or_else(|| AppError::NotFound(format!("Campaign #{}", campaign_id)))?;
+    let _campaign = data::find_active(&state.db, campaign_id).await?
+        .ok_or_else(|| AppError::NotFound(format!("Campaign #{}", campaign_id)))?;
 
     // Find the campaign page
     let campaign_page = sqlx::query_as::<_, CampaignPageRow>(
@@ -483,25 +352,7 @@ pub async fn activate_campaign(
     .await?;
 
     // 8. Update campaign
-    let row = sqlx::query_as::<_, CampaignRow>(
-        r#"UPDATE campaigns SET
-               active = true,
-               campaign_start_date = $1,
-               campaign_end_date = $2,
-               updated_at = $3
-           WHERE id = $4
-           RETURNING id, artist_id, name, active, vinyl_sold_count,
-               campaign_start_date, campaign_end_date, progress, album_id,
-               deleted_at, created_at, updated_at"#,
-    )
-    .bind(start_date)
-    .bind(end_date)
-    .bind(now)
-    .bind(campaign_id)
-    .fetch_one(&state.db)
-    .await?;
-
-    let campaign: Campaign = row.into();
+    let campaign = data::activate(&state.db, campaign_id, start_date, end_date, now).await?;
     Ok(HttpResponse::Ok().json(campaign.to_response()))
 }
 

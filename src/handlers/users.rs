@@ -17,41 +17,12 @@ use sqlx::FromRow;
 
 use crate::app::AppState;
 use crate::auth::middleware::CurrentUser;
+use crate::data::users as data;
 use crate::error::AppError;
 use crate::models::sign_up_trigger::SignUpTrigger;
 use crate::models::user::{CreateUserRequest, UpdateUserRequest, User, UserResponse};
 use crate::services::user_service::UserService;
-
-#[derive(Debug, FromRow)]
-struct UserRow {
-    id: i64,
-    email: String,
-    password_digest: String,
-    role: Option<String>,
-    session_token: Option<String>,
-    username: Option<String>,
-    token_version: i64,
-    created_at: chrono::NaiveDateTime,
-    updated_at: chrono::NaiveDateTime,
-}
-
-impl From<UserRow> for User {
-    fn from(row: UserRow) -> Self {
-        User {
-            id: row.id,
-            email: row.email,
-            password_digest: row.password_digest,
-            role: row.role,
-            session_token: row.session_token,
-            username: row.username,
-            first_name: None,
-            last_name: None,
-            token_version: row.token_version,
-            created_at: row.created_at.and_utc(),
-            updated_at: row.updated_at.and_utc(),
-        }
-    }
-}
+use crate::data::users::UserRow;
 
 /// List all users.
 ///
@@ -68,13 +39,7 @@ pub async fn index(
     if !user.is_admin() {
         return Err(AppError::Forbidden("Not Authorized".to_string()));
     }
-    let rows = sqlx::query_as::<_, UserRow>(
-        r"SELECT id, email, password_digest, role, session_token, username, COALESCE(token_version, 1) as token_version, created_at, updated_at FROM users ORDER BY id"
-    )
-    .fetch_all(&state.db)
-    .await?;
-
-    let users: Vec<User> = rows.into_iter().map(|r| r.into()).collect();
+    let users = data::list(&state.db).await?;
     let responses: Vec<UserResponse> = users.iter().map(|u| u.to_response()).collect();
     Ok(HttpResponse::Ok().json(responses))
 }
@@ -97,17 +62,8 @@ pub async fn show(
     if !user.is_admin() && user.id != target_id {
         return Err(AppError::Forbidden("Not Authorized".to_string()));
     }
-    match sqlx::query_as::<_, UserRow>(
-        r"SELECT id, email, password_digest, role, session_token, username, COALESCE(token_version, 1) as token_version, created_at, updated_at FROM users WHERE id = $1"
-    )
-    .bind(target_id)
-    .fetch_optional(&state.db)
-    .await?
-    {
-        Some(row) => {
-            let u: User = row.into();
-            Ok(HttpResponse::Ok().json(u.to_response()))
-        }
+    match data::by_id(&state.db, target_id).await? {
+        Some(u) => Ok(HttpResponse::Ok().json(u.to_response())),
         None => Err(AppError::NotFound(format!("User #{}", target_id))),
     }
 }
@@ -269,15 +225,10 @@ pub async fn update(
         ));
     }
 
-    let existing = sqlx::query_as::<_, UserRow>(
-        r"SELECT id, email, password_digest, role, session_token, username, COALESCE(token_version, 1) as token_version, created_at, updated_at FROM users WHERE id = $1"
-    )
-    .bind(target_id)
-    .fetch_optional(&state.db)
-    .await?;
+    let existing = data::by_id(&state.db, target_id).await?;
 
     match existing {
-        Some(row) => {
+        Some(user) => {
             let email = body.email.clone();
             let username = body.username.clone();
             let role = body.role.clone();
@@ -287,7 +238,7 @@ pub async fn update(
             if let Some(ref password) = body.password {
                 password_digest =
                     Some(UserService::hash_password_for_create(&CreateUserRequest {
-                        email: row.email.clone(),
+                        email: user.email.clone(),
                         password: password.clone(),
                         username: None,
                         token: None,

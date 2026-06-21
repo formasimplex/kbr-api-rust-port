@@ -18,12 +18,12 @@
 
 use actix_multipart::Multipart;
 use actix_web::{HttpResponse, web};
-use sqlx::FromRow;
 use uuid::Uuid;
 
 use crate::app::AppState;
 use crate::auth::middleware::CurrentUser;
 use crate::auth::roles::is_artist_or_above;
+use crate::data::artists as data;
 use crate::error::AppError;
 use crate::models::artist::{Artist, ArtistResponse, CreateArtistRequest, UpdateArtistRequest};
 use crate::models::artist_link::{ArtistLink, ArtistLinkResponse, CreateArtistLinkRequest};
@@ -42,38 +42,7 @@ pub(crate) struct ArtistSignUpRequest {
     username: Option<String>,
 }
 
-#[derive(Debug, FromRow)]
-struct ArtistRow {
-    id: i64,
-    name: Option<String>,
-    genre: Option<String>,
-    bio: Option<String>,
-    user_id: Option<i64>,
-    prospect: Option<bool>,
-    spotify_id: Option<String>,
-    sub_heading: Option<String>,
-    intro: Option<String>,
-    created_at: chrono::NaiveDateTime,
-    updated_at: chrono::NaiveDateTime,
-}
 
-impl From<ArtistRow> for Artist {
-    fn from(row: ArtistRow) -> Self {
-        Artist {
-            id: row.id,
-            name: row.name,
-            genre: row.genre,
-            bio: row.bio,
-            user_id: row.user_id,
-            prospect: row.prospect,
-            spotify_id: row.spotify_id,
-            sub_heading: row.sub_heading,
-            intro: row.intro,
-            created_at: row.created_at.and_utc(),
-            updated_at: row.updated_at.and_utc(),
-        }
-    }
-}
 
 /// Fetch artist links for a set of artist IDs in a single query.
 ///
@@ -112,15 +81,7 @@ async fn fetch_artist_links_batch(
 ///
 /// `200 OK` — JSON array of `ArtistResponse`
 pub async fn index(state: web::Data<AppState>) -> Result<HttpResponse, AppError> {
-    let rows = sqlx::query_as::<_, ArtistRow>(
-        r#"SELECT id, name, genre, bio, user_id, prospect,
-           "spotifyId" AS spotify_id, "subHeading" AS sub_heading, intro,
-           created_at, updated_at FROM artists ORDER BY id"#,
-    )
-    .fetch_all(&state.db)
-    .await?;
-
-    let artists: Vec<Artist> = rows.into_iter().map(|r| r.into()).collect();
+    let artists = data::list(&state.db).await?;
     let artist_ids: Vec<i64> = artists.iter().map(|a| a.id).collect();
     let links_map = fetch_artist_links_batch(&state.db, &artist_ids).await;
     let mut responses: Vec<ArtistResponse> = Vec::new();
@@ -150,17 +111,8 @@ pub async fn show(
 ) -> Result<HttpResponse, AppError> {
     let id = path.into_inner();
 
-    match sqlx::query_as::<_, ArtistRow>(
-        r#"SELECT id, name, genre, bio, user_id, prospect,
-           "spotifyId" AS spotify_id, "subHeading" AS sub_heading, intro,
-           created_at, updated_at FROM artists WHERE id = $1"#,
-    )
-    .bind(id)
-    .fetch_optional(&state.db)
-    .await?
-    {
-        Some(row) => {
-            let artist: Artist = row.into();
+    match data::by_id(&state.db, id).await? {
+        Some(artist) => {
             let (image_urls, thumbnail_urls) =
                 storage_service::get_image_urls(&state.s3, &state.db, "Artist", artist.id)
                     .await
@@ -207,24 +159,7 @@ pub async fn create(
 
     let now = chrono::Utc::now().naive_utc();
 
-    let row = sqlx::query_as::<_, ArtistRow>(
-        r#"INSERT INTO artists (name, genre, bio, prospect, "spotifyId", "subHeading", intro, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-           RETURNING id, name, genre, bio, user_id, prospect, "spotifyId" AS spotify_id, "subHeading" AS sub_heading, intro, created_at, updated_at"#
-    )
-    .bind(&body.name)
-    .bind(body.genre.as_deref())
-    .bind(body.bio.as_deref())
-    .bind(body.prospect)
-    .bind(body.spotify_id.as_deref())
-    .bind(body.sub_heading.as_deref())
-    .bind(body.intro.as_deref())
-    .bind(now)
-    .bind(now)
-    .fetch_one(&state.db)
-    .await?;
-
-    let artist: Artist = row.into();
+    let artist = data::create(&state.db, &body.name, &body.genre, &body.bio, body.prospect, &body.spotify_id, &body.sub_heading, &body.intro, now).await?;
     Ok(HttpResponse::Created().json(artist.to_response(Vec::new(), Vec::new(), Vec::new())))
 }
 
@@ -316,16 +251,7 @@ pub(crate) async fn sign_up(
             .fetch_one(&mut *tx)
             .await?;
 
-            let artist_row = sqlx::query_as::<_, ArtistRow>(
-                r#"INSERT INTO artists (name, user_id, prospect, created_at, updated_at)
-                   VALUES ($1, $2, true, $3, $3)
-                   RETURNING id, name, genre, bio, user_id, prospect, "spotifyId" AS spotify_id, "subHeading" AS sub_heading, intro, created_at, updated_at"#
-            )
-            .bind(&body.name)
-            .bind(user_id)
-            .bind(now)
-            .fetch_one(&mut *tx)
-            .await?;
+            let artist_row = data::create_with_user(&mut tx, &body.name, user_id, now).await?;
 
             let now_str = chrono::Utc::now().to_rfc3339();
             sqlx::query(
@@ -427,31 +353,8 @@ pub async fn update(
 
     let now = chrono::Utc::now().naive_utc();
 
-    let row = sqlx::query_as::<_, ArtistRow>(
-        r#"UPDATE artists SET
-            name = COALESCE($1, name),
-            genre = COALESCE($2, genre),
-            bio = COALESCE($3, bio),
-            "spotifyId" = COALESCE($4, "spotifyId"),
-            "subHeading" = COALESCE($5, "subHeading"),
-            intro = COALESCE($6, intro),
-            updated_at = $7
-        WHERE id = $8
-        RETURNING id, name, genre, bio, user_id, prospect, "spotifyId" AS spotify_id, "subHeading" AS sub_heading, intro, created_at, updated_at"#
-    )
-    .bind(name.as_deref())
-    .bind(genre.as_deref())
-    .bind(bio.as_deref())
-    .bind(spotify_id.as_deref())
-    .bind(sub_heading.as_deref())
-    .bind(intro.as_deref())
-    .bind(now)
-    .bind(id)
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or_else(|| AppError::NotFound(format!("Artist #{}", id)))?;
-
-    let artist: Artist = row.into();
+    let artist = data::update(&state.db, id, &name, &genre, &bio, &spotify_id, &sub_heading, &intro, now).await?
+        .ok_or_else(|| AppError::NotFound(format!("Artist #{}", id)))?;
 
     let (image_urls, thumbnail_urls) =
         storage_service::get_image_urls(&state.s3, &state.db, "Artist", artist.id)
