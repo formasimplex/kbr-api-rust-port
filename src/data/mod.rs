@@ -1,6 +1,9 @@
 pub mod albums;
 pub mod campaign_pages;
+pub mod comments;
 pub mod configs;
+pub mod dashboard;
+pub mod event_attendees;
 pub mod permissions;
 pub mod producers;
 pub mod songs;

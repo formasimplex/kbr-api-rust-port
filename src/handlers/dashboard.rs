@@ -10,19 +10,12 @@
 
 use actix_web::{web, HttpResponse};
 use serde::Serialize;
-use sqlx::FromRow;
 
 use crate::app::AppState;
 use crate::auth::middleware::CurrentUser;
+use crate::data::dashboard as data;
 use crate::error::AppError;
 use crate::services::storage_service;
-
-#[derive(Debug, FromRow)]
-struct SubscribedArtistRow {
-    id: i64,
-    name: Option<String>,
-    intro: Option<String>,
-}
 
 /// Response for a subscribed artist on the dashboard.
 #[derive(Debug, Serialize)]
@@ -46,19 +39,7 @@ pub async fn subscribed_artists(
     user: CurrentUser,
     state: web::Data<AppState>,
 ) -> Result<HttpResponse, AppError> {
-    let rows = sqlx::query_as::<_, SubscribedArtistRow>(
-        r#"
-        SELECT DISTINCT artists.id, artists.name, artists.intro
-        FROM artists
-        INNER JOIN mail_subscribers ON mail_subscribers.artist_id = artists.id
-        WHERE mail_subscribers.user_id = $1
-          AND mail_subscribers.unsubscribed_at IS NULL
-        ORDER BY artists.id
-        "#
-    )
-    .bind(user.id)
-    .fetch_all(&state.db)
-    .await?;
+    let rows = data::subscribed_artists(&state.db, user.id).await?;
 
     let mut responses = Vec::new();
     for row in rows {

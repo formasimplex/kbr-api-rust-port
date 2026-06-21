@@ -15,43 +15,18 @@
 
 use actix_web::{web, HttpResponse};
 use std::time::Duration;
-use sqlx::FromRow;
 use uuid::Uuid;
 
 use crate::app::AppState;
 use crate::auth::middleware::CurrentUser;
 use crate::auth::roles::is_artist_or_above;
+use crate::data::event_attendees as data;
 use crate::error::AppError;
 use crate::jobs::Job;
 use crate::models::kbr_event_attendee::{
     CreateEventAttendeeRequest, KbrEventAttendee, KbrEventAttendeeResponse,
     UpdateEventAttendeeRequest,
 };
-
-#[derive(Debug, FromRow)]
-struct EventAttendeeRow {
-    id: i64,
-    kbr_event_id: Option<i32>,
-    mail_subscriber_id: Option<i32>,
-    scan_count: Option<i32>,
-    headcount: Option<i32>,
-    created_at: chrono::NaiveDateTime,
-    updated_at: chrono::NaiveDateTime,
-}
-
-impl From<EventAttendeeRow> for KbrEventAttendee {
-    fn from(row: EventAttendeeRow) -> Self {
-        KbrEventAttendee {
-            id: row.id,
-            kbr_event_id: row.kbr_event_id,
-            mail_subscriber_id: row.mail_subscriber_id,
-            scan_count: row.scan_count,
-            headcount: row.headcount,
-            created_at: row.created_at.and_utc(),
-            updated_at: row.updated_at.and_utc(),
-        }
-    }
-}
 
 /// Scan a QR code to increment attendee scan count.
 ///
@@ -68,17 +43,7 @@ pub async fn qr_scan(
 ) -> Result<HttpResponse, AppError> {
     let id = path.into_inner();
 
-    let row = sqlx::query_as::<_, EventAttendeeRow>(
-        r"UPDATE kbr_event_attendees
-           SET scan_count = COALESCE(scan_count, 0) + 1, updated_at = NOW()
-           WHERE id = $1
-           RETURNING id, kbr_event_id, mail_subscriber_id, scan_count, headcount, created_at, updated_at"
-    )
-    .bind(id)
-    .fetch_optional(&state.db)
-    .await?;
-
-    match row {
+    match data::qr_scan(&state.db, id).await? {
         Some(r) => {
             let attendee: KbrEventAttendee = r.into();
             Ok(HttpResponse::Ok().json(attendee.to_response()))
@@ -115,15 +80,7 @@ pub async fn attendees_for_event(
         _ => return Err(AppError::BadRequest("kbr_event_id is required".to_string())),
     };
 
-    let rows = sqlx::query_as::<_, EventAttendeeRow>(
-        r"SELECT id, kbr_event_id, mail_subscriber_id, scan_count, headcount, created_at, updated_at
-           FROM kbr_event_attendees WHERE kbr_event_id = $1"
-    )
-    .bind(event_id as i32)
-    .fetch_all(&state.db)
-    .await?;
-
-    let attendees: Vec<KbrEventAttendee> = rows.into_iter().map(|r| r.into()).collect();
+    let attendees = data::list_by_event(&state.db, event_id as i32).await?;
     let responses: Vec<KbrEventAttendeeResponse> =
         attendees.iter().map(|a| a.to_response()).collect();
     Ok(HttpResponse::Ok().json(responses))
@@ -158,18 +115,8 @@ pub async fn create(
 
     for subscriber_id in &body.mail_subscriber_ids {
         let now = chrono::Utc::now().naive_utc();
-        let row = sqlx::query_as::<_, EventAttendeeRow>(
-            r"INSERT INTO kbr_event_attendees (kbr_event_id, mail_subscriber_id, scan_count, headcount, created_at, updated_at)
-               VALUES ($1, $2, 0, $3, $4, $4)
-               RETURNING id, kbr_event_id, mail_subscriber_id, scan_count, headcount, created_at, updated_at"
-        )
-        .bind(body.kbr_event_id)
-        .bind(*subscriber_id)
-        .bind(body.headcount)
-        .bind(now)
-        .fetch_one(&mut *tx)
-        .await?;
-        attendees.push(KbrEventAttendee::from(row));
+        let attendee = data::create_one(&mut tx, body.kbr_event_id, *subscriber_id, body.headcount, now).await?;
+        attendees.push(attendee);
     }
 
     tx.commit().await?;
@@ -224,15 +171,7 @@ pub async fn update(
         return Err(AppError::Forbidden("Not Authorized".to_string()));
     }
 
-    let rows = sqlx::query_as::<_, EventAttendeeRow>(
-        r"SELECT id, kbr_event_id, mail_subscriber_id, scan_count, headcount, created_at, updated_at
-           FROM kbr_event_attendees WHERE kbr_event_id = $1"
-    )
-    .bind(body.kbr_event_id)
-    .fetch_all(&state.db)
-    .await?;
-
-    let attendees: Vec<KbrEventAttendee> = rows.into_iter().map(|r| r.into()).collect();
+    let attendees = data::list_by_event(&state.db, body.kbr_event_id).await?;
 
     // Enqueue text update email for each attendee (batched to avoid channel saturation)
     const JOB_BATCH_SIZE: usize = 250;
