@@ -13,31 +13,11 @@
 
 use actix_web::{web, HttpResponse};
 use serde::Serialize;
-use sqlx::FromRow;
 
 use crate::app::AppState;
 use crate::auth::middleware::CurrentUser;
+use crate::data::data_api as data;
 use crate::error::AppError;
-
-#[derive(Debug, FromRow)]
-struct LastLoginRow {
-    username: Option<String>,
-    updated_at: chrono::NaiveDateTime,
-}
-
-#[derive(Debug, FromRow)]
-struct LastLoginByIdRow {
-    email: String,
-    updated_at: chrono::NaiveDateTime,
-}
-
-#[derive(Debug, FromRow, Serialize)]
-struct EventAttendeePresentRow {
-    id: i64,
-    scan_count: Option<i32>,
-    email: String,
-    full_name: String,
-}
 
 /// Response for a user's last login information.
 #[derive(Debug, Serialize)]
@@ -68,11 +48,7 @@ pub async fn last_logins(
     if !user.is_admin() {
         return Err(AppError::Forbidden("must be admin".into()));
     }
-    let rows = sqlx::query_as::<_, LastLoginRow>(
-        r#"SELECT username, updated_at FROM users ORDER BY updated_at DESC LIMIT 10"#
-    )
-    .fetch_all(&state.db)
-    .await?;
+    let rows = data::last_logins(&state.db).await?;
 
     let responses: Vec<LastLoginResponse> = rows
         .into_iter()
@@ -104,13 +80,7 @@ pub async fn last_login_by_id(
     }
     let id = path.into_inner();
 
-    match sqlx::query_as::<_, LastLoginByIdRow>(
-        r#"SELECT email, updated_at FROM users WHERE id = $1"#
-    )
-    .bind(id)
-    .fetch_optional(&state.db)
-    .await?
-    {
+    match data::last_login_by_id(&state.db, id).await? {
         Some(row) => Ok(HttpResponse::Ok().json(LastLoginByIdResponse {
             email: row.email,
             last_login: row.updated_at.and_utc().to_rfc3339(),
@@ -138,33 +108,11 @@ pub async fn event_attendees_present(
     }
     let event_id = path.into_inner();
 
-    let event_exists = sqlx::query_scalar::<_, i64>(
-        r#"SELECT COUNT(*) FROM kbr_events WHERE id = $1"#
-    )
-    .bind(event_id)
-    .fetch_one(&state.db)
-    .await?;
-
-    if event_exists == 0 {
+    if !data::event_exists(&state.db, event_id).await? {
         return Err(AppError::NotFound(format!("Event #{}", event_id)));
     }
 
-    let rows = sqlx::query_as::<_, EventAttendeePresentRow>(
-        r#"
-        SELECT DISTINCT ON (ma.mail_subscriber_id)
-            ma.id,
-            ma.scan_count,
-            ms.email,
-            ms.full_name
-        FROM kbr_event_attendees ma
-        JOIN mail_subscribers ms ON ms.id = ma.mail_subscriber_id
-        WHERE ma.kbr_event_id = $1 AND ma.scan_count > 0
-        ORDER BY ma.mail_subscriber_id, ma.id
-        "#
-    )
-    .bind(event_id as i32)
-    .fetch_all(&state.db)
-    .await?;
+    let rows = data::event_attendees_present(&state.db, event_id as i32).await?;
 
     Ok(HttpResponse::Ok().json(rows))
 }

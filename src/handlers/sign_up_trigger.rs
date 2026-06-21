@@ -11,41 +11,14 @@
 //! | `show` | GET | `/v1/sign_up_trigger/{token}` | public | Retrieve an existing sign-up trigger by token |
 
 use actix_web::{web, HttpResponse};
-use sqlx::FromRow;
 use uuid::Uuid;
 
 use crate::app::AppState;
+use crate::data::sign_up_trigger as data;
 use crate::error::AppError;
 use crate::models::sign_up_trigger::SignUpTrigger;
 use crate::models::user::User;
 use crate::services::user_service::UserService;
-
-#[derive(Debug, FromRow)]
-struct SignUpTriggerRow {
-    id: i64,
-    email: Option<String>,
-    token: Option<String>,
-    expires_at: Option<String>,
-    role: Option<String>,
-    created_at: chrono::NaiveDateTime,
-    updated_at: chrono::NaiveDateTime,
-}
-
-impl From<SignUpTriggerRow> for SignUpTrigger {
-    fn from(row: SignUpTriggerRow) -> Self {
-        SignUpTrigger {
-            id: row.id,
-            email: row.email,
-            full_name: None,
-            confirmation_token: None,
-            token: row.token,
-            expires_at: row.expires_at,
-            role: row.role,
-            created_at: row.created_at.and_utc(),
-            updated_at: row.updated_at.and_utc(),
-        }
-    }
-}
 
 /// Create a new sign-up trigger for an email address.
 ///
@@ -68,19 +41,7 @@ pub async fn create(
         return Err(AppError::Validation("Invalid email".to_string()));
     }
 
-    let is_artist: bool = sqlx::query_scalar(
-        r"SELECT EXISTS(
-            SELECT 1 FROM users u
-            JOIN artists a ON a.user_id = u.id
-            WHERE u.email = $1 AND u.role = 'artist'
-        )"
-    )
-    .bind(&normalized_email)
-    .fetch_one(&state.db)
-    .await
-    .unwrap_or(false);
-
-    if is_artist {
+    if data::check_artist_conflict(&state.db, &normalized_email).await? {
         return Err(AppError::Forbidden(
             "Email already linked to Artist account".to_string(),
         ));
@@ -89,33 +50,12 @@ pub async fn create(
     let now = chrono::Utc::now().naive_utc();
     let now_str = chrono::Utc::now().to_rfc3339();
 
-    let _ = sqlx::query(
-        r"UPDATE sign_up_triggers SET expires_at = $1, updated_at = $2 WHERE email = $3"
-    )
-    .bind(&now_str)
-    .bind(now)
-    .bind(&normalized_email)
-    .execute(&state.db)
-    .await;
+    data::expire_existing(&state.db, &normalized_email, &now_str, now).await?;
 
     let token = SignUpTrigger::generate_token();
     let expires_at = SignUpTrigger::generate_expires_at();
 
-    let row = sqlx::query_as::<_, SignUpTriggerRow>(
-        r"INSERT INTO sign_up_triggers (email, token, expires_at, role, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $6)
-           RETURNING id, email, token, expires_at, role, created_at, updated_at"
-    )
-    .bind(&normalized_email)
-    .bind(&token)
-    .bind(&expires_at)
-    .bind(&body.role)
-    .bind(now)
-    .bind(now)
-    .fetch_one(&state.db)
-    .await?;
-
-    let trigger: SignUpTrigger = row.into();
+    let trigger = data::create(&state.db, &normalized_email, &token, &expires_at, &body.role, now).await?;
 
     let job_id = Uuid::new_v4();
     if let Err(e) = state
@@ -147,16 +87,8 @@ pub async fn show(
 ) -> Result<HttpResponse, AppError> {
     let token = path.into_inner();
 
-    match sqlx::query_as::<_, SignUpTriggerRow>(
-        r"SELECT id, email, token, expires_at, role, created_at, updated_at
-           FROM sign_up_triggers WHERE token = $1"
-    )
-    .bind(&token)
-    .fetch_optional(&state.db)
-    .await?
-    {
-        Some(row) => {
-            let trigger: SignUpTrigger = row.into();
+    match data::by_token(&state.db, &token).await? {
+        Some(trigger) => {
             if trigger.is_expired() {
                 return Err(AppError::NotFound("Sign-up trigger has expired".to_string()));
             }
@@ -174,6 +106,7 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::data::sign_up_trigger::SignUpTriggerRow;
     use crate::test_utils::get_test_state;
     use actix_web::test;
 
