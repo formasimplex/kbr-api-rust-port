@@ -1,33 +1,6 @@
-use sqlx::{FromRow, Transaction};
+use sqlx::Transaction;
 
 use crate::models::sign_up_trigger::SignUpTrigger;
-
-#[derive(Debug, FromRow)]
-pub struct SignUpTriggerRow {
-    pub id: i64,
-    pub email: Option<String>,
-    pub token: Option<String>,
-    pub expires_at: Option<String>,
-    pub role: Option<String>,
-    pub created_at: chrono::NaiveDateTime,
-    pub updated_at: chrono::NaiveDateTime,
-}
-
-impl From<SignUpTriggerRow> for SignUpTrigger {
-    fn from(row: SignUpTriggerRow) -> Self {
-        SignUpTrigger {
-            id: row.id,
-            email: row.email,
-            full_name: None,
-            confirmation_token: None,
-            token: row.token,
-            expires_at: row.expires_at,
-            role: row.role,
-            created_at: row.created_at.and_utc(),
-            updated_at: row.updated_at.and_utc(),
-        }
-    }
-}
 
 const TRIGGER_COLUMNS: &str = "id, email, token, expires_at, role, created_at, updated_at";
 
@@ -73,7 +46,7 @@ pub async fn create(
     role: &Option<String>,
     now: chrono::NaiveDateTime,
 ) -> Result<SignUpTrigger, sqlx::Error> {
-    let row = sqlx::query_as::<_, SignUpTriggerRow>(
+    sqlx::query_as::<_, SignUpTrigger>(
         &format!(
             r"INSERT INTO sign_up_triggers (email, token, expires_at, role, created_at, updated_at)
                VALUES ($1, $2, $3, $4, $5, $6)
@@ -88,20 +61,16 @@ pub async fn create(
     .bind(now)
     .bind(now)
     .fetch_one(pool)
-    .await?;
-
-    Ok(row.into())
+    .await
 }
 
 pub async fn by_token(pool: &sqlx::PgPool, token: &str) -> Result<Option<SignUpTrigger>, sqlx::Error> {
-    let row = sqlx::query_as::<_, SignUpTriggerRow>(
+    sqlx::query_as::<_, SignUpTrigger>(
         &format!("SELECT {} FROM sign_up_triggers WHERE token = $1", TRIGGER_COLUMNS),
     )
     .bind(token)
     .fetch_optional(pool)
-    .await?;
-
-    Ok(row.map(|r| r.into()))
+    .await
 }
 
 pub async fn by_token_for_update(

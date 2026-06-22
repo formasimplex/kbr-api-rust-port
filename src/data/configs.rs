@@ -1,77 +1,26 @@
-use sqlx::FromRow;
 use uuid::Uuid;
 
 use crate::models::tenant_config::TenantConfig;
 
-#[derive(Debug, FromRow)]
-pub struct ConfigRow {
-    pub tenant_id: Uuid,
-    pub logo_url: Option<String>,
-    pub short_name: String,
-    pub long_name: String,
-    pub footer_logo_url: Option<String>,
-    pub contact_email: String,
-    pub site_header_description: String,
-    pub deleted_at: Option<chrono::NaiveDateTime>,
-    #[sqlx(rename = "instaUrl")]
-    pub insta_url: Option<String>,
-    #[sqlx(rename = "twitterUrl")]
-    pub twitter_url: Option<String>,
-    #[sqlx(rename = "tiktokUrl")]
-    pub tiktok_url: Option<String>,
-    #[sqlx(rename = "spotifyId")]
-    pub spotify_id: Option<String>,
-    pub featured_artist_id: Option<i64>,
-    pub created_at: chrono::NaiveDateTime,
-    pub updated_at: chrono::NaiveDateTime,
-}
-
-impl From<ConfigRow> for TenantConfig {
-    fn from(row: ConfigRow) -> Self {
-        TenantConfig {
-            tenant_id: row.tenant_id,
-            logo_url: row.logo_url,
-            short_name: row.short_name,
-            long_name: row.long_name,
-            footer_logo_url: row.footer_logo_url,
-            contact_email: row.contact_email,
-            site_header_description: row.site_header_description,
-            deleted_at: row.deleted_at.map(|d| d.and_utc()),
-            insta_url: row.insta_url,
-            twitter_url: row.twitter_url,
-            tiktok_url: row.tiktok_url,
-            spotify_id: row.spotify_id,
-            featured_artist_id: row.featured_artist_id,
-            mantine_theme: None,
-            created_at: row.created_at.and_utc(),
-            updated_at: row.updated_at.and_utc(),
-        }
-    }
-}
-
 const CONFIG_COLUMNS: &str = r#"tenant_id, logo_url, short_name, long_name, footer_logo_url, contact_email,
    site_header_description, deleted_at, "instaUrl", "twitterUrl", "tiktokUrl", "spotifyId",
-   featured_artist_id, created_at, updated_at"#;
+   featured_artist_id, mantine_theme, created_at, updated_at"#;
 
 pub async fn list(pool: &sqlx::PgPool) -> Result<Vec<TenantConfig>, sqlx::Error> {
-    let rows = sqlx::query_as::<_, ConfigRow>(
+    sqlx::query_as::<_, TenantConfig>(
         &format!(r#"SELECT {} FROM tenant_configs WHERE deleted_at IS NULL"#, CONFIG_COLUMNS),
     )
     .fetch_all(pool)
-    .await?;
-
-    Ok(rows.into_iter().map(|r| r.into()).collect())
+    .await
 }
 
 pub async fn by_tenant_id(pool: &sqlx::PgPool, tenant_id: Uuid) -> Result<Option<TenantConfig>, sqlx::Error> {
-    let row = sqlx::query_as::<_, ConfigRow>(
+    sqlx::query_as::<_, TenantConfig>(
         &format!(r#"SELECT {} FROM tenant_configs WHERE tenant_id = $1 AND deleted_at IS NULL"#, CONFIG_COLUMNS),
     )
     .bind(tenant_id)
     .fetch_optional(pool)
-    .await?;
-
-    Ok(row.map(|r| r.into()))
+    .await
 }
 
 pub async fn create(
@@ -90,7 +39,7 @@ pub async fn create(
     featured_artist_id: Option<i64>,
     now: chrono::NaiveDateTime,
 ) -> Result<TenantConfig, sqlx::Error> {
-    let row = sqlx::query_as::<_, ConfigRow>(
+    sqlx::query_as::<_, TenantConfig>(
         &format!(
             r#"INSERT INTO tenant_configs (tenant_id, logo_url, short_name, long_name, footer_logo_url,
                contact_email, site_header_description, deleted_at, "instaUrl", "twitterUrl", "tiktokUrl",
@@ -115,9 +64,7 @@ pub async fn create(
     .bind(now)
     .bind(now)
     .fetch_one(pool)
-    .await?;
-
-    Ok(row.into())
+    .await
 }
 
 pub async fn update(
@@ -136,7 +83,7 @@ pub async fn update(
     featured_artist_id: Option<i64>,
     now: chrono::NaiveDateTime,
 ) -> Result<Option<TenantConfig>, sqlx::Error> {
-    let row = sqlx::query_as::<_, ConfigRow>(
+    sqlx::query_as::<_, TenantConfig>(
         &format!(
             r#"UPDATE tenant_configs
                SET logo_url = COALESCE($1, logo_url),
@@ -170,9 +117,7 @@ pub async fn update(
     .bind(now)
     .bind(tenant_id)
     .fetch_optional(pool)
-    .await?;
-
-    Ok(row.map(|r| r.into()))
+    .await
 }
 
 pub async fn destroy(pool: &sqlx::PgPool, tenant_id: Uuid, now: chrono::NaiveDateTime) -> Result<bool, sqlx::Error> {

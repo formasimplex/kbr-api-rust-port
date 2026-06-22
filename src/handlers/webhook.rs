@@ -74,8 +74,6 @@ pub async fn update_progress(
         (campaign.campaign_start_date, campaign.campaign_end_date)
     {
         let today = chrono::Utc::now().naive_utc();
-        let start = start.naive_utc();
-        let end = end.naive_utc();
         let total_days = (end - start).num_days().max(1);
         let days_passed = (today - start).num_days().max(0);
         let vinyl_progress = (vinyl_sold as f64 / target as f64) * 100.0;

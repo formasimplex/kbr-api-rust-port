@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
@@ -6,9 +6,9 @@ use sqlx::FromRow;
 pub struct Album {
     pub id: i64,
     pub name: Option<String>,
-    pub release_date: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub release_date: Option<NaiveDate>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -37,9 +37,9 @@ impl Album {
         AlbumResponse {
             id: self.id,
             name: self.name.clone(),
-            release_date: self.release_date.clone(),
-            created_at: self.created_at,
-            updated_at: self.updated_at,
+            release_date: self.release_date.map(|d| d.format("%Y-%m-%d").to_string()),
+            created_at: self.created_at.and_utc(),
+            updated_at: self.updated_at.and_utc(),
         }
     }
 }

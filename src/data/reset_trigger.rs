@@ -1,31 +1,4 @@
-use sqlx::FromRow;
-
 use crate::models::reset_trigger::ResetTrigger;
-
-#[derive(Debug, FromRow)]
-pub struct ResetTriggerRow {
-    pub id: i64,
-    pub user_id: Option<i32>,
-    pub token: Option<String>,
-    pub expires_at: Option<String>,
-    pub created_at: chrono::NaiveDateTime,
-    pub updated_at: chrono::NaiveDateTime,
-}
-
-impl From<ResetTriggerRow> for ResetTrigger {
-    fn from(row: ResetTriggerRow) -> Self {
-        ResetTrigger {
-            id: row.id,
-            email: None,
-            user_id: row.user_id,
-            full_name: None,
-            token: row.token,
-            expires_at: row.expires_at,
-            created_at: row.created_at.and_utc(),
-            updated_at: row.updated_at.and_utc(),
-        }
-    }
-}
 
 const TRIGGER_COLUMNS: &str = "id, user_id, token, expires_at, created_at, updated_at";
 
@@ -47,7 +20,7 @@ pub async fn create(
     expires_at: &str,
     now: chrono::NaiveDateTime,
 ) -> Result<ResetTrigger, sqlx::Error> {
-    let row = sqlx::query_as::<_, ResetTriggerRow>(
+    sqlx::query_as::<_, ResetTrigger>(
         &format!(
             r"INSERT INTO reset_triggers (user_id, token, expires_at, created_at, updated_at)
                VALUES ($1, $2, $3, $4, $5)
@@ -61,16 +34,14 @@ pub async fn create(
     .bind(now)
     .bind(now)
     .fetch_one(pool)
-    .await?;
-
-    Ok(row.into())
+    .await
 }
 
 pub async fn find_by_token_for_update(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     token: &str,
-) -> Result<Option<ResetTriggerRow>, sqlx::Error> {
-    let row = sqlx::query_as::<_, ResetTriggerRow>(
+) -> Result<Option<ResetTrigger>, sqlx::Error> {
+    sqlx::query_as::<_, ResetTrigger>(
         &format!(
             r"SELECT {} FROM reset_triggers WHERE token = $1 FOR UPDATE",
             TRIGGER_COLUMNS
@@ -78,9 +49,7 @@ pub async fn find_by_token_for_update(
     )
     .bind(token)
     .fetch_optional(&mut **tx)
-    .await?;
-
-    Ok(row)
+    .await
 }
 
 pub async fn get_current_password(

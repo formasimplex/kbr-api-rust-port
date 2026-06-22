@@ -97,7 +97,7 @@ impl CampaignActivationService {
     async fn find_campaign(
         db: &PgPool,
         campaign_id: i64,
-    ) -> Result<campaign_data::CampaignRow, AppError> {
+    ) -> Result<Campaign, AppError> {
         campaign_data::find_active(db, campaign_id).await?
             .ok_or_else(|| AppError::NotFound(format!("Campaign #{}", campaign_id)))
     }

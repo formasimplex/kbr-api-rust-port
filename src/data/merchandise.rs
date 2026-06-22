@@ -1,64 +1,5 @@
-use sqlx::FromRow;
-
-use crate::models::artist_merchandise::ArtistMerchandise;
+use crate::models::artist_merchandise::ArtistMerchandiseWithCache;
 use crate::models::shopify_json_cache::ShopifyJsonCache;
-
-#[derive(Debug, FromRow)]
-pub struct ArtistMerchandiseRow {
-    pub id: i64,
-    pub artist_id: i64,
-    pub producer_id: i64,
-    pub merchandise_id: Option<String>,
-    pub description: Option<String>,
-    pub created_on_producer: Option<bool>,
-    pub merch_title: String,
-    pub merch_product_title: Option<String>,
-    pub set_price: Option<f64>,
-    pub cost_price: Option<f64>,
-    pub created_at: chrono::NaiveDateTime,
-    pub updated_at: chrono::NaiveDateTime,
-    pub json_entry: Option<String>,
-}
-
-impl From<ArtistMerchandiseRow> for ArtistMerchandise {
-    fn from(row: ArtistMerchandiseRow) -> Self {
-        ArtistMerchandise {
-            id: row.id,
-            artist_id: row.artist_id,
-            producer_id: row.producer_id,
-            merchandise_id: row.merchandise_id,
-            description: row.description,
-            created_on_producer: row.created_on_producer,
-            merch_title: row.merch_title,
-            merch_product_title: row.merch_product_title,
-            set_price: row.set_price,
-            cost_price: row.cost_price,
-            created_at: row.created_at.and_utc(),
-            updated_at: row.updated_at.and_utc(),
-        }
-    }
-}
-
-#[derive(Debug, FromRow)]
-pub struct ShopifyJsonCacheRow {
-    pub id: i64,
-    pub cached_item_id: Option<String>,
-    pub json_entry: Option<String>,
-    pub created_at: chrono::NaiveDateTime,
-    pub updated_at: chrono::NaiveDateTime,
-}
-
-impl From<ShopifyJsonCacheRow> for ShopifyJsonCache {
-    fn from(row: ShopifyJsonCacheRow) -> Self {
-        ShopifyJsonCache {
-            id: row.id,
-            cached_item_id: row.cached_item_id,
-            json_entry: row.json_entry,
-            created_at: row.created_at.and_utc(),
-            updated_at: row.updated_at.and_utc(),
-        }
-    }
-}
 
 const MERCH_SELECT: &str = r"SELECT am.id, am.artist_id, am.producer_id, am.merchandise_id, am.description,
     am.created_on_producer, am.merch_title, am.merch_product_title, am.set_price::float8, am.cost_price::float8,
@@ -66,36 +7,30 @@ const MERCH_SELECT: &str = r"SELECT am.id, am.artist_id, am.producer_id, am.merc
     FROM artist_merchandise am
     LEFT JOIN shopify_json_caches sjc ON sjc.id::text = am.merchandise_id";
 
-pub async fn list(pool: &sqlx::PgPool) -> Result<Vec<ArtistMerchandiseRow>, sqlx::Error> {
-    let rows = sqlx::query_as::<_, ArtistMerchandiseRow>(
+pub async fn list(pool: &sqlx::PgPool) -> Result<Vec<ArtistMerchandiseWithCache>, sqlx::Error> {
+    sqlx::query_as::<_, ArtistMerchandiseWithCache>(
         &format!("{} ORDER BY am.id", MERCH_SELECT),
     )
     .fetch_all(pool)
-    .await?;
-
-    Ok(rows)
+    .await
 }
 
-pub async fn by_id(pool: &sqlx::PgPool, id: i64) -> Result<Option<ArtistMerchandiseRow>, sqlx::Error> {
-    let row = sqlx::query_as::<_, ArtistMerchandiseRow>(
+pub async fn by_id(pool: &sqlx::PgPool, id: i64) -> Result<Option<ArtistMerchandiseWithCache>, sqlx::Error> {
+    sqlx::query_as::<_, ArtistMerchandiseWithCache>(
         &format!("{} WHERE am.id = $1", MERCH_SELECT),
     )
     .bind(id)
     .fetch_optional(pool)
-    .await?;
-
-    Ok(row)
+    .await
 }
 
-pub async fn by_artist(pool: &sqlx::PgPool, artist_id: i64) -> Result<Vec<ArtistMerchandiseRow>, sqlx::Error> {
-    let rows = sqlx::query_as::<_, ArtistMerchandiseRow>(
+pub async fn by_artist(pool: &sqlx::PgPool, artist_id: i64) -> Result<Vec<ArtistMerchandiseWithCache>, sqlx::Error> {
+    sqlx::query_as::<_, ArtistMerchandiseWithCache>(
         &format!("{} WHERE am.artist_id = $1 ORDER BY am.id", MERCH_SELECT),
     )
     .bind(artist_id)
     .fetch_all(pool)
-    .await?;
-
-    Ok(rows)
+    .await
 }
 
 pub async fn create(
@@ -110,8 +45,8 @@ pub async fn create(
     set_price: Option<f64>,
     cost_price: Option<f64>,
     now: chrono::NaiveDateTime,
-) -> Result<ArtistMerchandiseRow, sqlx::Error> {
-    let row = sqlx::query_as::<_, ArtistMerchandiseRow>(
+) -> Result<ArtistMerchandiseWithCache, sqlx::Error> {
+    sqlx::query_as::<_, ArtistMerchandiseWithCache>(
         "INSERT INTO artist_merchandise (artist_id, producer_id, merchandise_id, description,
          created_on_producer, merch_title, merch_product_title, set_price, cost_price,
          created_at, updated_at)
@@ -133,9 +68,7 @@ pub async fn create(
     .bind(now)
     .bind(now)
     .fetch_one(pool)
-    .await?;
-
-    Ok(row)
+    .await
 }
 
 pub async fn update(
@@ -147,8 +80,8 @@ pub async fn update(
     set_price: Option<f64>,
     cost_price: Option<f64>,
     now: chrono::NaiveDateTime,
-) -> Result<Option<ArtistMerchandiseRow>, sqlx::Error> {
-    let row = sqlx::query_as::<_, ArtistMerchandiseRow>(
+) -> Result<Option<ArtistMerchandiseWithCache>, sqlx::Error> {
+    sqlx::query_as::<_, ArtistMerchandiseWithCache>(
         "UPDATE artist_merchandise
          SET merch_title = COALESCE($1, merch_title),
              merch_product_title = COALESCE($2, merch_product_title),
@@ -170,9 +103,7 @@ pub async fn update(
     .bind(now)
     .bind(id)
     .fetch_optional(pool)
-    .await?;
-
-    Ok(row)
+    .await
 }
 
 pub async fn destroy(pool: &sqlx::PgPool, id: i64) -> Result<bool, sqlx::Error> {
@@ -185,11 +116,9 @@ pub async fn destroy(pool: &sqlx::PgPool, id: i64) -> Result<bool, sqlx::Error> 
 }
 
 pub async fn cache_update(pool: &sqlx::PgPool) -> Result<Vec<ShopifyJsonCache>, sqlx::Error> {
-    let rows = sqlx::query_as::<_, ShopifyJsonCacheRow>(
+    sqlx::query_as::<_, ShopifyJsonCache>(
         r"SELECT id, cached_item_id, json_entry, created_at, updated_at FROM shopify_json_caches ORDER BY id",
     )
     .fetch_all(pool)
-    .await?;
-
-    Ok(rows.into_iter().map(|r| r.into()).collect())
+    .await
 }

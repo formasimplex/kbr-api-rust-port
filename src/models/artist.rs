@@ -1,5 +1,5 @@
 use actix_multipart::Multipart;
-use chrono::{DateTime, Utc};
+use chrono::{NaiveDateTime};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
@@ -20,8 +20,8 @@ pub struct Artist {
     pub spotify_id: Option<String>,
     pub sub_heading: Option<String>,
     pub intro: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

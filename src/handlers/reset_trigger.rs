@@ -193,8 +193,9 @@ mod tests {
             }))
             .to_request();
         let resp = test::call_service(&app, req).await;
-        assert_eq!(resp.status(), 200);
+        let status = resp.status();
         let body: serde_json::Value = test::read_body_json(resp).await;
+        assert_eq!(status, 200);
         assert!(body["message"].is_string());
         assert!(!body["message"].as_str().unwrap().contains("token"));
 

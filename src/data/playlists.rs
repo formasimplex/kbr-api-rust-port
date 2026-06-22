@@ -1,60 +1,33 @@
-use sqlx::FromRow;
-
 use crate::models::news_playlist::NewsPlaylist;
-
-#[derive(Debug, FromRow)]
-pub struct PlaylistRow {
-    pub id: i64,
-    pub user_id: i64,
-    pub name: String,
-    pub description: Option<String>,
-    pub created_at: chrono::NaiveDateTime,
-    pub updated_at: chrono::NaiveDateTime,
-}
-
-impl From<PlaylistRow> for NewsPlaylist {
-    fn from(row: PlaylistRow) -> Self {
-        NewsPlaylist {
-            id: row.id,
-            user_id: row.user_id,
-            name: row.name,
-            description: row.description,
-            created_at: row.created_at.and_utc(),
-            updated_at: row.updated_at.and_utc(),
-        }
-    }
-}
 
 const PLAYLIST_COLUMNS: &str = "id, user_id, name, description, created_at, updated_at";
 
 pub async fn list(pool: &sqlx::PgPool, user_id: Option<i64>) -> Result<Vec<NewsPlaylist>, sqlx::Error> {
     let rows = if let Some(uid) = user_id {
-        sqlx::query_as::<_, PlaylistRow>(
+        sqlx::query_as::<_, NewsPlaylist>(
             &format!(r"SELECT {} FROM news_playlists WHERE user_id = $1 ORDER BY id", PLAYLIST_COLUMNS),
         )
         .bind(uid)
         .fetch_all(pool)
         .await?
     } else {
-        sqlx::query_as::<_, PlaylistRow>(
+        sqlx::query_as::<_, NewsPlaylist>(
             &format!(r"SELECT {} FROM news_playlists ORDER BY id", PLAYLIST_COLUMNS),
         )
         .fetch_all(pool)
         .await?
     };
 
-    Ok(rows.into_iter().map(|r| r.into()).collect())
+    Ok(rows)
 }
 
 pub async fn by_id(pool: &sqlx::PgPool, id: i64) -> Result<Option<NewsPlaylist>, sqlx::Error> {
-    let row = sqlx::query_as::<_, PlaylistRow>(
+    sqlx::query_as::<_, NewsPlaylist>(
         &format!(r"SELECT {} FROM news_playlists WHERE id = $1", PLAYLIST_COLUMNS),
     )
     .bind(id)
     .fetch_optional(pool)
-    .await?;
-
-    Ok(row.map(|r| r.into()))
+    .await
 }
 
 pub async fn create(
@@ -64,7 +37,7 @@ pub async fn create(
     description: &Option<String>,
     now: chrono::NaiveDateTime,
 ) -> Result<NewsPlaylist, sqlx::Error> {
-    let row = sqlx::query_as::<_, PlaylistRow>(
+    sqlx::query_as::<_, NewsPlaylist>(
         &format!(
             r"INSERT INTO news_playlists (user_id, name, description, created_at, updated_at)
               VALUES ($1, $2, $3, $4, $5)
@@ -78,9 +51,7 @@ pub async fn create(
     .bind(now)
     .bind(now)
     .fetch_one(pool)
-    .await?;
-
-    Ok(row.into())
+    .await
 }
 
 pub async fn update(
@@ -90,7 +61,7 @@ pub async fn update(
     description: &Option<String>,
     now: chrono::NaiveDateTime,
 ) -> Result<Option<NewsPlaylist>, sqlx::Error> {
-    let row = sqlx::query_as::<_, PlaylistRow>(
+    sqlx::query_as::<_, NewsPlaylist>(
         &format!(
             r"UPDATE news_playlists SET
                name = COALESCE($1, name),
@@ -106,9 +77,7 @@ pub async fn update(
     .bind(now)
     .bind(id)
     .fetch_optional(pool)
-    .await?;
-
-    Ok(row.map(|r| r.into()))
+    .await
 }
 
 pub async fn destroy(pool: &sqlx::PgPool, id: i64) -> Result<bool, sqlx::Error> {

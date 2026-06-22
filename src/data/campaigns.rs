@@ -1,41 +1,4 @@
-use sqlx::FromRow;
-
 use crate::models::campaign::Campaign;
-
-#[derive(Debug, FromRow)]
-pub struct CampaignRow {
-    pub id: i64,
-    pub artist_id: i64,
-    pub name: Option<String>,
-    pub active: Option<bool>,
-    pub vinyl_sold_count: Option<i32>,
-    pub campaign_start_date: Option<chrono::NaiveDateTime>,
-    pub campaign_end_date: Option<chrono::NaiveDateTime>,
-    pub progress: Option<i32>,
-    pub album_id: Option<i64>,
-    pub deleted_at: Option<chrono::NaiveDateTime>,
-    pub created_at: chrono::NaiveDateTime,
-    pub updated_at: chrono::NaiveDateTime,
-}
-
-impl From<CampaignRow> for Campaign {
-    fn from(row: CampaignRow) -> Self {
-        Campaign {
-            id: row.id,
-            artist_id: row.artist_id,
-            name: row.name,
-            active: row.active,
-            vinyl_sold_count: row.vinyl_sold_count,
-            campaign_start_date: row.campaign_start_date.map(|dt| dt.and_utc()),
-            campaign_end_date: row.campaign_end_date.map(|dt| dt.and_utc()),
-            progress: row.progress,
-            album_id: row.album_id,
-            deleted_at: row.deleted_at.map(|dt| dt.and_utc()),
-            created_at: row.created_at.and_utc(),
-            updated_at: row.updated_at.and_utc(),
-        }
-    }
-}
 
 const CAMPAIGN_COLUMNS: &str =
     r#"id, artist_id, name, active, vinyl_sold_count,
@@ -43,56 +6,46 @@ const CAMPAIGN_COLUMNS: &str =
        deleted_at, created_at, updated_at"#;
 
 pub async fn list(pool: &sqlx::PgPool) -> Result<Vec<Campaign>, sqlx::Error> {
-    let rows = sqlx::query_as::<_, CampaignRow>(
+    sqlx::query_as::<_, Campaign>(
         &format!(r"SELECT {} FROM campaigns WHERE deleted_at IS NULL ORDER BY id", CAMPAIGN_COLUMNS),
     )
     .fetch_all(pool)
-    .await?;
-
-    Ok(rows.into_iter().map(|r| r.into()).collect())
+    .await
 }
 
 pub async fn list_by_artist(pool: &sqlx::PgPool, artist_id: i64) -> Result<Vec<Campaign>, sqlx::Error> {
-    let rows = sqlx::query_as::<_, CampaignRow>(
+    sqlx::query_as::<_, Campaign>(
         &format!(r"SELECT {} FROM campaigns WHERE artist_id = $1 AND deleted_at IS NULL ORDER BY id", CAMPAIGN_COLUMNS),
     )
     .bind(artist_id)
     .fetch_all(pool)
-    .await?;
-
-    Ok(rows.into_iter().map(|r| r.into()).collect())
+    .await
 }
 
 pub async fn active(pool: &sqlx::PgPool) -> Result<Vec<Campaign>, sqlx::Error> {
-    let rows = sqlx::query_as::<_, CampaignRow>(
+    sqlx::query_as::<_, Campaign>(
         &format!(r"SELECT {} FROM campaigns WHERE active = true AND deleted_at IS NULL ORDER BY id", CAMPAIGN_COLUMNS),
     )
     .fetch_all(pool)
-    .await?;
-
-    Ok(rows.into_iter().map(|r| r.into()).collect())
+    .await
 }
 
 pub async fn by_id(pool: &sqlx::PgPool, id: i64) -> Result<Option<Campaign>, sqlx::Error> {
-    let row = sqlx::query_as::<_, CampaignRow>(
+    sqlx::query_as::<_, Campaign>(
         &format!(r"SELECT {} FROM campaigns WHERE id = $1", CAMPAIGN_COLUMNS),
     )
     .bind(id)
     .fetch_optional(pool)
-    .await?;
-
-    Ok(row.map(|r| r.into()))
+    .await
 }
 
-pub async fn find_active(pool: &sqlx::PgPool, id: i64) -> Result<Option<CampaignRow>, sqlx::Error> {
-    let row = sqlx::query_as::<_, CampaignRow>(
+pub async fn find_active(pool: &sqlx::PgPool, id: i64) -> Result<Option<Campaign>, sqlx::Error> {
+    sqlx::query_as::<_, Campaign>(
         &format!(r"SELECT {} FROM campaigns WHERE id = $1 AND deleted_at IS NULL", CAMPAIGN_COLUMNS),
     )
     .bind(id)
     .fetch_optional(pool)
-    .await?;
-
-    Ok(row)
+    .await
 }
 
 pub async fn create(
@@ -102,7 +55,7 @@ pub async fn create(
     vinyl_sold_count: Option<i32>,
     now: chrono::NaiveDateTime,
 ) -> Result<Campaign, sqlx::Error> {
-    let row = sqlx::query_as::<_, CampaignRow>(
+    sqlx::query_as::<_, Campaign>(
         &format!(
             r#"INSERT INTO campaigns (artist_id, name, active, vinyl_sold_count, campaign_start_date, campaign_end_date, progress, album_id, created_at, updated_at)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
@@ -121,9 +74,7 @@ pub async fn create(
     .bind(now)
     .bind(now)
     .fetch_one(pool)
-    .await?;
-
-    Ok(row.into())
+    .await
 }
 
 pub async fn update(
@@ -137,7 +88,7 @@ pub async fn update(
     campaign_end_date: Option<chrono::NaiveDateTime>,
     now: chrono::NaiveDateTime,
 ) -> Result<Option<Campaign>, sqlx::Error> {
-    let row = sqlx::query_as::<_, CampaignRow>(
+    sqlx::query_as::<_, Campaign>(
         &format!(
             r#"UPDATE campaigns SET
                name = COALESCE($1, name),
@@ -161,9 +112,7 @@ pub async fn update(
     .bind(now)
     .bind(id)
     .fetch_optional(pool)
-    .await?;
-
-    Ok(row.map(|r| r.into()))
+    .await
 }
 
 pub async fn activate(
@@ -173,7 +122,7 @@ pub async fn activate(
     end_date: chrono::NaiveDateTime,
     now: chrono::NaiveDateTime,
 ) -> Result<Campaign, sqlx::Error> {
-    let row = sqlx::query_as::<_, CampaignRow>(
+    sqlx::query_as::<_, Campaign>(
         &format!(
             r#"UPDATE campaigns SET
                active = true,
@@ -190,9 +139,7 @@ pub async fn activate(
     .bind(now)
     .bind(id)
     .fetch_one(pool)
-    .await?;
-
-    Ok(row.into())
+    .await
 }
 
 pub async fn destroy(pool: &sqlx::PgPool, id: i64, now: chrono::NaiveDateTime) -> Result<bool, sqlx::Error> {

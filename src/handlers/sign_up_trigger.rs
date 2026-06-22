@@ -106,8 +106,7 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data::sign_up_trigger::SignUpTriggerRow;
-    use crate::test_utils::get_test_state;
+    use crate::models::sign_up_trigger::SignUpTrigger;
     use actix_web::test;
 
     #[tokio::test(flavor = "current_thread")]
@@ -248,7 +247,7 @@ mod tests {
         let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let token = format!("rust_test_{}", chrono::Utc::now().timestamp_micros());
-    let seed = sqlx::query_as::<_, SignUpTriggerRow>(
+    let seed = sqlx::query_as::<_, SignUpTrigger>(
             r"INSERT INTO sign_up_triggers (email, token, expires_at, role, created_at, updated_at)
                VALUES ('showtest@example.com', $1, '2027-12-31T23:59:00+00:00', 'user', NOW(), NOW())
                RETURNING id, email, token, expires_at, role, created_at, updated_at"
@@ -292,7 +291,7 @@ mod tests {
 
         let token = format!("expired_test_{}", chrono::Utc::now().timestamp_micros());
         let past = (chrono::Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
-        let _ = sqlx::query_as::<_, SignUpTriggerRow>(
+        let _ = sqlx::query_as::<_, SignUpTrigger>(
             r"INSERT INTO sign_up_triggers (email, token, expires_at, role, created_at, updated_at)
                VALUES ('expired@example.com', $1, $2, 'user', NOW(), NOW())
                RETURNING id, email, token, expires_at, role, created_at, updated_at"

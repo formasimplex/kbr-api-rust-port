@@ -24,7 +24,7 @@ use crate::data::event_attendees as data;
 use crate::error::AppError;
 use crate::jobs::Job;
 use crate::models::kbr_event_attendee::{
-    CreateEventAttendeeRequest, KbrEventAttendee, KbrEventAttendeeResponse,
+    CreateEventAttendeeRequest, KbrEventAttendeeResponse,
     UpdateEventAttendeeRequest,
 };
 
@@ -44,10 +44,7 @@ pub async fn qr_scan(
     let id = path.into_inner();
 
     match data::qr_scan(&state.db, id).await? {
-        Some(r) => {
-            let attendee: KbrEventAttendee = r.into();
-            Ok(HttpResponse::Ok().json(attendee.to_response()))
-        }
+        Some(attendee) => Ok(HttpResponse::Ok().json(attendee.to_response())),
         None => Err(AppError::NotFound(format!("Attendee #{}", id))),
     }
 }

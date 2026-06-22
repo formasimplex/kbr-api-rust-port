@@ -146,17 +146,6 @@ impl User {
     pub fn validate_role(role: &str) -> bool {
         matches!(role, "admin" | "super_admin" | "user" | "customer" | "artist" | "staff")
     }
-
-    pub async fn find_by_id(pool: &sqlx::PgPool, id: i64) -> sqlx::Result<Option<Self>> {
-        sqlx::query_as::<_, Self>(
-            "SELECT id, email, password_digest, role, session_token, username,
-                    first_name, last_name, token_version, created_at, updated_at
-             FROM users WHERE id = $1",
-        )
-        .bind(id)
-        .fetch_optional(pool)
-        .await
-    }
 }
 
 #[cfg(test)]

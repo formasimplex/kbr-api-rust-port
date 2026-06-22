@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::{NaiveDateTime};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
@@ -14,8 +14,45 @@ pub struct ArtistMerchandise {
     pub merch_product_title: Option<String>,
     pub set_price: Option<f64>,
     pub cost_price: Option<f64>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+}
+
+/// ArtistMerchandise with joined shopify_json_caches.json_entry.
+#[derive(Debug, FromRow)]
+pub struct ArtistMerchandiseWithCache {
+    pub id: i64,
+    pub artist_id: i64,
+    pub producer_id: i64,
+    pub merchandise_id: Option<String>,
+    pub description: Option<String>,
+    pub created_on_producer: Option<bool>,
+    pub merch_title: String,
+    pub merch_product_title: Option<String>,
+    pub set_price: Option<f64>,
+    pub cost_price: Option<f64>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+    pub json_entry: Option<String>,
+}
+
+impl From<ArtistMerchandiseWithCache> for ArtistMerchandise {
+    fn from(row: ArtistMerchandiseWithCache) -> Self {
+        ArtistMerchandise {
+            id: row.id,
+            artist_id: row.artist_id,
+            producer_id: row.producer_id,
+            merchandise_id: row.merchandise_id,
+            description: row.description,
+            created_on_producer: row.created_on_producer,
+            merch_title: row.merch_title,
+            merch_product_title: row.merch_product_title,
+            set_price: row.set_price,
+            cost_price: row.cost_price,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

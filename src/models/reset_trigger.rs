@@ -1,17 +1,15 @@
-use chrono::{DateTime, Utc};
+use chrono::{NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
 #[derive(Debug, Clone, FromRow, PartialEq, Eq)]
 pub struct ResetTrigger {
     pub id: i64,
-    pub email: Option<String>,
     pub user_id: Option<i32>,
-    pub full_name: Option<String>,
     pub token: Option<String>,
     pub expires_at: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

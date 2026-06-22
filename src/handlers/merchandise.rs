@@ -22,8 +22,8 @@ use crate::auth::middleware::CurrentUser;
 use crate::data::merchandise as data;
 use crate::error::AppError;
 use crate::models::artist_merchandise::{
-    ArtistMerchandise, ArtistMerchandiseResponse, CreateArtistMerchandiseRequest,
-    UpdateArtistMerchandiseRequest,
+    ArtistMerchandise, ArtistMerchandiseResponse,
+    CreateArtistMerchandiseRequest, UpdateArtistMerchandiseRequest,
 };
 use crate::models::shopify_json_cache::ShopifyJsonCacheResponse;
 
@@ -234,7 +234,7 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data::merchandise::ArtistMerchandiseRow;
+    use crate::models::artist_merchandise::ArtistMerchandiseWithCache;
     use crate::test_utils::{admin_token, not_found_id};
     use actix_web::test;
 
@@ -290,7 +290,7 @@ mod tests {
         let (_guard, state, app) = crate::build_test_app!(config_routes);
         let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
 
-        let seed = sqlx::query_as::<_, ArtistMerchandiseRow>(
+        let seed = sqlx::query_as::<_, ArtistMerchandiseWithCache>(
             r"INSERT INTO artist_merchandise (artist_id, producer_id, merchandise_id, description,
                created_on_producer, merch_title, merch_product_title, set_price, cost_price,
                created_at, updated_at)

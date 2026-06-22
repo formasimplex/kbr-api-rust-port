@@ -158,8 +158,8 @@ mod tests {
             can_update: false,
             can_delete: false,
             user_id: 5,
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
+            created_at: chrono::Utc::now().naive_utc(),
+            updated_at: chrono::Utc::now().naive_utc(),
         };
         let pr = PermissionService::build_permission_resource(&perm);
         assert_eq!(pr.resource, "Campaign");

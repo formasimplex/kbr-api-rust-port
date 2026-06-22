@@ -418,7 +418,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn add_mail_subscriber_public() {
         crate::test_utils::set_test_env();
-        let (_guard, state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
         let pid = std::process::id();
