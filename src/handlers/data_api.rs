@@ -178,32 +178,10 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
    use super::*;
-    use crate::auth::jwt::encode_token_with_role;
-    use actix_web::{test, App};
+    use crate::test_utils::{admin_token, not_found_id, unique_suffix};
+    use actix_web::test;
 
-    const TEST_SECRET: &str = "test-secret-key";
-
-    use std::sync::atomic::{AtomicI64, Ordering};
-    static TEST_COUNTER: AtomicI64 = AtomicI64::new(0);
-
-    fn unique_suffix() -> String {
-        let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
-        let count = TEST_COUNTER.fetch_add(1, Ordering::Relaxed);
-        format!("{}_{}", ts, count)
-    }
-
-    fn admin_token() -> String {
-        encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap()
-    }
-
-async fn get_state() -> AppState {
-        let pool = sqlx::PgPool::connect(crate::test_utils::test_db_url())
-            .await
-            .expect("Failed to connect to test database");
-        crate::test_utils::build_test_state(pool).await
-    }
-
-    async fn seed_user() -> (i64, String) {
+      async fn seed_user(pool: &sqlx::PgPool) -> (i64, String) {
         let email = format!("dataapi_user_{}@test.com", unique_suffix());
         let username = format!("dataapi_user_{}", unique_suffix());
         let id: i64 = sqlx::query_scalar(
@@ -215,20 +193,13 @@ async fn get_state() -> AppState {
         .bind("hashed_password_test".to_string())
         .bind(Some(username))
         .bind(Some("user".to_string()))
-        .fetch_one(&get_state().await.db)
+        .fetch_one(pool)
         .await
         .expect("Failed to seed user");
         (id, email)
     }
 
-    async fn cleanup_user(_user_id: i64, email: &str) {
-        let _ = sqlx::query(r#"DELETE FROM users WHERE email = $1"#)
-            .bind(email)
-            .execute(&get_state().await.db)
-            .await;
-    }
-
-    async fn seed_event() -> i64 {
+    async fn seed_event(pool: &sqlx::PgPool) -> i64 {
         let now = chrono::Utc::now().naive_utc();
         sqlx::query_scalar::<_, i64>(
             r#"INSERT INTO kbr_events (name, description, active, event_start_date, event_end_date, created_at, updated_at)
@@ -242,23 +213,12 @@ async fn get_state() -> AppState {
         .bind(&now)
         .bind(&now)
         .bind(&now)
-        .fetch_one(&get_state().await.db)
+        .fetch_one(pool)
         .await
         .expect("Failed to seed event")
     }
 
-    async fn cleanup_event(event_id: i64) {
-        let _ = sqlx::query(r#"DELETE FROM kbr_event_attendees WHERE kbr_event_id = $1"#)
-            .bind(event_id as i32)
-            .execute(&get_state().await.db)
-            .await;
-        let _ = sqlx::query(r#"DELETE FROM kbr_events WHERE id = $1"#)
-            .bind(event_id)
-            .execute(&get_state().await.db)
-            .await;
-    }
-
-    async fn seed_mail_subscriber() -> i64 {
+    async fn seed_mail_subscriber(pool: &sqlx::PgPool) -> i64 {
         let email = format!("dataapi_sub_{}@test.com", unique_suffix());
         sqlx::query_scalar::<_, i64>(
             r#"INSERT INTO mail_subscribers (full_name, email, created_at, updated_at)
@@ -267,12 +227,12 @@ async fn get_state() -> AppState {
         )
         .bind(format!("Subscriber {}", unique_suffix()))
         .bind(&email)
-        .fetch_one(&get_state().await.db)
+        .fetch_one(pool)
         .await
         .expect("Failed to seed mail subscriber")
     }
 
-    async fn seed_attendee(event_id: i64, subscriber_id: i64, scan_count: i32) -> i64 {
+    async fn seed_attendee(pool: &sqlx::PgPool, event_id: i64, subscriber_id: i64, scan_count: i32) -> i64 {
         sqlx::query_scalar::<_, i64>(
             r#"INSERT INTO kbr_event_attendees (kbr_event_id, mail_subscriber_id, scan_count, created_at, updated_at)
                VALUES ($1, $2, $3, NOW(), NOW())
@@ -281,21 +241,15 @@ async fn get_state() -> AppState {
         .bind(event_id as i32)
         .bind(subscriber_id as i32)
         .bind(scan_count)
-        .fetch_one(&get_state().await.db)
+        .fetch_one(pool)
         .await
         .expect("Failed to seed attendee")
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn data_last_logins_returns_users() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/data/last_logins")
@@ -313,21 +267,16 @@ async fn get_state() -> AppState {
             assert!(item.get("username").is_some());
             assert!(item.get("last_login").is_some());
         }
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn data_last_login_by_id_found() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let (user_id, user_email) = seed_user().await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let (user_id, user_email) = seed_user(&state.db).await;
 
         let req = test::TestRequest::get()
             .uri(&format!("/data/last_logins/{}", user_id))
@@ -343,28 +292,18 @@ async fn get_state() -> AppState {
         assert_eq!(body["email"], user_email);
         assert!(body.get("last_login").is_some());
 
-        cleanup_user(user_id, &user_email).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn data_last_login_by_id_not_found() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let max_id: i64 = sqlx::query_scalar(r#"SELECT COALESCE(MAX(id), 0) FROM users"#)
-            .fetch_one(&state.db)
-            .await
-            .expect("Failed to get max id");
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let not_found = not_found_id(&state.db, "users").await;
 
         let req = test::TestRequest::get()
-            .uri(&format!("/data/last_logins/{}", max_id + 9999))
+            .uri(&format!("/data/last_logins/{}", not_found))
             .insert_header((
                 actix_web::http::header::AUTHORIZATION,
                 format!("Bearer {}", admin_token()),
@@ -372,28 +311,23 @@ async fn get_state() -> AppState {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn data_event_attendees_present_returns_scanned() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let event_id = seed_event().await;
-        let sub1 = seed_mail_subscriber().await;
-        let sub2 = seed_mail_subscriber().await;
-        let sub3 = seed_mail_subscriber().await;
+        let event_id = seed_event(&state.db).await;
+        let sub1 = seed_mail_subscriber(&state.db).await;
+        let sub2 = seed_mail_subscriber(&state.db).await;
+        let sub3 = seed_mail_subscriber(&state.db).await;
 
-        seed_attendee(event_id, sub1, 2).await;
-        seed_attendee(event_id, sub2, 1).await;
-        seed_attendee(event_id, sub3, 0).await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        seed_attendee(&state.db, event_id, sub1, 2).await;
+        seed_attendee(&state.db, event_id, sub2, 1).await;
+        seed_attendee(&state.db, event_id, sub3, 0).await;
 
         let req = test::TestRequest::get()
             .uri(&format!("/data/event_attendees_present/{}", event_id))
@@ -414,30 +348,20 @@ async fn get_state() -> AppState {
             assert!(item["scan_count"].as_i64().unwrap() > 0);
         }
 
-        cleanup_event(event_id).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn data_event_attendees_present_event_not_found() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let max_id: i64 = sqlx::query_scalar(r#"SELECT COALESCE(MAX(id), 0) FROM kbr_events"#)
-            .fetch_one(&state.db)
-            .await
-            .expect("Failed to get max id");
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let not_found = not_found_id(&state.db, "kbr_events").await;
 
         let req = test::TestRequest::get()
             .uri(&format!(
                 "/data/event_attendees_present/{}",
-                max_id + 9999
+                not_found
             ))
             .insert_header((
                 actix_web::http::header::AUTHORIZATION,
@@ -446,5 +370,7 @@ async fn get_state() -> AppState {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
+
+        _guard.cleanup().await;
     }
 }

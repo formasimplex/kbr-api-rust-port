@@ -276,31 +276,11 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::auth::jwt::encode_token_with_role;
-    use actix_web::{test, App};
-
-const TEST_SECRET: &str = "test-secret-key";
-
- async fn get_state() -> AppState {
-        let pool = sqlx::PgPool::connect(crate::test_utils::test_db_url())
-            .await
-            .expect("Failed to connect to test database");
-        crate::test_utils::build_test_state(pool).await
-    }
-
-    fn admin_token() -> String {
-        encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap()
-    }
-
-    fn suffix() -> u128 {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis()
-    }
+    use crate::test_utils::{admin_token, unique_suffix};
+    use actix_web::test;
 
     async fn seed_event(state: &AppState) -> i64 {
-        let name = format!("Test Event {}", suffix());
+        let name = format!("Test Event {}", unique_suffix());
         let id: i64 = sqlx::query_scalar(
             r"INSERT INTO kbr_events (name, created_at, updated_at) VALUES ($1, NOW(), NOW()) RETURNING id"
         )
@@ -337,41 +317,13 @@ const TEST_SECRET: &str = "test-secret-key";
         id
     }
 
-    async fn cleanup(state: &AppState, event_id: i64, subscriber_ids: &[i64]) {
-        let _ = sqlx::query(r"DELETE FROM kbr_event_attendees WHERE kbr_event_id = $1")
-            .bind(event_id as i32)
-            .execute(&state.db)
-            .await;
-
-        for sid in subscriber_ids {
-            let _ = sqlx::query(r"DELETE FROM mail_subscribers WHERE id = $1")
-                .bind(*sid)
-                .execute(&state.db)
-                .await;
-        }
-
-        let _ = sqlx::query(r"DELETE FROM kbr_events WHERE id = $1")
-            .bind(event_id)
-            .execute(&state.db)
-            .await;
-    }
-
     #[tokio::test(flavor = "current_thread")]
     async fn qr_scan_found() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
-        let state = web::Data::new(get_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let event_id = seed_event(&state).await;
-        let sub_id = seed_mail_subscriber(&state, &format!("QRScanTest {}", suffix())).await;
+        let sub_id = seed_mail_subscriber(&state, &format!("QRScanTest {}", unique_suffix())).await;
         let attendee_id = seed_attendee(&state, event_id, sub_id).await;
 
         let req = test::TestRequest::get()
@@ -383,47 +335,31 @@ const TEST_SECRET: &str = "test-secret-key";
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert_eq!(body["scan_count"], 1);
 
-        cleanup(&state, event_id, &[sub_id]).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn qr_scan_not_found() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
-        let state = web::Data::new(get_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/qr_scan/99999999")
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn attendees_for_event_authenticated() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
-        let state = web::Data::new(get_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let event_id = seed_event(&state).await;
-        let sub1 = seed_mail_subscriber(&state, &format!("EventSub1 {}", suffix())).await;
-        let sub2 = seed_mail_subscriber(&state, &format!("EventSub2 {}", suffix())).await;
+        let sub1 = seed_mail_subscriber(&state, &format!("EventSub1 {}", unique_suffix())).await;
+        let sub2 = seed_mail_subscriber(&state, &format!("EventSub2 {}", unique_suffix())).await;
         seed_attendee(&state, event_id, sub1).await;
         seed_attendee(&state, event_id, sub2).await;
 
@@ -437,47 +373,31 @@ const TEST_SECRET: &str = "test-secret-key";
         let body: Vec<serde_json::Value> = test::read_body_json(resp).await;
         assert_eq!(body.len(), 2);
 
-        cleanup(&state, event_id, &[sub1, sub2]).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn attendees_for_event_forbidden() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
-        let state = web::Data::new(get_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/kbr_event_attendees?kbr_event_id=1")
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert!(resp.status().is_client_error());
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn create_attendee_authenticated() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
-        let state = web::Data::new(get_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let event_id = seed_event(&state).await;
-        let sub1 = seed_mail_subscriber(&state, &format!("CreateSub1 {}", suffix())).await;
-        let sub2 = seed_mail_subscriber(&state, &format!("CreateSub2 {}", suffix())).await;
+        let sub1 = seed_mail_subscriber(&state, &format!("CreateSub1 {}", unique_suffix())).await;
+        let sub2 = seed_mail_subscriber(&state, &format!("CreateSub2 {}", unique_suffix())).await;
 
         let req = test::TestRequest::post()
             .uri("/kbr_event_attendees")
@@ -493,22 +413,13 @@ const TEST_SECRET: &str = "test-secret-key";
         let body: Vec<serde_json::Value> = test::read_body_json(resp).await;
         assert_eq!(body.len(), 2);
 
-        cleanup(&state, event_id, &[sub1, sub2]).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn create_attendee_empty_subscribers() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
-        let state = web::Data::new(get_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/kbr_event_attendees")
@@ -520,24 +431,17 @@ const TEST_SECRET: &str = "test-secret-key";
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 422);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn update_attendee_authenticated() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
-        let state = web::Data::new(get_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let event_id = seed_event(&state).await;
-        let sub1 = seed_mail_subscriber(&state, &format!("UpdateSub1 {}", suffix())).await;
+        let sub1 = seed_mail_subscriber(&state, &format!("UpdateSub1 {}", unique_suffix())).await;
         seed_attendee(&state, event_id, sub1).await;
 
         let req = test::TestRequest::post()
@@ -554,6 +458,6 @@ const TEST_SECRET: &str = "test-secret-key";
         let body: Vec<serde_json::Value> = test::read_body_json(resp).await;
         assert_eq!(body.len(), 1);
 
-        cleanup(&state, event_id, &[sub1]).await;
+        _guard.cleanup().await;
     }
 }

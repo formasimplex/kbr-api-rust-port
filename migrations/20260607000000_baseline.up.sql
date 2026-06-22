@@ -14,8 +14,8 @@ CREATE TABLE IF NOT EXISTS users (
     session_token VARCHAR,
     username VARCHAR,
     token_version BIGINT DEFAULT 1,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at timestamp NOT NULL DEFAULT NOW(),
+    updated_at timestamp NOT NULL DEFAULT NOW(),
     CONSTRAINT users_email_key UNIQUE (email),
     CONSTRAINT users_username_key UNIQUE (username)
 );
@@ -34,7 +34,7 @@ END $$;
 CREATE TABLE IF NOT EXISTS revoked_tokens (
     jti UUID PRIMARY KEY,
     user_id BIGINT REFERENCES users(id),
-    revoked_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    revoked_at timestamp NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_revoked_tokens_user_id ON revoked_tokens(user_id);
@@ -45,8 +45,8 @@ CREATE TABLE IF NOT EXISTS reset_triggers (
     user_id INTEGER,
     token VARCHAR,
     expires_at VARCHAR,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at timestamp NOT NULL DEFAULT NOW(),
+    updated_at timestamp NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS sign_up_triggers (
@@ -55,8 +55,8 @@ CREATE TABLE IF NOT EXISTS sign_up_triggers (
     token VARCHAR,
     expires_at VARCHAR,
     role VARCHAR,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at timestamp NOT NULL DEFAULT NOW(),
+    updated_at timestamp NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS permissions (
@@ -67,8 +67,8 @@ CREATE TABLE IF NOT EXISTS permissions (
     can_update BOOLEAN DEFAULT FALSE,
     can_delete BOOLEAN DEFAULT FALSE,
     user_id BIGINT NOT NULL REFERENCES users(id),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at timestamp NOT NULL DEFAULT NOW(),
+    updated_at timestamp NOT NULL DEFAULT NOW()
 );
 
 -- Artists
@@ -82,8 +82,8 @@ CREATE TABLE IF NOT EXISTS artists (
     "spotifyId" VARCHAR,
     "subHeading" VARCHAR,
     intro VARCHAR,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at timestamp NOT NULL DEFAULT NOW(),
+    updated_at timestamp NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS artist_links (
@@ -91,8 +91,8 @@ CREATE TABLE IF NOT EXISTS artist_links (
     artist_id BIGINT NOT NULL REFERENCES artists(id),
     link_type INTEGER,
     url VARCHAR NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at timestamp NOT NULL DEFAULT NOW(),
+    updated_at timestamp NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS social_media (
@@ -101,8 +101,8 @@ CREATE TABLE IF NOT EXISTS social_media (
     name VARCHAR,
     icon VARCHAR,
     artist_id BIGINT REFERENCES artists(id),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at timestamp NOT NULL DEFAULT NOW(),
+    updated_at timestamp NOT NULL DEFAULT NOW()
 );
 
 -- Albums & songs
@@ -110,8 +110,8 @@ CREATE TABLE IF NOT EXISTS albums (
     id BIGSERIAL PRIMARY KEY,
     name VARCHAR,
     release_date DATE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at timestamp NOT NULL DEFAULT NOW(),
+    updated_at timestamp NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS songs (
@@ -120,8 +120,8 @@ CREATE TABLE IF NOT EXISTS songs (
     duration VARCHAR,
     album_id BIGINT NOT NULL REFERENCES albums(id),
     artist_id BIGINT NOT NULL REFERENCES artists(id),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at timestamp NOT NULL DEFAULT NOW(),
+    updated_at timestamp NOT NULL DEFAULT NOW()
 );
 
 -- Campaigns
@@ -131,13 +131,13 @@ CREATE TABLE IF NOT EXISTS campaigns (
     name VARCHAR,
     active BOOLEAN,
     vinyl_sold_count INTEGER,
-    campaign_start_date TIMESTAMPTZ,
-    campaign_end_date TIMESTAMPTZ,
+    campaign_start_date timestamp,
+    campaign_end_date timestamp,
     progress INTEGER,
     album_id BIGINT REFERENCES albums(id),
-    deleted_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    deleted_at timestamp,
+    created_at timestamp NOT NULL DEFAULT NOW(),
+    updated_at timestamp NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_campaigns_on_deleted_at ON campaigns(deleted_at);
@@ -150,8 +150,8 @@ CREATE TABLE IF NOT EXISTS campaign_pages (
     page_type INTEGER,
     inventory_item_id VARCHAR,
     inventory_url VARCHAR,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at timestamp NOT NULL DEFAULT NOW(),
+    updated_at timestamp NOT NULL DEFAULT NOW()
 );
 
 -- Merchandise
@@ -159,8 +159,8 @@ CREATE TABLE IF NOT EXISTS producers (
     id BIGSERIAL PRIMARY KEY,
     description TEXT,
     producer_name VARCHAR NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at timestamp NOT NULL DEFAULT NOW(),
+    updated_at timestamp NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS artist_merchandise (
@@ -174,8 +174,8 @@ CREATE TABLE IF NOT EXISTS artist_merchandise (
     merch_product_title VARCHAR,
     set_price DECIMAL(10, 2),
     cost_price DECIMAL(10, 2),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at timestamp NOT NULL DEFAULT NOW(),
+    updated_at timestamp NOT NULL DEFAULT NOW()
 );
 
 -- Events
@@ -184,15 +184,15 @@ CREATE TABLE IF NOT EXISTS kbr_events (
     name VARCHAR,
     description VARCHAR,
     active BOOLEAN,
-    event_start_date TIMESTAMPTZ,
-    event_end_date TIMESTAMPTZ,
+    event_start_date timestamp,
+    event_end_date timestamp,
     create_by_user_id INTEGER,
     event_url VARCHAR,
     qr_encode_string VARCHAR,
     ticket_url VARCHAR,
     external_url VARCHAR,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at timestamp NOT NULL DEFAULT NOW(),
+    updated_at timestamp NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS kbr_event_attendees (
@@ -201,8 +201,8 @@ CREATE TABLE IF NOT EXISTS kbr_event_attendees (
     mail_subscriber_id INTEGER,
     scan_count INTEGER DEFAULT 0,
     headcount INTEGER,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at timestamp NOT NULL DEFAULT NOW(),
+    updated_at timestamp NOT NULL DEFAULT NOW()
 );
 
 -- News & playlists
@@ -212,13 +212,13 @@ CREATE TABLE IF NOT EXISTS news (
     title VARCHAR,
     vote_score INTEGER DEFAULT 0,
     flagged BOOLEAN,
-    flagged_at TIMESTAMPTZ,
+    flagged_at timestamp,
     user_id BIGINT NOT NULL REFERENCES users(id),
     image_url VARCHAR,
     active BOOLEAN DEFAULT TRUE,
     comments_enabled BOOLEAN DEFAULT TRUE NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at timestamp NOT NULL DEFAULT NOW(),
+    updated_at timestamp NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS news_playlists (
@@ -226,8 +226,8 @@ CREATE TABLE IF NOT EXISTS news_playlists (
     user_id BIGINT NOT NULL REFERENCES users(id),
     name VARCHAR NOT NULL,
     description TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at timestamp NOT NULL DEFAULT NOW(),
+    updated_at timestamp NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS users_news (
@@ -236,8 +236,8 @@ CREATE TABLE IF NOT EXISTS users_news (
     news_id BIGINT NOT NULL REFERENCES news(id),
     playlist_id BIGINT NOT NULL REFERENCES news_playlists(id),
     position INTEGER DEFAULT 0,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at timestamp NOT NULL DEFAULT NOW(),
+    updated_at timestamp NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_users_news_on_playlist_position ON users_news(playlist_id, position);
@@ -247,13 +247,13 @@ CREATE TABLE IF NOT EXISTS comments (
     id BIGSERIAL PRIMARY KEY,
     content TEXT,
     flagged BOOLEAN,
-    flagged_at TIMESTAMPTZ,
+    flagged_at timestamp,
     commentable_type VARCHAR NOT NULL,
     commentable_id BIGINT NOT NULL,
     user_id BIGINT NOT NULL REFERENCES users(id),
     parent_id INTEGER REFERENCES comments(id),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at timestamp NOT NULL DEFAULT NOW(),
+    updated_at timestamp NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_comments_on_commentable ON comments(commentable_type, commentable_id);
@@ -265,15 +265,15 @@ CREATE TABLE IF NOT EXISTS mail_subscribers (
     email VARCHAR NOT NULL,
     active BOOLEAN DEFAULT TRUE,
     artist_id BIGINT REFERENCES artists(id),
-    unsubscribed_at TIMESTAMPTZ,
+    unsubscribed_at timestamp,
     unsubscribe_token VARCHAR,
-    unsubscribe_token_expires_at TIMESTAMPTZ,
+    unsubscribe_token_expires_at timestamp,
     user_id BIGINT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at timestamp NOT NULL DEFAULT NOW(),
+    updated_at timestamp NOT NULL DEFAULT NOW()
 );
 
-ALTER TABLE mail_subscribers ADD COLUMN IF NOT EXISTS unsubscribe_token_expires_at TIMESTAMPTZ;
+ALTER TABLE mail_subscribers ADD COLUMN IF NOT EXISTS unsubscribe_token_expires_at timestamp;
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_mail_subscribers_on_email_artist ON mail_subscribers(email, artist_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_mail_subscribers_on_unsubscribe_token ON mail_subscribers(unsubscribe_token);
@@ -288,15 +288,15 @@ CREATE TABLE IF NOT EXISTS tenant_configs (
     footer_logo_url VARCHAR,
     contact_email VARCHAR NOT NULL,
     site_header_description TEXT NOT NULL,
-    deleted_at TIMESTAMPTZ,
+    deleted_at timestamp,
     "instaUrl" VARCHAR,
     "twitterUrl" VARCHAR,
     "tiktokUrl" VARCHAR,
     "spotifyId" VARCHAR,
     featured_artist_id BIGINT REFERENCES artists(id),
     mantine_theme JSONB DEFAULT '{}',
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at timestamp NOT NULL DEFAULT NOW(),
+    updated_at timestamp NOT NULL DEFAULT NOW()
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tenant_configs_on_tenant_id ON tenant_configs(tenant_id);
@@ -307,8 +307,8 @@ CREATE TABLE IF NOT EXISTS shopify_json_caches (
     id BIGSERIAL PRIMARY KEY,
     cached_item_id VARCHAR,
     json_entry VARCHAR,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at timestamp NOT NULL DEFAULT NOW(),
+    updated_at timestamp NOT NULL DEFAULT NOW()
 );
 
 -- Customers (legacy)
@@ -317,8 +317,8 @@ CREATE TABLE IF NOT EXISTS customers (
     name VARCHAR,
     email VARCHAR,
     password_digest VARCHAR,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at timestamp NOT NULL DEFAULT NOW(),
+    updated_at timestamp NOT NULL DEFAULT NOW()
 );
 
 -- Generated responses (AI/chat)
@@ -326,8 +326,8 @@ CREATE TABLE IF NOT EXISTS generated_responses (
     id BIGSERIAL PRIMARY KEY,
     response VARCHAR,
     user_id BIGINT NOT NULL REFERENCES users(id),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at timestamp NOT NULL DEFAULT NOW(),
+    updated_at timestamp NOT NULL DEFAULT NOW()
 );
 
 -- Active Storage (Rails file uploads - may not be needed in Rust)
@@ -340,7 +340,7 @@ CREATE TABLE IF NOT EXISTS active_storage_blobs (
     service_name VARCHAR NOT NULL,
     byte_size BIGINT NOT NULL,
     checksum VARCHAR,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at timestamp NOT NULL DEFAULT NOW()
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_active_storage_blobs_on_key ON active_storage_blobs(key);
@@ -351,7 +351,7 @@ CREATE TABLE IF NOT EXISTS active_storage_attachments (
     record_type VARCHAR NOT NULL,
     record_id BIGINT NOT NULL,
     blob_id BIGINT NOT NULL REFERENCES active_storage_blobs(id),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at timestamp NOT NULL DEFAULT NOW()
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_active_storage_attachments_uniqueness ON active_storage_attachments(record_type, record_id, name, blob_id);
@@ -371,13 +371,13 @@ CREATE TABLE IF NOT EXISTS delayed_jobs (
     attempts INTEGER DEFAULT 0 NOT NULL,
     handler TEXT NOT NULL,
     last_error TEXT,
-    run_at TIMESTAMPTZ,
-    locked_at TIMESTAMPTZ,
-    failed_at TIMESTAMPTZ,
+    run_at timestamp,
+    locked_at timestamp,
+    failed_at timestamp,
     locked_by VARCHAR,
     queue VARCHAR,
-    created_at TIMESTAMPTZ,
-    updated_at TIMESTAMPTZ
+    created_at timestamp,
+    updated_at timestamp
 );
 
 CREATE INDEX IF NOT EXISTS delayed_jobs_priority ON delayed_jobs(priority, run_at);
@@ -391,9 +391,9 @@ CREATE TABLE IF NOT EXISTS job_queue (
     max_attempts INTEGER DEFAULT 3 NOT NULL,
     last_error TEXT,
     status VARCHAR DEFAULT 'pending' NOT NULL,
-    next_retry_at TIMESTAMPTZ NOT NULL,
-    created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
-    updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+    next_retry_at timestamp NOT NULL,
+    created_at timestamp DEFAULT NOW() NOT NULL,
+    updated_at timestamp DEFAULT NOW() NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_job_queue_retry ON job_queue(status, next_retry_at) WHERE status = 'retrying';

@@ -174,25 +174,13 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use actix_web::{test, App};
-
-    async fn get_state() -> AppState {
-        let pool = sqlx::PgPool::connect(crate::test_utils::test_db_url())
-            .await
-            .expect("Failed to connect to test database");
-        crate::test_utils::build_test_state(pool).await
-    }
+    use crate::test_utils::get_test_state;
+    use actix_web::test;
 
     #[tokio::test(flavor = "current_thread")]
     async fn sign_up_trigger_create_success() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
+        crate::test_utils::set_test_env();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/sign_up_trigger")
@@ -206,21 +194,13 @@ mod tests {
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert_eq!(body["email"], "invited@example.com");
 
-        let _ = sqlx::query(r"DELETE FROM sign_up_triggers WHERE email = 'invited@example.com'")
-            .execute(&state.db)
-            .await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn sign_up_trigger_create_invalid_email() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        crate::test_utils::set_test_env();
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/sign_up_trigger")
@@ -230,12 +210,14 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 422);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn sign_up_trigger_create_artist_conflict_returns_403() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        crate::test_utils::set_test_env();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let ts = chrono::Utc::now().timestamp_micros();
         let email = format!("artist_conflict_{}@example.com", ts);
@@ -264,13 +246,6 @@ mod tests {
         .await
         .expect("Failed to seed artist");
 
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(get_state().await))
-                .configure(config_routes),
-        )
-        .await;
-
         let req = test::TestRequest::post()
             .uri("/sign_up_trigger")
             .set_json(serde_json::json!({
@@ -281,20 +256,13 @@ mod tests {
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 403);
 
-        let _ = sqlx::query(r"DELETE FROM artists WHERE user_id = $1")
-            .bind(user_id)
-            .execute(&state.db)
-            .await;
-        let _ = sqlx::query(r"DELETE FROM users WHERE id = $1")
-            .bind(user_id)
-            .execute(&state.db)
-            .await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn sign_up_trigger_create_expires_existing_trigger() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        crate::test_utils::set_test_env();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let ts = chrono::Utc::now().timestamp_micros();
         let email = format!("existing_trigger_{}@example.com", ts);
 
@@ -312,13 +280,6 @@ mod tests {
         .fetch_one(&state.db)
         .await
         .expect("Failed to seed existing trigger");
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::post()
             .uri("/sign_up_trigger")
@@ -345,16 +306,13 @@ mod tests {
             "Old trigger should be expired"
         );
 
-        let _ = sqlx::query(r"DELETE FROM sign_up_triggers WHERE email = $1")
-            .bind(&email)
-            .execute(&state.db)
-            .await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn sign_up_trigger_show_valid() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        crate::test_utils::set_test_env();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let token = format!("rust_test_{}", chrono::Utc::now().timestamp_micros());
     let seed = sqlx::query_as::<_, SignUpTriggerRow>(
@@ -366,13 +324,6 @@ mod tests {
         .fetch_one(&state.db)
         .await;
 
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(get_state().await))
-                .configure(config_routes),
-        )
-        .await;
-
         if let Ok(_row) = seed {
             let req = test::TestRequest::get()
                 .uri(&format!("/sign_up_trigger/{}", token))
@@ -382,35 +333,29 @@ mod tests {
 
             let body: serde_json::Value = test::read_body_json(resp).await;
             assert_eq!(body["email"], "showtest@example.com");
-
-            let _ = sqlx::query(r"DELETE FROM sign_up_triggers WHERE email = 'showtest@example.com'")
-                .execute(&state.db)
-                .await;
         }
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn sign_up_trigger_show_not_found() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        crate::test_utils::set_test_env();
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/sign_up_trigger/nonexistent-token-xyz")
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn sign_up_trigger_show_expired_returns_404() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        crate::test_utils::set_test_env();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let token = format!("expired_test_{}", chrono::Utc::now().timestamp_micros());
         let past = (chrono::Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
@@ -424,21 +369,12 @@ mod tests {
         .fetch_one(&state.db)
         .await;
 
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(get_state().await))
-                .configure(config_routes),
-        )
-        .await;
-
         let req = test::TestRequest::get()
             .uri(&format!("/sign_up_trigger/{}", token))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
 
-        let _ = sqlx::query(r"DELETE FROM sign_up_triggers WHERE email = 'expired@example.com'")
-            .execute(&state.db)
-            .await;
+        _guard.cleanup().await;
     }
 }

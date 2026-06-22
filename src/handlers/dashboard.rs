@@ -89,21 +89,8 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::auth::jwt::encode_token_with_role;
-    use actix_web::{test, App};
-
- const TEST_SECRET: &str = "test-secret-key";
-
- async fn get_state() -> AppState {
-        let pool = sqlx::PgPool::connect(crate::test_utils::test_db_url())
-            .await
-            .expect("Failed to connect to test database");
-        crate::test_utils::build_test_state(pool).await
-    }
-
-    fn user_token(user_id: i64) -> String {
-        encode_token_with_role(user_id, TEST_SECRET, 1, Some("user".to_string()), 1).unwrap()
-    }
+    use crate::test_utils::user_token;
+    use actix_web::test;
 
     async fn seed_user(pool: &sqlx::PgPool) -> i64 {
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
@@ -147,41 +134,14 @@ mod tests {
         .await;
     }
 
-    async fn cleanup(pool: &sqlx::PgPool, user_id: i64, artist_ids: &[i64]) {
-        let _ = sqlx::query(r"DELETE FROM mail_subscribers WHERE user_id = $1")
-            .bind(user_id)
-            .execute(pool)
-            .await;
-        for artist_id in artist_ids {
-            let _ = sqlx::query(r"DELETE FROM artists WHERE id = $1")
-                .bind(artist_id)
-                .execute(pool)
-                .await;
-        }
-        let _ = sqlx::query(r"DELETE FROM users WHERE id = $1")
-            .bind(user_id)
-            .execute(pool)
-            .await;
-    }
-
     #[tokio::test(flavor = "current_thread")]
     async fn subscribed_artists_returns_subscribed() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let state = web::Data::new(get_state().await);
         let user_id = seed_user(&state.db).await;
         let artist_id = seed_artist(&state.db).await;
         seed_mail_subscriber(&state.db, user_id, artist_id).await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::get()
             .uri("/dashboard/subscribed_artists")
@@ -195,17 +155,14 @@ mod tests {
         let found = body.iter().any(|v| v["id"] == artist_id);
         assert!(found, "Expected artist {} in response", artist_id);
 
-        cleanup(&state.db, user_id, &[artist_id]).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn subscribed_artists_excludes_unsubscribed() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let state = web::Data::new(get_state().await);
         let user_id = seed_user(&state.db).await;
         let artist_id = seed_artist(&state.db).await;
         seed_mail_subscriber(&state.db, user_id, artist_id).await;
@@ -215,13 +172,6 @@ mod tests {
             .bind(artist_id)
             .execute(&state.db)
             .await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::get()
             .uri("/dashboard/subscribed_artists")
@@ -234,25 +184,15 @@ mod tests {
         let found = body.iter().any(|v| v["id"] == artist_id);
         assert!(!found, "Unsubscribed artist should not appear");
 
-        cleanup(&state.db, user_id, &[artist_id]).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn subscribed_artists_empty_when_no_subscriptions() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let state = web::Data::new(get_state().await);
         let user_id = seed_user(&state.db).await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::get()
             .uri("/dashboard/subscribed_artists")
@@ -264,28 +204,20 @@ mod tests {
         let body: Vec<serde_json::Value> = test::read_body_json(resp).await;
         assert!(body.is_empty());
 
-        cleanup(&state.db, user_id, &[]).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn subscribed_artists_requires_auth() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
-
-        let state = web::Data::new(get_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/dashboard/subscribed_artists")
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_ne!(resp.status(), 200);
+
+        _guard.cleanup().await;
     }
 }

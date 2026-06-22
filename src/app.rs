@@ -10,6 +10,7 @@ use crate::services::email_service::EmailClient;
 use crate::services::mailchimp_client::MailchimpClient;
 use crate::services::safe_browsing::SafeBrowsingClient;
 use crate::services::shopify_client::ShopifyClient;
+
 #[derive(Clone)]
 pub struct AppState {
     pub db: PgPool,
@@ -21,28 +22,4 @@ pub struct AppState {
     pub job_handle: JobHandle,
     pub jwt_secret: String,
     pub cookie_builder: Arc<ActixJwtCookie<Claims>>,
-}
-
-#[cfg(test)]
-impl AppState {
-    pub fn for_tests(db: PgPool, s3: Box<S3Bucket>) -> Self {
-        let secret = "test-secret-for-unit-tests-only".to_string();
-        let secret_static: &'static str = secret.leak();
-        Self {
-            db,
-            s3,
-            shopify: None,
-            mailchimp: None,
-            safe_browsing: None,
-            email: None,
-            job_handle: JobHandle::inline(),
-            jwt_secret: secret_static.to_string(),
-            cookie_builder: Arc::new(
-                ActixJwtCookie::<Claims>::new()
-                    .cookie_name("jwt_cookie")
-                    .jwt_key(secret_static)
-                    .expiration(3 * 24 * 60 * 60)
-            ),
-        }
-    }
 }

@@ -519,27 +519,11 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::auth::jwt::encode_token_with_role;
-    use actix_web::{test, App};
+use crate::auth::jwt::encode_token_with_role;
+     use crate::test_utils::{admin_token, artist_token, not_found_id, TEST_SECRET};
+    use actix_web::test;
 
-    const TEST_SECRET: &str = "test-secret-key";
-
-    async fn get_state() -> AppState {
-        let pool = sqlx::PgPool::connect(crate::test_utils::test_db_url())
-            .await
-            .expect("Failed to connect to test database");
-        crate::test_utils::build_test_state(pool).await
-    }
-
-    fn admin_token() -> String {
-        encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap()
-    }
-
-    fn artist_token() -> String {
-        encode_token_with_role(2, TEST_SECRET, 2, Some("artist".to_string()), 1).unwrap()
-    }
-
-    async fn seed_user() -> i64 {
+    async fn seed_user(pool: &sqlx::PgPool) -> i64 {
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
         let pid = std::process::id();
         sqlx::query_scalar::<_, i64>(
@@ -550,12 +534,12 @@ mod tests {
         .bind(format!("campaign_test_user_{}_{}@test.com", pid, ts))
         .bind("hashed_password_test".to_string())
         .bind(Some("artist".to_string()))
-        .fetch_one(&get_state().await.db)
+        .fetch_one(pool)
         .await
         .expect("Failed to seed user")
     }
 
-    async fn seed_artist(user_id: i64) -> i64 {
+    async fn seed_artist(pool: &sqlx::PgPool, user_id: i64) -> i64 {
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
         let pid = std::process::id();
         sqlx::query_scalar::<_, i64>(
@@ -568,12 +552,12 @@ mod tests {
         .bind(Some("A test artist for campaigns".to_string()))
         .bind(Some(user_id))
         .bind(Some(false))
-        .fetch_one(&get_state().await.db)
+        .fetch_one(pool)
         .await
         .expect("Failed to seed artist")
     }
 
-    async fn seed_campaign(artist_id: i64) -> i64 {
+    async fn seed_campaign(pool: &sqlx::PgPool, artist_id: i64) -> i64 {
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
         let pid = std::process::id();
         sqlx::query_scalar::<_, i64>(
@@ -586,87 +570,31 @@ mod tests {
         .bind(true)
         .bind(25_i32)
         .bind(50_i32)
-        .fetch_one(&get_state().await.db)
+        .fetch_one(pool)
         .await
         .expect("Failed to seed campaign")
     }
 
-    async fn cleanup_campaign(campaign_id: i64) {
-        let _ = sqlx::query(r"DELETE FROM campaign_pages WHERE campaign_id = $1")
-            .bind(campaign_id)
-            .execute(&get_state().await.db)
-            .await;
-        let _ = sqlx::query(r"DELETE FROM campaigns WHERE id = $1")
-            .bind(campaign_id)
-            .execute(&get_state().await.db)
-            .await;
-    }
-
-    async fn cleanup_artist(artist_id: i64) {
-        let campaigns: Vec<i64> = sqlx::query_scalar(
-            r"SELECT id FROM campaigns WHERE artist_id = $1",
-        )
-        .bind(artist_id)
-        .fetch_all(&get_state().await.db)
-        .await
-        .unwrap_or_default();
-        for cid in campaigns {
-            cleanup_campaign(cid).await;
-        }
-        let _ = sqlx::query(r"DELETE FROM artists WHERE id = $1")
-            .bind(artist_id)
-            .execute(&get_state().await.db)
-            .await;
-    }
-
-    async fn cleanup_user(user_id: i64) {
-        let artists: Vec<i64> = sqlx::query_scalar(
-            r"SELECT id FROM artists WHERE user_id = $1",
-        )
-        .bind(user_id)
-        .fetch_all(&get_state().await.db)
-        .await
-        .unwrap_or_default();
-        for aid in artists {
-            cleanup_artist(aid).await;
-        }
-        let _ = sqlx::query(r"DELETE FROM users WHERE id = $1")
-            .bind(user_id)
-            .execute(&get_state().await.db)
-            .await;
-    }
-
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_index_public() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        crate::test_utils::set_test_env();
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get().uri("/campaigns").to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_show_found() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        crate::test_utils::set_test_env();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let user_id = seed_user().await;
-        let artist_id = seed_artist(user_id).await;
-        let campaign_id = seed_campaign(artist_id).await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let user_id = seed_user(&state.db).await;
+        let artist_id = seed_artist(&state.db, user_id).await;
+        let campaign_id = seed_campaign(&state.db, artist_id).await;
 
         let req = test::TestRequest::get()
             .uri(&format!("/campaign/{}", campaign_id))
@@ -677,54 +605,32 @@ mod tests {
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert_eq!(body["id"], campaign_id);
 
-        cleanup_campaign(campaign_id).await;
-        cleanup_artist(artist_id).await;
-        cleanup_user(user_id).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_show_not_found() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        crate::test_utils::set_test_env();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let max_id: i64 = sqlx::query_scalar(
-            r"SELECT COALESCE(MAX(id), 0) FROM campaigns",
-        )
-        .fetch_one(&state.db)
-        .await
-        .expect("Failed to get max id");
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let not_found = not_found_id(&state.db, "campaigns").await;
 
         let req = test::TestRequest::get()
-            .uri(&format!("/campaign/{}", max_id + 9999))
+            .uri(&format!("/campaign/{}", not_found))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_create_admin() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let state = web::Data::new(get_state().await);
-        let user_id = seed_user().await;
-        let artist_id = seed_artist(user_id).await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
+        let user_id = seed_user(&state.db).await;
+        let artist_id = seed_artist(&state.db, user_id).await;
 
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
         let pid = std::process::id();
@@ -744,33 +650,18 @@ mod tests {
 
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert_eq!(body["vinyl_sold_count"], 50);
-        assert_eq!(body["active"], false);
+ assert_eq!(body["active"], false);
 
-        let _ = sqlx::query(r"DELETE FROM campaigns WHERE name = $1")
-            .bind(&name)
-            .execute(&state.db)
-            .await;
-        cleanup_artist(artist_id).await;
-        cleanup_user(user_id).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
-    async fn campaigns_create_empty_name() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+ async fn campaigns_create_empty_name() {
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let state = web::Data::new(get_state().await);
-        let user_id = seed_user().await;
-        let artist_id = seed_artist(user_id).await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let user_id = seed_user(&state.db).await;
+        let artist_id = seed_artist(&state.db, user_id).await;
 
         let req = test::TestRequest::post()
             .uri("/campaigns")
@@ -783,56 +674,36 @@ mod tests {
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 422);
 
-        cleanup_artist(artist_id).await;
-        cleanup_user(user_id).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_index_by_user_admin() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
-
-        let state = web::Data::new(get_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/campaigns_by_user")
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
             .to_request();
-        let resp = test::call_service(&app, req).await;
+ let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
-    async fn campaigns_update_success() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+ async fn campaigns_update_success() {
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let state = web::Data::new(get_state().await);
-
-        let user_id = seed_user().await;
-        let artist_id = seed_artist(user_id).await;
-        let campaign_id = seed_campaign(artist_id).await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
+        let user_id = seed_user(&state.db).await;
+        let artist_id = seed_artist(&state.db, user_id).await;
+        let campaign_id = seed_campaign(&state.db, artist_id).await;
 
         let req = test::TestRequest::post()
             .uri(&format!("/campaign/{}", campaign_id))
-            .insert_header(("Authorization", format!("Bearer {}", artist_token())))
+            .insert_header(("Authorization", format!("Bearer {}", artist_token(2))))
             .set_json(serde_json::json!({
                 "name": "Updated Campaign Name",
                 "vinyl_sold_count": 75
@@ -845,68 +716,41 @@ mod tests {
         assert_eq!(body["name"], "Updated Campaign Name");
         assert_eq!(body["vinyl_sold_count"], 75);
 
-        cleanup_campaign(campaign_id).await;
-        cleanup_artist(artist_id).await;
-        cleanup_user(user_id).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_update_not_found() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let state = web::Data::new(get_state().await);
-
-        let max_id: i64 = sqlx::query_scalar(
-            r"SELECT COALESCE(MAX(id), 0) FROM campaigns",
-        )
-        .fetch_one(&state.db)
-        .await
-        .expect("Failed to get max id");
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let not_found = not_found_id(&state.db, "campaigns").await;
 
         let req = test::TestRequest::post()
-            .uri(&format!("/campaign/{}", max_id + 9999))
-            .insert_header(("Authorization", format!("Bearer {}", artist_token())))
+            .uri(&format!("/campaign/{}", not_found))
+            .insert_header(("Authorization", format!("Bearer {}", artist_token(2))))
             .set_json(serde_json::json!({
                 "name": "Updated"
             }))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_destroy_success() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let state = web::Data::new(get_state().await);
-
-        let user_id = seed_user().await;
-        let artist_id = seed_artist(user_id).await;
-        let campaign_id = seed_campaign(artist_id).await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
+        let user_id = seed_user(&state.db).await;
+        let artist_id = seed_artist(&state.db, user_id).await;
+        let campaign_id = seed_campaign(&state.db, artist_id).await;
 
         let req = test::TestRequest::delete()
             .uri(&format!("/campaign/{}", campaign_id))
-            .insert_header(("Authorization", format!("Bearer {}", artist_token())))
+            .insert_header(("Authorization", format!("Bearer {}", artist_token(2))))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
@@ -920,53 +764,33 @@ mod tests {
         .expect("Failed to check deletion");
         assert_eq!(deleted, Some(campaign_id));
 
-        cleanup_campaign(campaign_id).await;
-        cleanup_artist(artist_id).await;
-        cleanup_user(user_id).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_destroy_not_found() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let state = web::Data::new(get_state().await);
-
-        let max_id: i64 = sqlx::query_scalar(
-            r"SELECT COALESCE(MAX(id), 0) FROM campaigns",
-        )
-        .fetch_one(&state.db)
-        .await
-        .expect("Failed to get max id");
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let not_found = not_found_id(&state.db, "campaigns").await;
 
         let req = test::TestRequest::delete()
-            .uri(&format!("/campaign/{}", max_id + 9999))
-            .insert_header(("Authorization", format!("Bearer {}", artist_token())))
+            .uri(&format!("/campaign/{}", not_found))
+            .insert_header(("Authorization", format!("Bearer {}", artist_token(2))))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_activate_success() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let state = web::Data::new(get_state().await);
-
-        let user_id = seed_user().await;
-        let artist_id = seed_artist(user_id).await;
+        let user_id = seed_user(&state.db).await;
+        let artist_id = seed_artist(&state.db, user_id).await;
 
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
         let pid = std::process::id();
@@ -984,16 +808,9 @@ mod tests {
         .await
         .expect("Failed to seed inactive campaign");
 
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
-
         let req = test::TestRequest::post()
             .uri("/activate_campaign")
-            .insert_header(("Authorization", format!("Bearer {}", artist_token())))
+            .insert_header(("Authorization", format!("Bearer {}", artist_token(2))))
             .set_json(serde_json::json!({
                 "campaign_id": campaign_id,
                 "start_date": "2025-01-15"
@@ -1006,30 +823,17 @@ mod tests {
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert!(body["error"].as_str().unwrap().contains("Shopify"));
 
-        cleanup_campaign(campaign_id).await;
-        cleanup_artist(artist_id).await;
-        cleanup_user(user_id).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_activate_missing_start_date() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
-
-        let state = web::Data::new(get_state().await);
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/activate_campaign")
-            .insert_header(("Authorization", format!("Bearer {}", artist_token())))
+            .insert_header(("Authorization", format!("Bearer {}", artist_token(2))))
             .set_json(serde_json::json!({
                 "campaign_id": 99999
             }))
@@ -1037,27 +841,18 @@ mod tests {
         let resp = test::call_service(&app, req).await;
         // Missing start_date field — JSON parse fails
         assert_eq!(resp.status(), 400);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_activate_invalid_date_format() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
-
-        let state = web::Data::new(get_state().await);
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/activate_campaign")
-            .insert_header(("Authorization", format!("Bearer {}", artist_token())))
+            .insert_header(("Authorization", format!("Bearer {}", artist_token(2))))
             .set_json(serde_json::json!({
                 "campaign_id": 99999,
                 "start_date": "not-a-date"
@@ -1068,54 +863,38 @@ mod tests {
 
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert!(body["error"].as_str().unwrap().contains("YYYY-MM-DD"));
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_activate_campaign_not_found() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let state = web::Data::new(get_state().await);
-
-        let max_id: i64 = sqlx::query_scalar(
-            r"SELECT COALESCE(MAX(id), 0) FROM campaigns",
-        )
-        .fetch_one(&state.db)
-        .await
-        .expect("Failed to get max id");
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let not_found = not_found_id(&state.db, "campaigns").await;
 
         let req = test::TestRequest::post()
             .uri("/activate_campaign")
-            .insert_header(("Authorization", format!("Bearer {}", artist_token())))
+            .insert_header(("Authorization", format!("Bearer {}", artist_token(2))))
             .set_json(serde_json::json!({
-                "campaign_id": max_id + 9999,
+                "campaign_id": not_found,
                 "start_date": "2025-01-15"
             }))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 502);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_activate_no_campaign_page() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let state = web::Data::new(get_state().await);
-
-        let user_id = seed_user().await;
-        let artist_id = seed_artist(user_id).await;
+        let user_id = seed_user(&state.db).await;
+        let artist_id = seed_artist(&state.db, user_id).await;
 
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
         let pid = std::process::id();
@@ -1133,16 +912,9 @@ mod tests {
         .await
         .expect("Failed to seed campaign");
 
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
-
         let req = test::TestRequest::post()
             .uri("/activate_campaign")
-            .insert_header(("Authorization", format!("Bearer {}", artist_token())))
+            .insert_header(("Authorization", format!("Bearer {}", artist_token(2))))
             .set_json(serde_json::json!({
                 "campaign_id": campaign_id,
                 "start_date": "2025-01-15"
@@ -1152,27 +924,15 @@ mod tests {
         // Shopify not configured, so we hit 502 before reaching campaign page check
         assert_eq!(resp.status(), 502);
 
-        cleanup_campaign(campaign_id).await;
-        cleanup_artist(artist_id).await;
-        cleanup_user(user_id).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_create_forbidden() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let token = encode_token_with_role(3, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
-        let state = web::Data::new(get_state().await);
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::post()
             .uri("/campaigns")
@@ -1184,15 +944,17 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 403);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_active_only() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        crate::test_utils::set_test_env();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let user_id = seed_user().await;
-        let artist_id = seed_artist(user_id).await;
+        let user_id = seed_user(&state.db).await;
+        let artist_id = seed_artist(&state.db, user_id).await;
 
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
         let pid = std::process::id();
@@ -1218,13 +980,6 @@ mod tests {
         .await
         .expect("Failed to seed inactive campaign");
 
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
-
         let req = test::TestRequest::get().uri("/active_campaigns").to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
@@ -1235,9 +990,6 @@ mod tests {
         assert!(ids.contains(&active_id));
         assert!(!ids.contains(&inactive_id));
 
-        cleanup_campaign(active_id).await;
-        cleanup_campaign(inactive_id).await;
-        cleanup_artist(artist_id).await;
-        cleanup_user(user_id).await;
+        _guard.cleanup().await;
     }
 }

@@ -16,6 +16,7 @@
 //! | `delete_artist_links` | POST | `/v1/artist/delete_artist_links` | artist+ | Remove an artist link |
 //! | `available_link_types` | GET | `/v1/available_link_types` | public | List valid link type options |
 
+use actix_multipart::Multipart;
 use actix_web::{HttpResponse, web};
 use sqlx::FromRow;
 use uuid::Uuid;
@@ -356,12 +357,16 @@ pub(crate) async fn sign_up(
 
 /// Update artist details.
 ///
-/// Performs a partial update using COALESCE — only provided fields are changed.
+/// Accepts multipart/form-data with fields prefixed by `artist[` (e.g.,
+/// `artist[name]`, `artist[bio]`, `artist[subHeading]`, `artist[intro]`).
+/// Also accepts image files via `artist[images][]` which are uploaded to S3
+/// and attached to the artist record.
+///
 /// Validates intro (max 300 chars) and bio (max 3000 chars). Requires artist+ role.
 ///
 /// # Response
 ///
-/// `200 OK` — updated `ArtistResponse`
+/// `200 OK` — updated `ArtistResponse` with image URLs
 /// `403 Forbidden` — role below artist
 /// `404 Not Found` — artist does not exist
 /// `422 Unprocessable Entity` — validation error (intro/bio too long)
@@ -369,26 +374,55 @@ pub async fn update(
     state: web::Data<AppState>,
     user: CurrentUser,
     path: web::Path<i64>,
-    body: web::Json<UpdateArtistRequest>,
+    payload: Multipart,
 ) -> Result<HttpResponse, AppError> {
     if !is_artist_or_above(&user.role) {
         return Err(AppError::Forbidden("Not Authorized".to_string()));
     }
     let id = path.into_inner();
 
-    if let Some(ref bio) = body.bio
-        && !Artist::validate_bio(bio)
+    let parsed = UpdateArtistRequest::from_multipart(payload).await?;
+    let UpdateArtistRequest {
+        name,
+        genre,
+        bio,
+        spotify_id,
+        sub_heading,
+        intro,
+    } = parsed.request;
+    let image_files = parsed.image_files;
+
+    // Validate bio
+    if let Some(ref bio_val) = bio
+        && !Artist::validate_bio(bio_val)
     {
         return Err(AppError::Validation(
             "Bio must be 3000 characters or less".to_string(),
         ));
     }
-    if let Some(ref intro) = body.intro
-        && !Artist::validate_intro(intro)
+
+    // Validate intro
+    if let Some(ref intro_val) = intro
+        && !Artist::validate_intro(intro_val)
     {
         return Err(AppError::Validation(
             "Intro must be 300 characters or less".to_string(),
         ));
+    }
+
+    // Upload image files to S3 and attach to artist
+    for (file_data, filename, content_type) in image_files {
+        storage_service::upload_and_attach(
+            &state.s3,
+            &state.db,
+            "Artist",
+            id,
+            "images",
+            &file_data,
+            &filename,
+            &content_type,
+        )
+        .await?;
     }
 
     let now = chrono::Utc::now().naive_utc();
@@ -405,12 +439,12 @@ pub async fn update(
         WHERE id = $8
         RETURNING id, name, genre, bio, user_id, prospect, "spotifyId" AS spotify_id, "subHeading" AS sub_heading, intro, created_at, updated_at"#
     )
-    .bind(body.name.as_deref())
-    .bind(body.genre.as_deref())
-    .bind(body.bio.as_deref())
-    .bind(body.spotify_id.as_deref())
-    .bind(body.sub_heading.as_deref())
-    .bind(body.intro.as_deref())
+    .bind(name.as_deref())
+    .bind(genre.as_deref())
+    .bind(bio.as_deref())
+    .bind(spotify_id.as_deref())
+    .bind(sub_heading.as_deref())
+    .bind(intro.as_deref())
     .bind(now)
     .bind(id)
     .fetch_optional(&state.db)
@@ -418,7 +452,16 @@ pub async fn update(
     .ok_or_else(|| AppError::NotFound(format!("Artist #{}", id)))?;
 
     let artist: Artist = row.into();
-    Ok(HttpResponse::Ok().json(artist.to_response(Vec::new(), Vec::new(), Vec::new())))
+
+    let (image_urls, thumbnail_urls) =
+        storage_service::get_image_urls(&state.s3, &state.db, "Artist", artist.id)
+            .await
+            .unwrap_or_else(|_| (Vec::new(), Vec::new()));
+
+    let links_map = fetch_artist_links_batch(&state.db, &[artist.id]).await;
+    let links = links_map.get(&artist.id).cloned().unwrap_or_default();
+
+    Ok(HttpResponse::Ok().json(artist.to_response(image_urls, thumbnail_urls, links)))
 }
 
 /// Add a social/streaming link for an artist.
@@ -524,27 +567,11 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::auth::jwt::encode_token_with_role;
-    use actix_web::{App, test};
+use crate::auth::jwt::encode_token_with_role;
+     use crate::test_utils::{admin_token, artist_token, not_found_id, TEST_SECRET};
+    use actix_web::test;
 
-   const TEST_SECRET: &str = "test-secret-key";
-
-    async fn get_state() -> AppState {
-        let pool = sqlx::PgPool::connect(crate::test_utils::test_db_url())
-            .await
-            .expect("Failed to connect to test database");
-        crate::test_utils::build_test_state(pool).await
-    }
-
-    fn admin_token() -> String {
-        encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap()
-    }
-
-    fn artist_token() -> String {
-        encode_token_with_role(2, TEST_SECRET, 2, Some("artist".to_string()), 1).unwrap()
-    }
-
-    async fn seed_user() -> i64 {
+    async fn seed_user(pool: &sqlx::PgPool) -> i64 {
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
         sqlx::query_scalar::<_, i64>(
             r"INSERT INTO users (email, password_digest, role, created_at, updated_at)
@@ -554,12 +581,12 @@ mod tests {
         .bind(format!("artist_test_{}@test.com", ts))
         .bind("hashed_password_test".to_string())
         .bind(Some("artist".to_string()))
-        .fetch_one(&get_state().await.db)
+        .fetch_one(pool)
         .await
         .expect("Failed to seed user")
     }
 
-    async fn seed_artist(user_id: i64) -> i64 {
+    async fn seed_artist(pool: &sqlx::PgPool, user_id: i64) -> i64 {
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
         sqlx::query_scalar::<_, i64>(
             r"INSERT INTO artists (name, genre, bio, user_id, prospect, created_at, updated_at)
@@ -571,57 +598,30 @@ mod tests {
         .bind(Some("A test artist bio".to_string()))
         .bind(Some(user_id))
         .bind(Some(false))
-        .fetch_one(&get_state().await.db)
+        .fetch_one(pool)
         .await
         .expect("Failed to seed artist")
     }
 
-    async fn cleanup_user(user_id: i64) {
-        let _ = sqlx::query(r"DELETE FROM artists WHERE user_id = $1")
-            .bind(user_id)
-            .execute(&get_state().await.db)
-            .await;
-        let _ = sqlx::query(r"DELETE FROM users WHERE id = $1")
-            .bind(user_id)
-            .execute(&get_state().await.db)
-            .await;
-    }
-
-    async fn cleanup_artist(artist_id: i64) {
-        let _ = sqlx::query(r"DELETE FROM artist_links WHERE artist_id = $1")
-            .bind(artist_id)
-            .execute(&get_state().await.db)
-            .await;
-        let _ = sqlx::query(r"DELETE FROM artists WHERE id = $1")
-            .bind(artist_id)
-            .execute(&get_state().await.db)
-            .await;
-    }
-
     #[tokio::test(flavor = "current_thread")]
     async fn artists_index_public() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-        }
-        let state = web::Data::new(get_state().await);
-        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
+        crate::test_utils::set_test_env();
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get().uri("/artists").to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn artist_show_found() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-        }
-        let state = web::Data::new(get_state().await);
+        crate::test_utils::set_test_env();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let user_id = seed_user().await;
-        let artist_id = seed_artist(user_id).await;
-
-        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
+        let user_id = seed_user(&state.db).await;
+        let artist_id = seed_artist(&state.db, user_id).await;
 
         let req = test::TestRequest::get()
             .uri(&format!("/artist/{}", artist_id))
@@ -633,41 +633,29 @@ mod tests {
         assert_eq!(body["id"], artist_id);
         assert!(body["artist_links"].is_array());
 
-        cleanup_artist(artist_id).await;
-        cleanup_user(user_id).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn artist_show_not_found() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-        }
-        let state = web::Data::new(get_state().await);
+        crate::test_utils::set_test_env();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let max_id: i64 = sqlx::query_scalar(r"SELECT COALESCE(MAX(id), 0) FROM artists")
-            .fetch_one(&state.db)
-            .await
-            .expect("Failed to get max id");
-
-        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
+        let not_found = not_found_id(&state.db, "artists").await;
 
         let req = test::TestRequest::get()
-            .uri(&format!("/artist/{}", max_id + 9999))
+            .uri(&format!("/artist/{}", not_found))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn artist_create_admin() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
-
-        let state = web::Data::new(get_state().await);
-        let app =
-            test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
         let name = format!("New Artist {}", ts);
@@ -686,23 +674,15 @@ mod tests {
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert_eq!(body["genre"], "Jazz");
 
-        let _ = sqlx::query(r"DELETE FROM artists WHERE name = $1")
-            .bind(&name)
-            .execute(&state.db)
-            .await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn artist_create_forbidden_non_admin() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let token = encode_token_with_role(2, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
-        let state = web::Data::new(get_state().await);
-
-        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::post()
             .uri("/artist")
@@ -713,85 +693,110 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 403);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn artist_update_success() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let state = web::Data::new(get_state().await);
+        let user_id = seed_user(&state.db).await;
+        let artist_id = seed_artist(&state.db, user_id).await;
 
-        let user_id = seed_user().await;
-        let artist_id = seed_artist(user_id).await;
-
-        let app =
-            test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
+        let body = artist_update_multipart_body(
+            "Updated Artist Name",
+            "test bio",
+            "test subheading",
+            "test intro",
+        );
 
         let req = test::TestRequest::put()
             .uri(&format!("/artist/{}", artist_id))
-            .insert_header(("Authorization", format!("Bearer {}", artist_token())))
-            .set_json(serde_json::json!({
-                "name": "Updated Artist Name"
-            }))
+            .insert_header(("Authorization", format!("Bearer {}", artist_token(2))))
+            .insert_header(("Content-Type", "multipart/form-data; boundary=artist_boundary"))
+            .set_payload(body)
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
 
-        let body: serde_json::Value = test::read_body_json(resp).await;
-        assert_eq!(body["name"], "Updated Artist Name");
+        let response_body: serde_json::Value = test::read_body_json(resp).await;
+        assert_eq!(response_body["name"], "Updated Artist Name");
 
-        cleanup_artist(artist_id).await;
-        cleanup_user(user_id).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn artist_update_not_found() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let state = web::Data::new(get_state().await);
+        let not_found = not_found_id(&state.db, "artists").await;
 
-        let max_id: i64 = sqlx::query_scalar(r"SELECT COALESCE(MAX(id), 0) FROM artists")
-            .fetch_one(&state.db)
-            .await
-            .expect("Failed to get max id");
-
-        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
+        let body = artist_update_multipart_body(
+            "Updated",
+            "test bio",
+            "test subheading",
+            "test intro",
+        );
 
         let req = test::TestRequest::put()
-            .uri(&format!("/artist/{}", max_id + 9999))
-            .insert_header(("Authorization", format!("Bearer {}", artist_token())))
-            .set_json(serde_json::json!({
-                "name": "Updated"
-            }))
+            .uri(&format!("/artist/{}", not_found))
+            .insert_header(("Authorization", format!("Bearer {}", artist_token(2))))
+            .insert_header(("Content-Type", "multipart/form-data; boundary=artist_boundary"))
+            .set_payload(body)
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
+
+        _guard.cleanup().await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn artist_update_multipart_fields() {
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
+
+        let user_id = seed_user(&state.db).await;
+        let artist_id = seed_artist(&state.db, user_id).await;
+
+        let body = artist_update_multipart_body(
+            "Updated Name",
+            "Updated Bio",
+            "Updated Subheading",
+            "Updated Intro",
+        );
+
+        let req = test::TestRequest::put()
+            .uri(&format!("/artist/{}", artist_id))
+            .insert_header(("Authorization", format!("Bearer {}", artist_token(2))))
+            .insert_header(("Content-Type", "multipart/form-data; boundary=artist_boundary"))
+            .set_payload(body)
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 200);
+
+        let response_body: serde_json::Value = test::read_body_json(resp).await;
+        assert_eq!(response_body["name"], "Updated Name");
+        assert_eq!(response_body["bio"], "Updated Bio");
+        assert_eq!(response_body["sub_heading"], "Updated Subheading");
+        assert_eq!(response_body["intro"], "Updated Intro");
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn add_artist_link_success() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let state = web::Data::new(get_state().await);
-
-        let user_id = seed_user().await;
-        let artist_id = seed_artist(user_id).await;
-
-        let app =
-            test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
+        let user_id = seed_user(&state.db).await;
+        let artist_id = seed_artist(&state.db, user_id).await;
 
         let req = test::TestRequest::post()
             .uri("/artist/add_artist_links")
-            .insert_header(("Authorization", format!("Bearer {}", artist_token())))
+            .insert_header(("Authorization", format!("Bearer {}", artist_token(2))))
             .set_json(serde_json::json!({
                 "artist_id": artist_id,
                 "link_type": 1,
@@ -805,24 +810,17 @@ mod tests {
         assert_eq!(body["artist_id"], artist_id);
         assert_eq!(body["link_type"], 1);
 
-        cleanup_artist(artist_id).await;
-        cleanup_user(user_id).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn add_artist_link_invalid_url() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
-
-        let state = web::Data::new(get_state().await);
-
-        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/artist/add_artist_links")
-            .insert_header(("Authorization", format!("Bearer {}", artist_token())))
+            .insert_header(("Authorization", format!("Bearer {}", artist_token(2))))
             .set_json(serde_json::json!({
                 "artist_id": 1,
                 "link_type": 1,
@@ -831,19 +829,17 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 422);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn delete_artist_link_success() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let state = web::Data::new(get_state().await);
-
-        let user_id = seed_user().await;
-        let artist_id = seed_artist(user_id).await;
+        let user_id = seed_user(&state.db).await;
+        let artist_id = seed_artist(&state.db, user_id).await;
 
         let now = chrono::Utc::now().naive_utc();
         let link_id: i64 = sqlx::query_scalar(
@@ -860,12 +856,9 @@ mod tests {
         .await
         .expect("Failed to seed artist link");
 
-        let app =
-            test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
-
         let req = test::TestRequest::post()
             .uri("/artist/delete_artist_links")
-            .insert_header(("Authorization", format!("Bearer {}", artist_token())))
+            .insert_header(("Authorization", format!("Bearer {}", artist_token(2))))
             .set_json(serde_json::json!({
                 "id": link_id
             }))
@@ -880,39 +873,31 @@ mod tests {
             .expect("Failed to check link");
         assert_eq!(remaining, 0);
 
-        cleanup_artist(artist_id).await;
-        cleanup_user(user_id).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn delete_artist_link_not_found() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
-
-        let state = web::Data::new(get_state().await);
-
-        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/artist/delete_artist_links")
-            .insert_header(("Authorization", format!("Bearer {}", artist_token())))
+            .insert_header(("Authorization", format!("Bearer {}", artist_token(2))))
             .set_json(serde_json::json!({
                 "id": 99999999
             }))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn available_link_types_public() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-        }
-        let state = web::Data::new(get_state().await);
-        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
+        crate::test_utils::set_test_env();
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/available_link_types")
@@ -922,14 +907,14 @@ mod tests {
 
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert_eq!(body.as_array().unwrap().len(), 11);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn artist_sign_up_success() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-        }
-        let state = web::Data::new(get_state().await);
+        crate::test_utils::set_test_env();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let ts = chrono::Utc::now().timestamp_micros();
         let email = format!("artistsignup{}@example.com", ts);
 
@@ -947,9 +932,6 @@ mod tests {
         .fetch_one(&state.db)
         .await
         .expect("Failed to seed trigger");
-
-        let app =
-            test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
 
         let req = test::TestRequest::post()
             .uri("/artist/sign_up")
@@ -983,30 +965,13 @@ mod tests {
                 .expect("Failed to check username");
         assert_eq!(user_username, Some("newartist".to_string()));
 
-        let _ = sqlx::query(
-            r"DELETE FROM artists WHERE user_id IN (SELECT id FROM users WHERE email = $1)",
-        )
-        .bind(&email)
-        .execute(&state.db)
-        .await;
-        let _ = sqlx::query(r"DELETE FROM users WHERE email = $1")
-            .bind(&email)
-            .execute(&state.db)
-            .await;
-        let _ = sqlx::query(r"DELETE FROM sign_up_triggers WHERE email = $1")
-            .bind(&email)
-            .execute(&state.db)
-            .await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn artist_sign_up_invalid_token() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-        }
-        let state = web::Data::new(get_state().await);
-
-        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
+        crate::test_utils::set_test_env();
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/artist/sign_up")
@@ -1019,14 +984,14 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 422);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn artist_sign_up_duplicate_email_returns_409() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-        }
-        let state = web::Data::new(get_state().await);
+        crate::test_utils::set_test_env();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let ts = chrono::Utc::now().timestamp_micros();
         let email = format!("artistdup{}@example.com", ts);
 
@@ -1057,9 +1022,6 @@ mod tests {
         .await
         .expect("Failed to seed trigger");
 
-        let app =
-            test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
-
         let req = test::TestRequest::post()
             .uri("/artist/sign_up")
             .set_json(serde_json::json!({
@@ -1072,22 +1034,13 @@ mod tests {
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 409);
 
-        let _ = sqlx::query(r"DELETE FROM sign_up_triggers WHERE email = $1")
-            .bind(&email)
-            .execute(&state.db)
-            .await;
-        let _ = sqlx::query(r"DELETE FROM users WHERE id = $1")
-            .bind(existing_user_id)
-            .execute(&state.db)
-            .await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn artist_sign_up_sets_prospect_true() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-        }
-        let state = web::Data::new(get_state().await);
+        crate::test_utils::set_test_env();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let ts = chrono::Utc::now().timestamp_micros();
         let email = format!("artistprospect{}@example.com", ts);
 
@@ -1105,9 +1058,6 @@ mod tests {
         .fetch_one(&state.db)
         .await
         .expect("Failed to seed trigger");
-
-        let app =
-            test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
 
         let req = test::TestRequest::post()
             .uri("/artist/sign_up")
@@ -1130,28 +1080,13 @@ mod tests {
         .expect("Failed to check prospect flag");
         assert!(prospect, "Artist should have prospect = true");
 
-        let _ = sqlx::query(
-            r"DELETE FROM artists WHERE user_id IN (SELECT id FROM users WHERE email = $1)",
-        )
-        .bind(&email)
-        .execute(&state.db)
-        .await;
-        let _ = sqlx::query(r"DELETE FROM users WHERE email = $1")
-            .bind(&email)
-            .execute(&state.db)
-            .await;
-        let _ = sqlx::query(r"DELETE FROM sign_up_triggers WHERE email = $1")
-            .bind(&email)
-            .execute(&state.db)
-            .await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn artist_sign_up_expired_token() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-        }
-        let state = web::Data::new(get_state().await);
+        crate::test_utils::set_test_env();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let ts = chrono::Utc::now().timestamp_micros();
         let email = format!("artistexpired{}@example.com", ts);
 
@@ -1170,9 +1105,6 @@ mod tests {
         .await
         .expect("Failed to seed trigger");
 
-        let app =
-            test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
-
         let req = test::TestRequest::post()
             .uri("/artist/sign_up")
             .set_json(serde_json::json!({
@@ -1185,20 +1117,13 @@ mod tests {
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 422);
 
-        let _ = sqlx::query(r"DELETE FROM sign_up_triggers WHERE email = $1")
-            .bind(&email)
-            .execute(&state.db)
-            .await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn artist_sign_up_password_mismatch() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-        }
-        let state = web::Data::new(get_state().await);
-
-        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
+        crate::test_utils::set_test_env();
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/artist/sign_up")
@@ -1211,14 +1136,14 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 422);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn artist_sign_up_weak_password() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-        }
-        let state = web::Data::new(get_state().await);
+        crate::test_utils::set_test_env();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let ts = chrono::Utc::now().timestamp_micros();
         let email = format!("artistweak{}@example.com", ts);
 
@@ -1237,9 +1162,6 @@ mod tests {
         .await
         .expect("Failed to seed trigger");
 
-        let app =
-            test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
-
         let req = test::TestRequest::post()
             .uri("/artist/sign_up")
             .set_json(serde_json::json!({
@@ -1252,9 +1174,39 @@ mod tests {
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 422);
 
-        let _ = sqlx::query(r"DELETE FROM sign_up_triggers WHERE email = $1")
-            .bind(&email)
-            .execute(&state.db)
-            .await;
+        _guard.cleanup().await;
+    }
+
+    fn artist_update_multipart_body(
+        name: &str,
+        bio: &str,
+        sub_heading: &str,
+        intro: &str,
+    ) -> Vec<u8> {
+        let boundary = "artist_boundary";
+        let mut body = Vec::new();
+
+        body.extend_from_slice(format!(
+            "--{}\r\nContent-Disposition: form-data; name=\"artist[name]\"\r\n\r\n{}\r\n",
+            boundary, name
+        ).as_bytes());
+
+        body.extend_from_slice(format!(
+            "--{}\r\nContent-Disposition: form-data; name=\"artist[bio]\"\r\n\r\n{}\r\n",
+            boundary, bio
+        ).as_bytes());
+
+        body.extend_from_slice(format!(
+            "--{}\r\nContent-Disposition: form-data; name=\"artist[subHeading]\"\r\n\r\n{}\r\n",
+            boundary, sub_heading
+        ).as_bytes());
+
+        body.extend_from_slice(format!(
+            "--{}\r\nContent-Disposition: form-data; name=\"artist[intro]\"\r\n\r\n{}\r\n",
+            boundary, intro
+        ).as_bytes());
+
+        body.extend_from_slice(format!("\r\n--{}--\r\n", boundary).as_bytes());
+        body
     }
 }

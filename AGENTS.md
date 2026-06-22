@@ -26,12 +26,15 @@ src/
   main.rs          — server bootstrap, routes, AppState
   lib.rs           — module re-exports
   error.rs         — AppError enum + ResponseError impl
+  bin/
+    kbr_migrate.rs — migration CLI (migrate, rollback, status, check)
   auth/
     jwt.rs         — Claims, encode/decode, get_jwt_secret
     roles.rs       — Role enum, guards, PermissionResource, RESOURCES
     middleware.rs  — CurrentUser extractor, FromRequest
   db/
     pool.rs        — PgPool connection setup
+    migrate.rs     — sqlx::migrate runner, health check
   handlers/        — HTTP handlers (one file per resource)
   models/          — DB models (sqlx types)
   responses/       — response serializers
@@ -42,6 +45,8 @@ src/
 - `cargo test --lib` — run all unit tests
 - `cargo build` — build binary
 - `cargo test` — run all tests (including integration)
+- `cargo run --bin kbr-migrate -- migrate` — run pending migrations
+- `cargo run --bin kbr-migrate -- check` — schema health check
 
 ## Reference
 - Rails source: `/Users/ws/formasimplex/kbr-api`

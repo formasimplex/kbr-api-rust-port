@@ -289,49 +289,8 @@ pub async fn logout(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use actix_web::{test, App};
-
-  const TEST_SECRET: &str = "test-secret-key";
-
-    async fn get_state() -> AppState {
-        let pool = sqlx::PgPool::connect(crate::test_utils::test_db_url())
-            .await
-            .expect("Failed to connect to test database");
-
-        let config = crate::services::storage_service::S3Config::from_env()
-            .unwrap_or_else(|_| crate::services::storage_service::S3Config {
-                access_key: "test".to_string(),
-                secret_key: "test".to_string(),
-                endpoint: "https://test.test".to_string(),
-                bucket_name: "test".to_string(),
-                region: "us-east-1".to_string(),
-            });
-        let s3 = crate::services::storage_service::create_s3_bucket(&config).unwrap_or_else(|_| {
-            let creds = s3::creds::Credentials::new(Some("test"), Some("test"), None, None, None).unwrap();
-            s3::bucket::Bucket::new("test", s3::region::Region::Custom { region: "us-east-1".to_string(), endpoint: "https://test.test".to_string() }, creds)
-                .unwrap()
-                .with_path_style()
-        });
-
-        let cookie_builder = std::sync::Arc::new(
-            actix_jc::ActixJwtCookie::new()
-                .cookie_name("jwt_cookie")
-                .jwt_key(TEST_SECRET)
-                .expiration(3 * 24 * 60 * 60)
-        );
-
-        AppState {
-            db: pool,
-            s3,
-            shopify: None,
-            mailchimp: None,
-            safe_browsing: None,
-            email: None,
-            job_handle: crate::jobs::JobHandle::inline(),
-            jwt_secret: TEST_SECRET.to_string(),
-            cookie_builder,
-        }
-    }
+    use crate::test_utils::TEST_SECRET;
+    use actix_web::test;
 
     async fn seed_test_user(state: &AppState, email: &str, password: &str, role: &str) -> i64 {
         let password_digest = auth_service::hash_password(password).unwrap();
@@ -354,36 +313,16 @@ mod tests {
         row.id
     }
 
-    async fn cleanup_user(state: &AppState, email: &str) {
-        let _ = sqlx::query(r"DELETE FROM users WHERE email = $1")
-            .bind(email)
-            .execute(&state.db)
-            .await;
-    }
-
     #[tokio::test(flavor = "current_thread")]
     async fn login_success_with_valid_credentials() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
-        let state = get_state().await;
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, state, app) = crate::build_test_app_with_cookies!(config_routes);
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_millis();
         let email = format!("loginadmin{}@example.com", ts);
         seed_test_user(&state, &email, "correctpassword", "admin").await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(get_state().await))
-                .app_data(web::Data::new(
-                    get_state().await.cookie_builder.clone()
-                ))
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::post()
             .uri("/login")
@@ -398,22 +337,13 @@ mod tests {
         assert!(body["token"].is_string());
         assert!(body["id"].as_i64().unwrap_or(0) > 0);
 
-        cleanup_user(&state, &email).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn login_fails_with_invalid_email() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
-        let state = web::Data::new(get_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/login")
@@ -426,28 +356,20 @@ mod tests {
         assert_eq!(resp.status(), 401);
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert_eq!(body["error"], "Invalid credentials");
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn login_fails_with_wrong_password() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
-        let state = get_state().await;
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_millis();
         let email = format!("loginwrong{}@example.com", ts);
         seed_test_user(&state, &email, "userpassword123", "user").await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(get_state().await))
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::post()
             .uri("/login")
@@ -461,16 +383,13 @@ mod tests {
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert_eq!(body["error"], "Invalid credentials");
 
-        cleanup_user(&state, &email).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn session_returns_fresh_token() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
-        let state = get_state().await;
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, state, app) = crate::build_test_app_with_cookies!(config_routes);
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -478,16 +397,6 @@ mod tests {
         let email = format!("session{}@example.com", ts);
         let user_id = seed_test_user(&state, &email, "password123", "admin").await;
         let token = crate::auth::jwt::encode_token_with_role(user_id, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap();
-
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(get_state().await))
-                .app_data(web::Data::new(
-                    get_state().await.cookie_builder.clone()
-                ))
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::get()
             .uri("/session")
@@ -500,28 +409,21 @@ mod tests {
         assert_eq!(body["role"], "admin");
         assert!(body["token"].is_string());
 
-        cleanup_user(&state, &email).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn session_rejects_without_token() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
-        let state = web::Data::new(get_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/session")
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 401);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -543,11 +445,8 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn logout_success() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
-        let state = get_state().await;
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, state, app) = crate::build_test_app_with_cookies!(config_routes);
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -555,16 +454,6 @@ mod tests {
         let email = format!("logout{}@example.com", ts);
         let user_id = seed_test_user(&state, &email, "password123", "user").await;
         let token = crate::auth::jwt::encode_token_with_role(user_id, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
-
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(get_state().await))
-                .app_data(web::Data::new(
-                    get_state().await.cookie_builder.clone()
-                ))
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::post()
             .uri("/logout")
@@ -575,37 +464,27 @@ mod tests {
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert_eq!(body["message"], "logged out successfully");
 
-        cleanup_user(&state, &email).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn logout_rejects_without_token() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
-        let state = web::Data::new(get_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/logout")
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 401);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn logout_prevents_further_session_requests() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
-        let state = get_state().await;
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, state, app) = crate::build_test_app_with_cookies!(config_routes);
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -613,16 +492,6 @@ mod tests {
         let email = format!("logoutsession{}@example.com", ts);
         let user_id = seed_test_user(&state, &email, "password123", "user").await;
         let token = crate::auth::jwt::encode_token_with_role(user_id, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
-
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(get_state().await))
-                .app_data(web::Data::new(
-                    get_state().await.cookie_builder.clone()
-                ))
-                .configure(config_routes),
-        )
-        .await;
 
         // Logout first
         let req = test::TestRequest::post()
@@ -640,16 +509,13 @@ mod tests {
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 401);
 
-        cleanup_user(&state, &email).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn logout_idempotent() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
-        let state = get_state().await;
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, state, app) = crate::build_test_app_with_cookies!(config_routes);
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -657,16 +523,6 @@ mod tests {
         let email = format!("logoutidempotent{}@example.com", ts);
         let user_id = seed_test_user(&state, &email, "password123", "user").await;
         let token = crate::auth::jwt::encode_token_with_role(user_id, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
-
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(get_state().await))
-                .app_data(web::Data::new(
-                    get_state().await.cookie_builder.clone()
-                ))
-                .configure(config_routes),
-        )
-        .await;
 
         // First logout
         let req = test::TestRequest::post()
@@ -685,16 +541,13 @@ mod tests {
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 401);
 
-        cleanup_user(&state, &email).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn logout_invalidates_all_sessions_for_user() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
-        let state = get_state().await;
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, state, app) = crate::build_test_app_with_cookies!(config_routes);
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -703,16 +556,6 @@ mod tests {
         let user_id = seed_test_user(&state, &email, "password123", "user").await;
         let token1 = crate::auth::jwt::encode_token_with_role(user_id, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
         let token2 = crate::auth::jwt::encode_token_with_role(user_id, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
-
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(get_state().await))
-                .app_data(web::Data::new(
-                    get_state().await.cookie_builder.clone()
-                ))
-                .configure(config_routes),
-        )
-        .await;
 
         // Logout with token1
         let req = test::TestRequest::post()
@@ -730,6 +573,6 @@ mod tests {
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 401);
 
-        cleanup_user(&state, &email).await;
+        _guard.cleanup().await;
     }
 }

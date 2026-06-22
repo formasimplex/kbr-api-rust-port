@@ -1996,6 +1996,7 @@ dependencies = [
  "actix-session",
  "actix-web",
  "ammonia",
+ "async-trait",
  "bcrypt",
  "chrono",
  "constant_time_eq",

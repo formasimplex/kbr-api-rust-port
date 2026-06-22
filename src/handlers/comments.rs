@@ -256,25 +256,8 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::auth::jwt::encode_token_with_role;
-    use actix_web::{test, App};
-
-    const TEST_SECRET: &str = "test-secret-key";
-
-    async fn get_state() -> AppState {
-        let pool = sqlx::PgPool::connect(crate::test_utils::test_db_url())
-            .await
-            .expect("Failed to connect to test database");
-        crate::test_utils::build_test_state(pool).await
-    }
-
-    fn admin_token() -> String {
-        encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap()
-    }
-
-    fn customer_token() -> String {
-        encode_token_with_role(1, TEST_SECRET, 3, Some("customer".to_string()), 1).unwrap()
-    }
+    use crate::test_utils::{admin_token, customer_token, seed_user_with_id};
+    use actix_web::test;
 
     async fn seed_comment(state: &AppState) -> i64 {
         let suffix = std::time::SystemTime::now()
@@ -312,27 +295,11 @@ mod tests {
         comment_id
     }
 
-    async fn cleanup_comment(state: &AppState, id: i64) {
-        let _ = sqlx::query(&format!(r"DELETE FROM comments WHERE id = {}", id))
-            .execute(&state.db)
-            .await;
-    }
-
     #[tokio::test(flavor = "current_thread")]
     async fn comment_show_found() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
-        let state = get_state().await;
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
         let comment_id = seed_comment(&state).await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(state.clone()))
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::get()
             .uri(&format!("/comment/{}", comment_id))
@@ -344,64 +311,42 @@ mod tests {
         assert!(body["user"].is_object());
         assert!(body["replies"].is_array());
 
-        cleanup_comment(&state, comment_id).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn comment_show_not_found() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
-        let state = get_state().await;
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(state))
-                .configure(config_routes),
-        )
-        .await;
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/comment/99999999")
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn comments_index_public() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
-        let state = get_state().await;
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(state))
-                .configure(config_routes),
-        )
-        .await;
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/comments")
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn comment_create_authenticated() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
-        let state = get_state().await;
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(state.clone()))
-                .configure(config_routes),
-        )
-        .await;
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
+        seed_user_with_id(&state.db, 1, "admin@test.com", "admin").await;
 
         let req = test::TestRequest::post()
             .uri("/comments")
@@ -418,22 +363,13 @@ mod tests {
         assert_eq!(status, 201, "Expected 201, got {}: {:?}", status, body);
 
         let id = body["id"].as_i64().expect("response should have id");
-        cleanup_comment(&state, id).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn comment_create_empty_content() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
-        let state = get_state().await;
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(state))
-                .configure(config_routes),
-        )
-        .await;
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/comments")
@@ -446,21 +382,14 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 422);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn comment_create_invalid_commentable_type() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
-        let state = get_state().await;
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(state))
-                .configure(config_routes),
-        )
-        .await;
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/comments")
@@ -473,27 +402,20 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 422);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn comment_create_reply() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
-        let state = get_state().await;
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
+        seed_user_with_id(&state.db, 1, "admin@test.com", "admin").await;
         let parent_id = seed_comment(&state).await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(state.clone()))
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::post()
             .uri(&format!("/comments/{}", parent_id))
-            .insert_header(("Authorization", format!("Bearer {}", customer_token())))
+            .insert_header(("Authorization", format!("Bearer {}", customer_token(1))))
             .set_json(serde_json::json!({
                 "content": "Reply content",
                 "commentable_type": "News",
@@ -506,27 +428,17 @@ mod tests {
         assert_eq!(status, 201, "Expected 201, got {}: {:?}", status, body);
 
         let reply_id = body["id"].as_i64().expect("response should have id");
-        cleanup_comment(&state, reply_id).await;
-        cleanup_comment(&state, parent_id).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn comment_create_reply_empty_content() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
-        let state = get_state().await;
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(state))
-                .configure(config_routes),
-        )
-        .await;
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/comments/1")
-            .insert_header(("Authorization", format!("Bearer {}", customer_token())))
+            .insert_header(("Authorization", format!("Bearer {}", customer_token(1))))
             .set_json(serde_json::json!({
                 "content": "",
                 "commentable_type": "News",
@@ -535,5 +447,7 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 422);
+
+        _guard.cleanup().await;
     }
 }

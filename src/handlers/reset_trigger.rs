@@ -243,26 +243,12 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use actix_web::{test, App};
-
-    async fn get_state() -> AppState {
-        let pool = sqlx::PgPool::connect(crate::test_utils::test_db_url())
-            .await
-            .expect("Failed to connect to test database");
-        crate::test_utils::build_test_state(pool).await
-    }
+    use actix_web::test;
 
     #[tokio::test(flavor = "current_thread")]
     async fn reset_trigger_create_returns_generic_response() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
+        crate::test_utils::set_test_env();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let email = format!("reset_create_{}@example.com", chrono::Utc::now().timestamp_micros());
 
@@ -278,22 +264,13 @@ mod tests {
         assert!(body["message"].is_string());
         assert!(!body["message"].as_str().unwrap().contains("token"));
 
-        let _ = sqlx::query(r"DELETE FROM reset_triggers WHERE user_id IS NOT NULL")
-            .execute(&state.db)
-            .await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn reset_trigger_create_nonexistent_email_returns_same_response() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
+        crate::test_utils::set_test_env();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let nonexistent = format!("nonexistent_{}@example.com", chrono::Utc::now().timestamp_micros());
 
@@ -308,21 +285,13 @@ mod tests {
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert!(body["message"].is_string());
 
-        let _ = sqlx::query(r"DELETE FROM reset_triggers WHERE user_id IS NULL")
-            .execute(&state.db)
-            .await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn reset_trigger_create_invalid_email() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        crate::test_utils::set_test_env();
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/reset_trigger")
@@ -332,12 +301,14 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 422);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn reset_trigger_update_success() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        crate::test_utils::set_test_env();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let email = format!("reset_upd_{}@example.com", chrono::Utc::now().timestamp_micros());
         let old_hash = hash_password("oldpassword").unwrap();
@@ -362,13 +333,6 @@ mod tests {
         .await
         .expect("Failed to create reset trigger");
 
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(get_state().await))
-                .configure(config_routes),
-        )
-        .await;
-
         let req = test::TestRequest::post()
             .uri(&format!("/reset_trigger/{}", token))
             .set_json(serde_json::json!({
@@ -388,20 +352,13 @@ mod tests {
         .expect("User not found");
         assert_ne!(old_hash, new_hash, "Password should have been updated");
 
-        let _ = sqlx::query(r"DELETE FROM reset_triggers WHERE token = $1")
-            .bind(&token)
-            .execute(&state.db)
-            .await;
-        let _ = sqlx::query(r"DELETE FROM users WHERE id = $1")
-            .bind(user_id)
-            .execute(&state.db)
-            .await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn reset_trigger_update_password_mismatch() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        crate::test_utils::set_test_env();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let email = format!("reset_mm_{}@example.com", chrono::Utc::now().timestamp_micros());
         let old_hash = hash_password("oldpassword").unwrap();
@@ -426,13 +383,6 @@ mod tests {
         .await
         .expect("Failed to create reset trigger");
 
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(get_state().await))
-                .configure(config_routes),
-        )
-        .await;
-
         let req = test::TestRequest::post()
             .uri(&format!("/reset_trigger/{}", token))
             .set_json(serde_json::json!({
@@ -452,20 +402,13 @@ mod tests {
         .expect("User not found");
         assert_eq!(old_hash, original_hash, "Password should NOT have changed");
 
-        let _ = sqlx::query(r"DELETE FROM reset_triggers WHERE token = $1")
-            .bind(&token)
-            .execute(&state.db)
-            .await;
-        let _ = sqlx::query(r"DELETE FROM users WHERE id = $1")
-            .bind(user_id)
-            .execute(&state.db)
-            .await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn reset_trigger_update_short_password() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        crate::test_utils::set_test_env();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let email = format!("reset_sp_{}@example.com", chrono::Utc::now().timestamp_micros());
         let old_hash = hash_password("oldpassword").unwrap();
@@ -490,13 +433,6 @@ mod tests {
         .await
         .expect("Failed to create reset trigger");
 
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(get_state().await))
-                .configure(config_routes),
-        )
-        .await;
-
         let req = test::TestRequest::post()
             .uri(&format!("/reset_trigger/{}", token))
             .set_json(serde_json::json!({
@@ -516,20 +452,13 @@ mod tests {
         .expect("User not found");
         assert_eq!(old_hash, original_hash, "Password should NOT have changed for invalid input");
 
-        let _ = sqlx::query(r"DELETE FROM reset_triggers WHERE token = $1")
-            .bind(&token)
-            .execute(&state.db)
-            .await;
-        let _ = sqlx::query(r"DELETE FROM users WHERE id = $1")
-            .bind(user_id)
-            .execute(&state.db)
-            .await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn reset_trigger_update_same_password_rejected() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        crate::test_utils::set_test_env();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let email = format!("reset_same_{}@example.com", chrono::Utc::now().timestamp_micros());
         let current_password = "Currentpass1";
@@ -555,13 +484,6 @@ mod tests {
         .await
         .expect("Failed to create reset trigger");
 
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(get_state().await))
-                .configure(config_routes),
-        )
-        .await;
-
         let req = test::TestRequest::post()
             .uri(&format!("/reset_trigger/{}", token))
             .set_json(serde_json::json!({
@@ -581,20 +503,13 @@ mod tests {
         .expect("User not found");
         assert_eq!(old_hash, stored_hash, "Password should NOT have changed");
 
-        let _ = sqlx::query(r"DELETE FROM reset_triggers WHERE token = $1")
-            .bind(&token)
-            .execute(&state.db)
-            .await;
-        let _ = sqlx::query(r"DELETE FROM users WHERE id = $1")
-            .bind(user_id)
-            .execute(&state.db)
-            .await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn reset_trigger_update_no_user() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        crate::test_utils::set_test_env();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let token = format!("rust_reset_nu_{}", chrono::Utc::now().timestamp_micros());
         sqlx::query(
@@ -606,13 +521,6 @@ mod tests {
         .await
         .expect("Failed to create reset trigger");
 
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(get_state().await))
-                .configure(config_routes),
-        )
-        .await;
-
         let req = test::TestRequest::post()
             .uri(&format!("/reset_trigger/{}", token))
             .set_json(serde_json::json!({
@@ -623,16 +531,13 @@ mod tests {
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
 
-        let _ = sqlx::query(r"DELETE FROM reset_triggers WHERE token = $1")
-            .bind(&token)
-            .execute(&state.db)
-            .await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn reset_trigger_update_expired_token_rejected() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = get_state().await;
+        crate::test_utils::set_test_env();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let email = format!("reset_exp_{}@example.com", chrono::Utc::now().timestamp_micros());
         let old_hash = hash_password("oldpassword").unwrap();
@@ -659,13 +564,6 @@ mod tests {
         .await
         .expect("Failed to create reset trigger");
 
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(get_state().await))
-                .configure(config_routes),
-        )
-        .await;
-
         let req = test::TestRequest::post()
             .uri(&format!("/reset_trigger/{}", token))
             .set_json(serde_json::json!({
@@ -685,20 +583,13 @@ mod tests {
         .expect("User not found");
         assert_eq!(old_hash, new_hash, "Password should NOT have changed for expired token");
 
-        let _ = sqlx::query(r"DELETE FROM reset_triggers WHERE token = $1")
-            .bind(&token)
-            .execute(&state.db)
-            .await;
-        let _ = sqlx::query(r"DELETE FROM users WHERE id = $1")
-            .bind(user_id)
-            .execute(&state.db)
-            .await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn reset_trigger_update_token_consumed_once() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        crate::test_utils::set_test_env();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let email = format!("reset_once_{}@example.com", chrono::Utc::now().timestamp_micros());
         let old_hash = hash_password("oldpassword").unwrap();
@@ -723,13 +614,6 @@ mod tests {
         .await
         .expect("Failed to create reset trigger");
 
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(get_state().await))
-                .configure(config_routes),
-        )
-        .await;
-
         let req1 = test::TestRequest::post()
             .uri(&format!("/reset_trigger/{}", token))
             .set_json(serde_json::json!({
@@ -750,13 +634,6 @@ mod tests {
         let resp2 = test::call_service(&app, req2).await;
         assert_eq!(resp2.status(), 404);
 
-        let _ = sqlx::query(r"DELETE FROM reset_triggers WHERE token = $1")
-            .bind(&token)
-            .execute(&state.db)
-            .await;
-        let _ = sqlx::query(r"DELETE FROM users WHERE id = $1")
-            .bind(user_id)
-            .execute(&state.db)
-            .await;
+        _guard.cleanup().await;
     }
 }

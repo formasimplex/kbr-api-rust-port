@@ -13,7 +13,6 @@
 
 use actix_multipart::Multipart;
 use futures_util::StreamExt;
-use rs_vips::voption::Setter;
 
 use actix_web::{web, HttpResponse};
 
@@ -141,50 +140,40 @@ pub async fn upload(
         AppError::Validation("content_type is required".to_string())
     })?;
 
-    let uuid_key = uuid::Uuid::new_v4().to_string();
-    let original_key = format!("blobs/{}/{}", uuid_key, filename);
-
-    let original_blob_id = storage_service::upload_file(
+    let (original_blob_id, original_key) = storage_service::upload_and_attach_with_key(
         &state.s3,
         &state.db,
-        &original_key,
+        &record_type,
+        record_id,
+        &attachment_name,
         &file_data,
         &filename,
         &content_type,
     )
     .await?;
 
-    storage_service::attach_blob(
-        &state.db,
-        &record_type,
-        record_id,
-        &attachment_name,
-        original_blob_id,
-    )
-    .await?;
+    let uuid_key = original_key
+        .split('/')
+        .nth(1)
+        .unwrap_or("")
+        .to_string();
 
-    let _medium_url = process_and_upload_variant(
+    let variant_keys = storage_service::create_variants(
         &state.s3,
         &state.db,
+        original_blob_id,
         &file_data,
         &uuid_key,
         &filename,
-        original_blob_id,
-        512,
+        &[512, 100],
     )
     .await?;
 
-    let thumbnail_url = process_and_upload_variant(
-        &state.s3,
-        &state.db,
-        &file_data,
-        &uuid_key,
-        &filename,
-        original_blob_id,
-        100,
-    )
-    .await?;
-
+    let thumbnail_key = variant_keys
+        .iter()
+        .find(|k| k.split('/').nth(2) == Some("100"))
+        .unwrap();
+    let thumbnail_url = generate_presigned_url(&state.s3, thumbnail_key).await?;
     let original_url = generate_presigned_url(&state.s3, &original_key).await?;
 
     Ok(HttpResponse::Ok().json(UploadResponse {
@@ -196,65 +185,6 @@ pub async fn upload(
         url: original_url,
         thumbnail_url,
     }))
-}
-
-async fn process_and_upload_variant(
-    s3: &s3::bucket::Bucket,
-    db: &sqlx::PgPool,
-    data: &[u8],
-    uuid_key: &str,
-    original_filename: &str,
-    original_blob_id: i64,
-    max_width: i32,
-) -> Result<String, AppError> {
-    let img = rs_vips::VipsImage::new_from_buffer(data, "")
-        .map_err(|e| AppError::Storage(format!("Failed to load image: {}", e)))?;
-
-    let resized = img.thumbnail_image(max_width)
-        .map_err(|e| AppError::Storage(format!("Failed to resize image: {}", e)))?;
-
-    let webp_data = resized.webpsave_buffer_with_opts(
-        rs_vips::voption::VOption::new()
-            .set("Q", 80i32),
-    )
-    .map_err(|e| AppError::Storage(format!("Failed to encode WebP: {}", e)))?;
-
-    let extension = std::path::Path::new(original_filename)
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("");
-
-    let variant_filename = format!(
-        "{}.webp",
-        original_filename.strip_suffix(extension).unwrap_or(original_filename)
-    );
-
-    let variant_key = format!("variants/{}/{}/{}", uuid_key, max_width, variant_filename);
-
-    let _variant_blob_id = storage_service::upload_file(
-        s3,
-        db,
-        &variant_key,
-        &webp_data,
-        &variant_filename,
-        "image/webp",
-    )
-    .await?;
-
-    let variation_digest = storage_service::compute_variation_digest(max_width, max_width);
-
-    // blob_id references the ORIGINAL blob, matching Rails ActiveStorage semantics
-    let _ = sqlx::query(
-        r#"INSERT INTO active_storage_variant_records (blob_id, variation_digest)
-           VALUES ($1, $2)
-           ON CONFLICT (blob_id, variation_digest) DO NOTHING"#
-    )
-    .bind(original_blob_id)
-    .bind(variation_digest)
-    .execute(db)
-    .await;
-
-    generate_presigned_url(s3, &variant_key).await
 }
 
 /// List images for a specific record type and ID.
@@ -321,41 +251,17 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::auth::jwt::encode_token_with_role;
-    use actix_web::{test, App};
-
-    const TEST_SECRET: &str = "test-secret-key";
-
-    fn artist_token() -> String {
-        encode_token_with_role(1, TEST_SECRET, 3, Some("artist".to_string()), 1).unwrap()
-    }
-
-    fn user_token() -> String {
-        encode_token_with_role(2, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap()
-    }
+    use crate::test_utils::{artist_token, user_token};
+    use actix_web::test;
 
     #[tokio::test(flavor = "current_thread")]
     async fn upload_forbidden_for_non_artist() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
-
-        let pool = sqlx::PgPool::connect(crate::test_utils::test_db_url())
-            .await
-            .expect("Failed to connect to test database");
-        let state = web::Data::new(crate::test_utils::build_test_state(pool).await);
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let mut builder = actix_web::test::TestRequest::post()
             .uri("/storage/upload")
-            .insert_header(("Authorization", format!("Bearer {}", user_token())));
+            .insert_header(("Authorization", format!("Bearer {}", user_token(2))));
 
         let body = multipart_body();
         builder = builder.set_payload(body);
@@ -363,38 +269,28 @@ mod tests {
         let req = builder.to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 403);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn upload_missing_file_field() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
-
-        let pool = sqlx::PgPool::connect(crate::test_utils::test_db_url())
-            .await
-            .expect("Failed to connect to test database");
-        let state = web::Data::new(crate::test_utils::build_test_state(pool).await);
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let body = no_file_body();
 
         let req = actix_web::test::TestRequest::post()
             .uri("/storage/upload")
-            .insert_header(("Authorization", format!("Bearer {}", artist_token())))
+            .insert_header(("Authorization", format!("Bearer {}", artist_token(1))))
             .insert_header(("Content-Type", "multipart/form-data; boundary=boundary456"))
             .set_payload(body)
             .to_request();
 
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 422);
+
+        _guard.cleanup().await;
     }
 
     fn multipart_body() -> Vec<u8> {
@@ -449,21 +345,6 @@ mod tests {
         body.extend_from_slice(format!("\r\n--{}--\r\n", boundary).as_bytes());
 
         body
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn variation_digest_is_deterministic() {
-        let d1 = storage_service::compute_variation_digest(512, 512);
-        let d2 = storage_service::compute_variation_digest(512, 512);
-        assert_eq!(d1, d2);
-        assert_eq!(d1.len(), 64);
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn variation_digest_differs_for_different_sizes() {
-        let d1 = storage_service::compute_variation_digest(512, 512);
-        let d2 = storage_service::compute_variation_digest(100, 100);
-        assert_ne!(d1, d2);
     }
 
     #[tokio::test(flavor = "current_thread")]

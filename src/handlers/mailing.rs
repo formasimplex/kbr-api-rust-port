@@ -486,23 +486,11 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::auth::jwt::encode_token_with_role;
-    use actix_web::{test, App};
+use crate::auth::jwt::encode_token_with_role;
+     use crate::test_utils::{admin_token, TEST_SECRET};
+    use actix_web::test;
 
-const TEST_SECRET: &str = "test-secret-key";
-
- async fn get_state() -> AppState {
-        let pool = sqlx::PgPool::connect(crate::test_utils::test_db_url())
-            .await
-            .expect("Failed to connect to test database");
-        crate::test_utils::build_test_state(pool).await
-    }
-
-    fn admin_token() -> String {
-        encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap()
-    }
-
-    async fn seed_user() -> i64 {
+    async fn seed_user(pool: &sqlx::PgPool) -> i64 {
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
         let pid = std::process::id();
         sqlx::query_scalar::<_, i64>(
@@ -513,12 +501,12 @@ const TEST_SECRET: &str = "test-secret-key";
         .bind(format!("mailing_test_user_{}_{}@test.com", pid, ts))
         .bind("hashed_password_test".to_string())
         .bind(Some("admin".to_string()))
-        .fetch_one(&get_state().await.db)
+        .fetch_one(pool)
         .await
         .expect("Failed to seed user")
     }
 
-    async fn seed_artist(user_id: i64) -> i64 {
+    async fn seed_artist(pool: &sqlx::PgPool, user_id: i64) -> i64 {
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
         let pid = std::process::id();
         sqlx::query_scalar::<_, i64>(
@@ -531,12 +519,12 @@ const TEST_SECRET: &str = "test-secret-key";
         .bind(Some("A test artist for mailing".to_string()))
         .bind(Some(user_id))
         .bind(Some(false))
-        .fetch_one(&get_state().await.db)
+        .fetch_one(pool)
         .await
         .expect("Failed to seed artist")
     }
 
-    async fn seed_subscriber(artist_id: i64, user_id: Option<i64>) -> (i64, String) {
+    async fn seed_subscriber(pool: &sqlx::PgPool, artist_id: i64, user_id: Option<i64>) -> (i64, String) {
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
         let pid = std::process::id();
         let email = format!("mailing_sub_{}_{}@test.com", pid, ts);
@@ -552,76 +540,16 @@ const TEST_SECRET: &str = "test-secret-key";
         .bind(artist_id)
         .bind(&token)
         .bind(user_id)
-        .fetch_one(&get_state().await.db)
+        .fetch_one(pool)
         .await
         .expect("Failed to seed subscriber");
         (subscriber_id, email)
     }
 
-    async fn cleanup_subscriber(subscriber_id: i64) {
-        let _ = sqlx::query(r"DELETE FROM mail_subscribers WHERE id = $1")
-            .bind(subscriber_id)
-            .execute(&get_state().await.db)
-            .await;
-    }
-
-    async fn cleanup_artist(artist_id: i64) {
-        let subscribers: Vec<i64> = sqlx::query_scalar(
-            r"SELECT id FROM mail_subscribers WHERE artist_id = $1",
-        )
-        .bind(artist_id)
-        .fetch_all(&get_state().await.db)
-        .await
-        .unwrap_or_default();
-        for sid in subscribers {
-            cleanup_subscriber(sid).await;
-        }
-        let _ = sqlx::query(r"DELETE FROM artists WHERE id = $1")
-            .bind(artist_id)
-            .execute(&get_state().await.db)
-            .await;
-    }
-
-    async fn cleanup_user(user_id: i64) {
-        let artists: Vec<i64> = sqlx::query_scalar(
-            r"SELECT id FROM artists WHERE user_id = $1",
-        )
-        .bind(user_id)
-        .fetch_all(&get_state().await.db)
-        .await
-        .unwrap_or_default();
-        for aid in artists {
-            cleanup_artist(aid).await;
-        }
-        let subs: Vec<i64> = sqlx::query_scalar(
-            r"SELECT id FROM mail_subscribers WHERE user_id = $1",
-        )
-        .bind(user_id)
-        .fetch_all(&get_state().await.db)
-        .await
-        .unwrap_or_default();
-        for sid in subs {
-            cleanup_subscriber(sid).await;
-        }
-        let _ = sqlx::query(r"DELETE FROM users WHERE id = $1")
-            .bind(user_id)
-            .execute(&get_state().await.db)
-            .await;
-    }
-
     #[tokio::test(flavor = "current_thread")]
     async fn mail_subscribers_index_authenticated() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
-        let state = web::Data::new(get_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/mail_subscribers")
@@ -629,22 +557,15 @@ const TEST_SECRET: &str = "test-secret-key";
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn mail_subscribers_index_forbidden() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
         let user_token = encode_token_with_role(99, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
-        let state = web::Data::new(get_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/mail_subscribers")
@@ -652,25 +573,17 @@ const TEST_SECRET: &str = "test-secret-key";
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 403);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn artist_mailing_list_authenticated() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
-        let state = web::Data::new(get_state().await);
-        let user_id = seed_user().await;
-        let artist_id = seed_artist(user_id).await;
-        let (sub_id, _) = seed_subscriber(artist_id, Some(user_id)).await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
+        let user_id = seed_user(&state.db).await;
+        let artist_id = seed_artist(&state.db, user_id).await;
+        let (sub_id, _) = seed_subscriber(&state.db, artist_id, Some(user_id)).await;
 
         let req = test::TestRequest::get()
             .uri(&format!("/artist_mailing_list?artist_id={}", artist_id))
@@ -684,26 +597,17 @@ const TEST_SECRET: &str = "test-secret-key";
         let ids: Vec<i64> = arr.iter().map(|v| v["id"].as_i64().unwrap()).collect();
         assert!(ids.contains(&sub_id));
 
-        cleanup_subscriber(sub_id).await;
-        cleanup_artist(artist_id).await;
-        cleanup_user(user_id).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn add_mail_subscriber_public() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        crate::test_utils::set_test_env();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
         let pid = std::process::id();
         let email = format!("addmail_{}_{}@test.com", pid, ts);
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::post()
             .uri("/addmailsubscriber")
@@ -718,22 +622,13 @@ const TEST_SECRET: &str = "test-secret-key";
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert_eq!(body["email"], email);
 
-        let _ = sqlx::query(r"DELETE FROM mail_subscribers WHERE email = $1")
-            .bind(&email)
-            .execute(&state.db)
-            .await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn add_mail_subscriber_invalid_email() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        crate::test_utils::set_test_env();
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/addmailsubscriber")
@@ -744,29 +639,20 @@ const TEST_SECRET: &str = "test-secret-key";
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 422);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn add_mail_subscriber_with_user_authenticated() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
-
-        let state = web::Data::new(get_state().await);
-        let user_id = seed_user().await;
-        let artist_id = seed_artist(user_id).await;
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
+        let user_id = seed_user(&state.db).await;
+        let artist_id = seed_artist(&state.db, user_id).await;
 
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
         let pid = std::process::id();
         let email = format!("addmailuser_{}_{}@test.com", pid, ts);
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::post()
             .uri("/addmailsubscriber_with_user")
@@ -783,24 +669,15 @@ const TEST_SECRET: &str = "test-secret-key";
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert_eq!(body["email"], email);
 
-        let _ = sqlx::query(r"DELETE FROM mail_subscribers WHERE email = $1")
-            .bind(&email)
-            .execute(&state.db)
-            .await;
-        cleanup_artist(artist_id).await;
-        cleanup_user(user_id).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn add_mail_subscriber_duplicate() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
-
-        let state = web::Data::new(get_state().await);
-        let user_id = seed_user().await;
-        let artist_id = seed_artist(user_id).await;
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
+        let user_id = seed_user(&state.db).await;
+        let artist_id = seed_artist(&state.db, user_id).await;
 
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
         let pid = std::process::id();
@@ -818,13 +695,6 @@ const TEST_SECRET: &str = "test-secret-key";
         .await
         .expect("Failed to seed duplicate subscriber");
 
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
-
         let req = test::TestRequest::post()
             .uri("/artistmailsubscriber")
             .insert_header(("Authorization", format!("Bearer {}", admin_token())))
@@ -837,33 +707,17 @@ const TEST_SECRET: &str = "test-secret-key";
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 422);
 
-        let _ = sqlx::query(r"DELETE FROM mail_subscribers WHERE email = $1")
-            .bind(&email)
-            .execute(&state.db)
-            .await;
-        cleanup_artist(artist_id).await;
-        cleanup_user(user_id).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn unsubscribe_authenticated() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
-
-        let state = web::Data::new(get_state().await);
-        let user_id = seed_user().await;
-        let artist_id = seed_artist(user_id).await;
-        let (sub_id, _) = seed_subscriber(artist_id, Some(user_id)).await;
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
+        let user_id = seed_user(&state.db).await;
+        let artist_id = seed_artist(&state.db, user_id).await;
+        let (sub_id, _) = seed_subscriber(&state.db, artist_id, Some(user_id)).await;
         let user_token = encode_token_with_role(user_id, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap();
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
 
         let req = test::TestRequest::post()
             .uri("/mail_subscribers/unsubscribe")
@@ -884,33 +738,13 @@ const TEST_SECRET: &str = "test-secret-key";
         .expect("Failed to check unsubscribe");
         assert_eq!(unsubscribed, Some(sub_id));
 
-        cleanup_subscriber(sub_id).await;
-        cleanup_artist(artist_id).await;
-        cleanup_user(user_id).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn unsubscribe_not_found() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
-
-        let state = web::Data::new(get_state().await);
-
-        let _max_id: i64 = sqlx::query_scalar(
-            r"SELECT COALESCE(MAX(id), 0) FROM users",
-        )
-        .fetch_one(&state.db)
-        .await
-        .expect("Failed to get max id");
-
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/mail_subscribers/unsubscribe")
@@ -921,12 +755,14 @@ const TEST_SECRET: &str = "test-secret-key";
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn request_unsubscribe_public() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        crate::test_utils::set_test_env();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
         let pid = std::process::id();
@@ -943,13 +779,6 @@ const TEST_SECRET: &str = "test-secret-key";
         .await
         .expect("Failed to seed subscriber");
 
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
-
         let req = test::TestRequest::post()
             .uri("/unsubscribe")
             .set_json(serde_json::json!({
@@ -963,22 +792,13 @@ const TEST_SECRET: &str = "test-secret-key";
         assert_eq!(body["status"], "success");
         assert!(body["message"].is_string());
 
-        let _ = sqlx::query(r"DELETE FROM mail_subscribers WHERE email = $1")
-            .bind(&email)
-            .execute(&state.db)
-            .await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn request_unsubscribe_not_found_returns_same_response() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        crate::test_utils::set_test_env();
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/unsubscribe")
@@ -991,12 +811,14 @@ const TEST_SECRET: &str = "test-secret-key";
 
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert_eq!(body["status"], "success");
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn process_unsubscribe_public() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
+        crate::test_utils::set_test_env();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
         let pid = std::process::id();
@@ -1016,13 +838,6 @@ const TEST_SECRET: &str = "test-secret-key";
         .await
         .expect("Failed to seed subscriber");
 
-        let app = test::init_service(
-            App::new()
-                .app_data(state.clone())
-                .configure(config_routes),
-        )
-        .await;
-
         let req = test::TestRequest::get()
             .uri(&format!("/unsubscribe/{}", token))
             .to_request();
@@ -1038,24 +853,20 @@ const TEST_SECRET: &str = "test-secret-key";
         .expect("Failed to check unsubscribe");
         assert_eq!(unsubscribed, Some(sub_id));
 
-        cleanup_subscriber(sub_id).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn process_unsubscribe_invalid_token() {
-        unsafe { std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url()); }
-        let state = web::Data::new(get_state().await);
-        let app = test::init_service(
-            App::new()
-                .app_data(state)
-                .configure(config_routes),
-        )
-        .await;
+        crate::test_utils::set_test_env();
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get()
             .uri("/unsubscribe/invalidtoken123")
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
+
+        _guard.cleanup().await;
     }
 }

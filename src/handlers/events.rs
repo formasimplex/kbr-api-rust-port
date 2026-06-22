@@ -369,35 +369,10 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 mod tests {
     use super::*;
     use crate::auth::jwt::encode_token_with_role;
-    use actix_web::{App, test};
+    use crate::test_utils::{admin_token, artist_token, not_found_id, unique_suffix, TEST_SECRET};
+    use actix_web::test;
 
-    const TEST_SECRET: &str = "test-secret-key";
-
-    use std::sync::atomic::{AtomicI64, Ordering};
-    static TEST_COUNTER: AtomicI64 = AtomicI64::new(0);
-
-    fn unique_suffix() -> String {
-        let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
-        let count = TEST_COUNTER.fetch_add(1, Ordering::Relaxed);
-        format!("{}_{}", ts, count)
-    }
-
-    async fn get_state() -> AppState {
-        let pool = sqlx::PgPool::connect(crate::test_utils::test_db_url())
-            .await
-            .expect("Failed to connect to test database");
-        crate::test_utils::build_test_state(pool).await
-    }
-
-    fn admin_token() -> String {
-        encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap()
-    }
-
-    fn artist_token() -> String {
-        encode_token_with_role(2, TEST_SECRET, 2, Some("artist".to_string()), 1).unwrap()
-    }
-
-    async fn seed_user() -> (i64, String) {
+     async fn seed_user(pool: &sqlx::PgPool) -> (i64, String) {
         let email = format!("event_test_{}@test.com", unique_suffix());
         let id: i64 = sqlx::query_scalar(
             r"INSERT INTO users (email, password_digest, role, created_at, updated_at)
@@ -407,13 +382,13 @@ mod tests {
         .bind(&email)
         .bind("hashed_password_test".to_string())
         .bind(Some("artist".to_string()))
-        .fetch_one(&get_state().await.db)
+        .fetch_one(pool)
         .await
         .expect("Failed to seed user");
         (id, email)
     }
 
-    async fn seed_event(create_by_user_id: i32) -> i64 {
+    async fn seed_event(pool: &sqlx::PgPool, create_by_user_id: i32) -> i64 {
         let now = chrono::Utc::now().naive_utc();
         sqlx::query_scalar::<_, i64>(
             r"INSERT INTO kbr_events (name, description, active, event_start_date, event_end_date,
@@ -430,36 +405,15 @@ mod tests {
         .bind(Some("https://tickets.com/test".to_string()))
         .bind(&now)
         .bind(&now)
-        .fetch_one(&get_state().await.db)
+        .fetch_one(pool)
         .await
         .expect("Failed to seed event")
     }
 
-    async fn cleanup_event(event_id: i64) {
-        let _ = sqlx::query(r"DELETE FROM kbr_events WHERE id = $1")
-            .bind(event_id)
-            .execute(&get_state().await.db)
-            .await;
-    }
-
-    async fn cleanup_user(user_id: i64, email: &str) {
-        let _ = sqlx::query(r"DELETE FROM kbr_events WHERE create_by_user_id = $1")
-            .bind(user_id as i32)
-            .execute(&get_state().await.db)
-            .await;
-        let _ = sqlx::query(r"DELETE FROM users WHERE email = $1")
-            .bind(email)
-            .execute(&get_state().await.db)
-            .await;
-    }
-
     #[tokio::test(flavor = "current_thread")]
     async fn events_index_public() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-        }
-        let state = web::Data::new(get_state().await);
-        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
+        crate::test_utils::set_test_env();
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get().uri("/kbrevents").to_request();
         let resp = test::call_service(&app, req).await;
@@ -470,19 +424,17 @@ mod tests {
         if body.as_array().unwrap().len() > 0 {
             assert!(body[0]["comments"].is_array());
         }
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn event_show_found() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-        }
-        let state = web::Data::new(get_state().await);
+        crate::test_utils::set_test_env();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let (user_id, user_email) = seed_user().await;
-        let event_id = seed_event(user_id as i32).await;
-
-        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
+        let (user_id, user_email) = seed_user(&state.db).await;
+        let event_id = seed_event(&state.db, user_id as i32).await;
 
         let req = test::TestRequest::get()
             .uri(&format!("/kbrevent/{}", event_id))
@@ -497,41 +449,29 @@ mod tests {
             assert!(body["comments"][0]["replies"].is_array());
         }
 
-        cleanup_event(event_id).await;
-        cleanup_user(user_id, &user_email).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn event_show_not_found() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-        }
-        let state = web::Data::new(get_state().await);
+        crate::test_utils::set_test_env();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let max_id: i64 = sqlx::query_scalar(r"SELECT COALESCE(MAX(id), 0) FROM kbr_events")
-            .fetch_one(&state.db)
-            .await
-            .expect("Failed to get max id");
-
-        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
+        let not_found = not_found_id(&state.db, "kbr_events").await;
 
         let req = test::TestRequest::get()
-            .uri(&format!("/kbrevent/{}", max_id + 9999))
+            .uri(&format!("/kbrevent/{}", not_found))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn event_create_authenticated() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
-
-        let state = web::Data::new(get_state().await);
-        let app =
-            test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let name = format!("New Event {}", unique_suffix());
         let now = chrono::Utc::now();
@@ -552,23 +492,15 @@ mod tests {
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert_eq!(body["name"], name);
 
-        let _ = sqlx::query(r"DELETE FROM kbr_events WHERE name = $1")
-            .bind(&name)
-            .execute(&state.db)
-            .await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn event_create_forbidden_non_artist() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let token = encode_token_with_role(2, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
-        let state = web::Data::new(get_state().await);
-
-        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let now = chrono::Utc::now();
         let req = test::TestRequest::post()
@@ -583,21 +515,17 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 403);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn events_by_user_admin() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let state = web::Data::new(get_state().await);
-
-        let (user_id, user_email) = seed_user().await;
-        let event_id = seed_event(user_id as i32).await;
-
-        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
+        let (user_id, user_email) = seed_user(&state.db).await;
+        let event_id = seed_event(&state.db, user_id as i32).await;
 
         let req = test::TestRequest::get()
             .uri("/kbr_events_by_user")
@@ -612,27 +540,20 @@ mod tests {
             assert!(body[0]["comments"].is_array());
         }
 
-        cleanup_event(event_id).await;
-        cleanup_user(user_id, &user_email).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn events_by_user_artist() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let state = web::Data::new(get_state().await);
-
-        let (user_id, user_email) = seed_user().await;
-        let event_id = seed_event(user_id as i32).await;
-
-        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
+        let (user_id, user_email) = seed_user(&state.db).await;
+        let event_id = seed_event(&state.db, user_id as i32).await;
 
         let req = test::TestRequest::get()
             .uri("/kbr_events_by_user")
-            .insert_header(("Authorization", format!("Bearer {}", artist_token())))
+            .insert_header(("Authorization", format!("Bearer {}", artist_token(2))))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
@@ -643,21 +564,15 @@ mod tests {
             assert!(body[0]["comments"].is_array());
         }
 
-        cleanup_event(event_id).await;
-        cleanup_user(user_id, &user_email).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn events_by_user_forbidden() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let token = encode_token_with_role(2, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
-        let state = web::Data::new(get_state().await);
-
-        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
 
         let req = test::TestRequest::get()
             .uri("/kbr_events_by_user")
@@ -665,26 +580,21 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 403);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn event_update_success() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let state = web::Data::new(get_state().await);
-
-        let (user_id, user_email) = seed_user().await;
-        let event_id = seed_event(user_id as i32).await;
-
-        let app =
-            test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
+        let (user_id, user_email) = seed_user(&state.db).await;
+        let event_id = seed_event(&state.db, user_id as i32).await;
 
         let req = test::TestRequest::put()
             .uri(&format!("/kbrevents/{}", event_id))
-            .insert_header(("Authorization", format!("Bearer {}", artist_token())))
+            .insert_header(("Authorization", format!("Bearer {}", artist_token(2))))
             .set_json(serde_json::json!({
                 "name": "Updated Event Name",
                 "active": false
@@ -697,34 +607,26 @@ mod tests {
         assert_eq!(body["name"], "Updated Event Name");
         assert_eq!(body["active"], false);
 
-        cleanup_event(event_id).await;
-        cleanup_user(user_id, &user_email).await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn event_update_not_found() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let state = web::Data::new(get_state().await);
-
-        let max_id: i64 = sqlx::query_scalar(r"SELECT COALESCE(MAX(id), 0) FROM kbr_events")
-            .fetch_one(&state.db)
-            .await
-            .expect("Failed to get max id");
-
-        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
+        let not_found = not_found_id(&state.db, "kbr_events").await;
 
         let req = test::TestRequest::put()
-            .uri(&format!("/kbrevents/{}", max_id + 9999))
-            .insert_header(("Authorization", format!("Bearer {}", artist_token())))
+            .uri(&format!("/kbrevents/{}", not_found))
+            .insert_header(("Authorization", format!("Bearer {}", artist_token(2))))
             .set_json(serde_json::json!({
                 "name": "Updated"
             }))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
+
+        _guard.cleanup().await;
     }
 }

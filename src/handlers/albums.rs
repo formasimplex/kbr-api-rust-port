@@ -144,36 +144,25 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 mod tests {
     use super::*;
     use crate::auth::jwt::encode_token_with_role;
-    use actix_web::{App, test};
+    use crate::test_utils::{not_found_id, TEST_SECRET};
+    use actix_web::test;
 
-    const TEST_SECRET: &str = "test-secret-key";
-
-    async fn get_state() -> AppState {
-        let pool = sqlx::PgPool::connect(crate::test_utils::test_db_url())
-            .await
-            .expect("Failed to connect to test database");
-        crate::test_utils::build_test_state(pool).await
-    }
-
-    #[tokio::test(flavor = "current_thread")]
+   #[tokio::test(flavor = "current_thread")]
     async fn albums_index_returns_ok() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-        }
-        let state = web::Data::new(get_state().await);
-        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
+        crate::test_utils::set_test_env();
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::get().uri("/albums").to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn album_show_found() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-        }
-        let state = web::Data::new(get_state().await);
+        crate::test_utils::set_test_env();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let seed = sqlx::query_as::<_, AlbumRow>(
             r"INSERT INTO albums (name, release_date, created_at, updated_at)
@@ -181,13 +170,6 @@ mod tests {
               RETURNING id, name, release_date, created_at, updated_at",
         )
         .fetch_one(&state.db)
-        .await;
-
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(get_state().await))
-                .configure(config_routes),
-        )
         .await;
 
         if let Ok(row) = seed {
@@ -200,47 +182,34 @@ mod tests {
 
             let body: serde_json::Value = test::read_body_json(resp).await;
             assert_eq!(body["name"], "Test Album SQLx");
-
-            let _ = sqlx::query(&format!("DELETE FROM albums WHERE id = {}", id))
-                .execute(&state.db)
-                .await;
         }
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn album_show_not_found() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-        }
-        let state = web::Data::new(get_state().await);
-        let app =
-            test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
+        crate::test_utils::set_test_env();
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let max_id: i64 = sqlx::query_scalar(r"SELECT COALESCE(MAX(id), 0) FROM albums")
-            .fetch_one(&state.db)
-            .await
-            .expect("Failed to get max id");
+        let not_found = not_found_id(&state.db, "albums").await;
 
         let req = test::TestRequest::get()
-            .uri(&format!("/album/{}", max_id + 9999))
+            .uri(&format!("/album/{}", not_found))
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 404);
+
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn album_create_admin() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
 
         let token =
             encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap();
-        let state = web::Data::new(get_state().await);
-
-        let app =
-            test::init_service(App::new().app_data(state.clone()).configure(config_routes)).await;
+        let (_guard, state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/albums")
@@ -257,22 +226,15 @@ mod tests {
         assert_eq!(body["name"], "Rust Test Album");
         assert_eq!(body["release_date"], "2025-06-01");
 
-        let _ = sqlx::query(r"DELETE FROM albums WHERE name = 'Rust Test Album'")
-            .execute(&state.db)
-            .await;
+        _guard.cleanup().await;
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn album_create_forbidden_non_admin() {
-        unsafe {
-            std::env::set_var("DATABASE_URL", crate::test_utils::test_db_url());
-            std::env::set_var("JWT_SECRET", TEST_SECRET);
-        }
+        crate::test_utils::set_test_env_jwt();
 
         let token = encode_token_with_role(2, TEST_SECRET, 3, Some("user".to_string()), 1).unwrap();
-        let state = web::Data::new(get_state().await);
-
-        let app = test::init_service(App::new().app_data(state).configure(config_routes)).await;
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/albums")
@@ -283,5 +245,7 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 403);
+
+        _guard.cleanup().await;
     }
 }
