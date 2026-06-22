@@ -15,7 +15,7 @@ use crate::app::AppState;
 use crate::auth::middleware::CurrentUser;
 use crate::data::dashboard as data;
 use crate::error::AppError;
-use crate::services::storage_service;
+use crate::services::storage;
 
 /// Response for a subscribed artist on the dashboard.
 #[derive(Debug, Serialize)]
@@ -43,7 +43,7 @@ pub async fn subscribed_artists(
 
     let mut responses = Vec::new();
     for row in rows {
-        let (_, thumbnail_urls) = storage_service::get_image_urls(
+        let (_, thumbnail_urls) = storage::get_image_urls(
             &state.s3,
             &state.db,
             "Artist",

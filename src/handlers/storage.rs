@@ -20,7 +20,7 @@ use crate::app::AppState;
 use crate::auth::middleware::CurrentUser;
 use crate::auth::roles::is_artist_or_above;
 use crate::error::AppError;
-use crate::services::storage_service::{
+use crate::services::storage::{
     self, generate_presigned_url,
 };
 
@@ -140,7 +140,7 @@ pub async fn upload(
         AppError::Validation("content_type is required".to_string())
     })?;
 
-    let (original_blob_id, original_key) = storage_service::upload_and_attach_with_key(
+    let (original_blob_id, original_key) = storage::upload_and_attach_with_key(
         &state.s3,
         &state.db,
         &record_type,
@@ -158,7 +158,7 @@ pub async fn upload(
         .unwrap_or("")
         .to_string();
 
-    let variant_keys = storage_service::create_variants(
+    let variant_keys = storage::create_variants(
         &state.s3,
         &state.db,
         original_blob_id,
@@ -201,7 +201,7 @@ pub async fn get_images(
 ) -> Result<HttpResponse, AppError> {
     let (record_type, record_id) = path.into_inner();
 
-    let (image_urls, thumbnail_urls) = storage_service::get_image_urls(
+    let (image_urls, thumbnail_urls) = storage::get_image_urls(
         &state.s3,
         &state.db,
         &record_type,
@@ -235,7 +235,7 @@ pub async fn delete_image(
 
     let blob_id = path.into_inner();
 
-    storage_service::delete_blob(&state.s3, &state.db, blob_id).await?;
+    storage::delete_blob(&state.s3, &state.db, blob_id).await?;
 
     Ok(HttpResponse::Ok().json(serde_json::json!({
         "message": format!("Blob #{} deleted", blob_id)

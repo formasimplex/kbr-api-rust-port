@@ -9,7 +9,7 @@ use sqlx::PgPool;
 
 use crate::app::AppState;
 use crate::auth::jwt::{Claims, encode_token_with_role};
-use crate::services::storage_service::{S3Config, create_s3_bucket};
+use crate::services::storage::{S3Config, create_s3_bucket};
 
 pub const TEST_SECRET: &str = "test-secret-key";
 

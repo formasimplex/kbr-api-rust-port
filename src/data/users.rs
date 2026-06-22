@@ -23,7 +23,7 @@ pub async fn by_id(pool: &sqlx::PgPool, id: i64) -> Result<Option<User>, sqlx::E
     Ok(row.map(|r| r.into()))
 }
 
-pub async fn find_by_email(pool: &sqlx::PgPool, email: &str) -> Result<Option<UserRow>, sqlx::Error> {
+pub async fn find_by_email(pool: &sqlx::PgPool, email: &str) -> Result<Option<User>, sqlx::Error> {
     let row = sqlx::query_as::<_, UserRow>(
         &format!(r"SELECT {} FROM users WHERE email = $1", USER_COLUMNS),
     )
@@ -31,7 +31,7 @@ pub async fn find_by_email(pool: &sqlx::PgPool, email: &str) -> Result<Option<Us
     .fetch_optional(pool)
     .await?;
 
-    Ok(row)
+    Ok(row.map(|r| r.into()))
 }
 
 pub async fn create(

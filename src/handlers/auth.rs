@@ -16,8 +16,10 @@ use serde::{Deserialize, Serialize};
 use crate::app::AppState;
 use crate::auth::middleware::CurrentUser;
 use crate::data::auth as data;
+use crate::data::users;
 use crate::error::AppError;
 use crate::services::auth_service;
+use crate::services::session_service::SessionService;
 use crate::services::user_service::UserService;
 
 /// Request body for the login endpoint.
@@ -66,7 +68,7 @@ pub async fn login(
 
     let normalized_email = UserService::normalize_email(&login_req.email);
 
-    match data::find_by_email(&state.db, &normalized_email).await? {
+    match users::find_by_email(&state.db, &normalized_email).await? {
         Some(user) => {
             let valid = auth_service::verify_password(&login_req.password, &user.password_digest)?;
             if valid {
@@ -114,7 +116,7 @@ pub async fn login(
     state: web::Data<AppState>,
     user: CurrentUser,
 ) -> Result<HttpResponse, AppError> {
-    let db_role = user.verify_role_with_db(&state.db).await?;
+    let db_role = SessionService::verify_role_with_db(&state.db, user.id).await?;
 
     match data::find_by_id_no_password(&state.db, user.id).await? {
         Some(u) => {
@@ -168,8 +170,7 @@ pub async fn logout(
     state: web::Data<AppState>,
     user: CurrentUser,
 ) -> Result<HttpResponse, AppError> {
-    user.revoke_token(&state.db).await?;
-    user.invalidate_all_sessions(&state.db).await?;
+    SessionService::logout(&state.db, &user).await?;
 
     tracing::info!(
         user_id = user.id,

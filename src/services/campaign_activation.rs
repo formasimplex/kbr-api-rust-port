@@ -11,7 +11,7 @@ use crate::error::AppError;
 use crate::models::campaign::Campaign;
 use crate::services::shopify_graph_ql::ShopifyGraphQl;
 use crate::services::shopify_client::ShopifyClient;
-use crate::services::storage_service::{get_image_urls, S3Ops};
+use crate::services::storage::{get_image_urls, S3Ops};
 
 /// Context passed to the activation service.
 ///

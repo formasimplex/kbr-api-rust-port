@@ -12,7 +12,7 @@ use crate::services::email_service::EmailClient;
 use crate::services::mailchimp_client::MailchimpClient;
 use crate::services::safe_browsing::SafeBrowsingClient;
 use crate::services::shopify_client::ShopifyClient;
-use crate::services::storage_service::{S3Config, create_s3_bucket};
+use crate::services::storage::{S3Config, create_s3_bucket};
 
 pub async fn setup_web_server() -> std::io::Result<Server> {
     let pool = connect().await.map_err(|e| {
@@ -128,21 +128,12 @@ pub async fn setup_web_server() -> std::io::Result<Server> {
     let cookie_builder = cookie_builder.clone();
 
     let server = HttpServer::new(move || {
+        let state = state.clone();
         actix_web::App::new()
             .wrap(get_cors())
             .wrap(Governor::new(&governor_conf))
             .app_data(web::Data::new(cookie_builder.clone()))
-            .app_data(web::Data::new(AppState {
-                db: pool.clone(),
-                s3: s3.clone(),
-                shopify: shopify.clone(),
-                mailchimp: mailchimp.clone(),
-                safe_browsing: safe_browsing.clone(),
-                email: email.clone(),
-                job_handle: job_handle.clone(),
-                jwt_secret: jwt_secret_static.to_string(),
-                cookie_builder: cookie_builder.clone(),
-            }))
+            .app_data(web::Data::from(state.clone()))
             .configure(crate::handlers::health::config_routes)
             .service(
                 web::scope("/v1")

@@ -24,7 +24,7 @@ use crate::models::comment::{CommentResponse, CommentUser};
 use crate::models::kbr_event::{
     CreateKbrEventRequest, KbrEvent, KbrEventResponse, UpdateKbrEventRequest,
 };
-use crate::services::storage_service;
+use crate::services::storage;
 
 /// Fetch comments for a set of event IDs in a single query with user JOIN.
 ///
@@ -78,7 +78,7 @@ pub async fn index(state: web::Data<AppState>) -> Result<HttpResponse, AppError>
     let mut responses: Vec<KbrEventResponse> = Vec::new();
     for event in &events {
         let (image_urls, thumbnail_urls) =
-            storage_service::get_image_urls(&state.s3, &state.db, "KbrEvent", event.id)
+            storage::get_image_urls(&state.s3, &state.db, "KbrEvent", event.id)
                 .await
                 .unwrap_or_else(|_| (Vec::new(), Vec::new()));
         let comments = comments_map.get(&event.id).cloned().unwrap_or_default();
@@ -104,7 +104,7 @@ pub async fn show(
     match data::by_id(&state.db, id).await? {
         Some(event) => {
             let (image_urls, thumbnail_urls) =
-                storage_service::get_image_urls(&state.s3, &state.db, "KbrEvent", event.id)
+                storage::get_image_urls(&state.s3, &state.db, "KbrEvent", event.id)
                     .await
                     .unwrap_or_else(|_| (Vec::new(), Vec::new()));
             let comments_map = fetch_event_comments_batch(&state.db, &[event.id]).await;
@@ -142,7 +142,7 @@ pub async fn index_by_user(
     let mut responses: Vec<KbrEventResponse> = Vec::new();
     for event in &events {
         let (image_urls, thumbnail_urls) =
-            storage_service::get_image_urls(&state.s3, &state.db, "KbrEvent", event.id)
+            storage::get_image_urls(&state.s3, &state.db, "KbrEvent", event.id)
                 .await
                 .unwrap_or_else(|_| (Vec::new(), Vec::new()));
         let comments = comments_map.get(&event.id).cloned().unwrap_or_default();

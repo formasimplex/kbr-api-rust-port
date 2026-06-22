@@ -29,7 +29,7 @@ use crate::models::artist::{Artist, ArtistResponse, CreateArtistRequest, UpdateA
 use crate::models::artist_link::{ArtistLink, ArtistLinkResponse, CreateArtistLinkRequest};
 use crate::models::sign_up_trigger::SignUpTrigger;
 use crate::models::user::User;
-use crate::services::storage_service;
+use crate::services::storage;
 use crate::services::user_service::UserService;
 
 /// Request body for artist sign-up via token.
@@ -87,7 +87,7 @@ pub async fn index(state: web::Data<AppState>) -> Result<HttpResponse, AppError>
     let mut responses: Vec<ArtistResponse> = Vec::new();
     for artist in &artists {
         let (image_urls, thumbnail_urls) =
-            storage_service::get_image_urls(&state.s3, &state.db, "Artist", artist.id)
+            storage::get_image_urls(&state.s3, &state.db, "Artist", artist.id)
                 .await
                 .unwrap_or_else(|_| (Vec::new(), Vec::new()));
         let links = links_map.get(&artist.id).cloned().unwrap_or_default();
@@ -114,7 +114,7 @@ pub async fn show(
     match data::by_id(&state.db, id).await? {
         Some(artist) => {
             let (image_urls, thumbnail_urls) =
-                storage_service::get_image_urls(&state.s3, &state.db, "Artist", artist.id)
+                storage::get_image_urls(&state.s3, &state.db, "Artist", artist.id)
                     .await
                     .unwrap_or_else(|_| (Vec::new(), Vec::new()));
             let links_map = fetch_artist_links_batch(&state.db, &[artist.id]).await;
@@ -338,7 +338,7 @@ pub async fn update(
 
     // Upload image files to S3 and attach to artist
     for (file_data, filename, content_type) in image_files {
-        storage_service::upload_and_attach(
+        storage::upload_and_attach(
             &state.s3,
             &state.db,
             "Artist",
@@ -357,7 +357,7 @@ pub async fn update(
         .ok_or_else(|| AppError::NotFound(format!("Artist #{}", id)))?;
 
     let (image_urls, thumbnail_urls) =
-        storage_service::get_image_urls(&state.s3, &state.db, "Artist", artist.id)
+        storage::get_image_urls(&state.s3, &state.db, "Artist", artist.id)
             .await
             .unwrap_or_else(|_| (Vec::new(), Vec::new()));
 
