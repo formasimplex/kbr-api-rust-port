@@ -262,7 +262,7 @@ mod tests {
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert_eq!(status, 201, "Expected 201, got {}: {:?}", status, body);
 
-        let id = body["id"].as_i64().expect("response should have id");
+        let _id = body["id"].as_i64().expect("response should have id");
         _guard.cleanup().await;
     }
 
@@ -327,7 +327,7 @@ mod tests {
         let body: serde_json::Value = test::read_body_json(resp).await;
         assert_eq!(status, 201, "Expected 201, got {}: {:?}", status, body);
 
-        let reply_id = body["id"].as_i64().expect("response should have id");
+        let _reply_id = body["id"].as_i64().expect("response should have id");
         _guard.cleanup().await;
     }
 

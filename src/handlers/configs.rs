@@ -184,7 +184,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn config_create_success() {
         crate::test_utils::set_test_env_jwt();
-        let (_guard, state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/configs")

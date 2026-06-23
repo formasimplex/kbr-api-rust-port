@@ -182,7 +182,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn reset_trigger_create_returns_generic_response() {
         crate::test_utils::set_test_env();
-        let (_guard, state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let email = format!("reset_create_{}@example.com", chrono::Utc::now().timestamp_micros());
 
@@ -205,7 +205,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn reset_trigger_create_nonexistent_email_returns_same_response() {
         crate::test_utils::set_test_env();
-        let (_guard, state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let nonexistent = format!("nonexistent_{}@example.com", chrono::Utc::now().timestamp_micros());
 

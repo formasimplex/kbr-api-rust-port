@@ -306,7 +306,7 @@ mod tests {
         crate::test_utils::set_test_env();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let (user_id, user_email) = seed_test_user(&state.db, "event_test", "artist").await;
+        let (user_id, _user_email) = seed_test_user(&state.db, "event_test", "artist").await;
         let event_id = seed_event(&state.db, user_id as i32).await;
 
         let req = test::TestRequest::get()
@@ -344,7 +344,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn event_create_authenticated() {
         crate::test_utils::set_test_env_jwt();
-        let (_guard, state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let name = format!("New Event {}", unique_suffix());
         let now = chrono::Utc::now();
@@ -397,8 +397,8 @@ mod tests {
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let (user_id, user_email) = seed_test_user(&state.db, "event_test", "artist").await;
-        let event_id = seed_event(&state.db, user_id as i32).await;
+        let (user_id, _user_email) = seed_test_user(&state.db, "event_test", "artist").await;
+        let _event_id = seed_event(&state.db, user_id as i32).await;
 
         let req = test::TestRequest::get()
             .uri("/kbr_events_by_user")
@@ -421,8 +421,8 @@ mod tests {
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let (user_id, user_email) = seed_test_user(&state.db, "event_test", "artist").await;
-        let event_id = seed_event(&state.db, user_id as i32).await;
+        let (user_id, _user_email) = seed_test_user(&state.db, "event_test", "artist").await;
+        let _event_id = seed_event(&state.db, user_id as i32).await;
 
         let req = test::TestRequest::get()
             .uri("/kbr_events_by_user")
@@ -462,7 +462,7 @@ mod tests {
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let (user_id, user_email) = seed_test_user(&state.db, "event_test", "artist").await;
+        let (user_id, _user_email) = seed_test_user(&state.db, "event_test", "artist").await;
         let event_id = seed_event(&state.db, user_id as i32).await;
 
         let req = test::TestRequest::put()

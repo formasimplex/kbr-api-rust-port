@@ -526,7 +526,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn artist_create_admin() {
         crate::test_utils::set_test_env_jwt();
-        let (_guard, state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
         let name = format!("New Artist {}", ts);
@@ -868,7 +868,7 @@ mod tests {
 
         // Seed an existing artist user
         let now = chrono::Utc::now().naive_utc();
-        let existing_user_id: i64 = sqlx::query_scalar(
+        let _existing_user_id: i64 = sqlx::query_scalar(
             r"INSERT INTO users (email, password_digest, role, created_at, updated_at)
                VALUES ($1, $2, 'artist', $3, $3) RETURNING id",
         )

@@ -112,7 +112,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn sign_up_trigger_create_success() {
         crate::test_utils::set_test_env();
-        let (_guard, state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/sign_up_trigger")

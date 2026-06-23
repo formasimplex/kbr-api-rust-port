@@ -288,7 +288,7 @@ mod tests {
     async fn merchandise_show_found() {
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
-        let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
+        let (artist_id, producer_id, _artist_name, _producer_name) = seed_artist_and_producer(&state.db).await;
 
         let seed = sqlx::query_as::<_, ArtistMerchandiseWithCache>(
             r"INSERT INTO artist_merchandise (artist_id, producer_id, merchandise_id, description,
@@ -341,7 +341,7 @@ mod tests {
     async fn merchandise_by_artist() {
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
-        let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
+        let (artist_id, producer_id, _artist_name, _producer_name) = seed_artist_and_producer(&state.db).await;
 
         let _ = sqlx::query(
             r"INSERT INTO artist_merchandise (artist_id, producer_id, merchandise_id, merch_title, created_at, updated_at)
@@ -370,7 +370,7 @@ mod tests {
     async fn merchandise_create_success() {
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
-        let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
+        let (artist_id, producer_id, _artist_name, _producer_name) = seed_artist_and_producer(&state.db).await;
 
         let suffix = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -423,7 +423,7 @@ mod tests {
     async fn merchandise_update_success() {
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
-        let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
+        let (artist_id, producer_id, _artist_name, _producer_name) = seed_artist_and_producer(&state.db).await;
 
         let suffix = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -488,7 +488,7 @@ mod tests {
     async fn merchandise_destroy_success() {
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
-        let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
+        let (artist_id, producer_id, _artist_name, _producer_name) = seed_artist_and_producer(&state.db).await;
 
         let suffix = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -559,7 +559,7 @@ mod tests {
     async fn by_artist_returns_empty_when_no_merchandise() {
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
-        let (artist_id, _producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
+        let (artist_id, _producer_id, _artist_name, _producer_name) = seed_artist_and_producer(&state.db).await;
 
         let req = test::TestRequest::get()
             .uri(&format!("/artist_merchandise/by_artist/{}", artist_id))
@@ -592,7 +592,7 @@ mod tests {
     async fn merchandise_update_partial_preserves_unsent_fields() {
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
-        let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
+        let (artist_id, producer_id, _artist_name, _producer_name) = seed_artist_and_producer(&state.db).await;
 
         let suffix = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -635,7 +635,7 @@ mod tests {
     async fn merchandise_create_all_fields() {
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
-        let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
+        let (artist_id, producer_id, _artist_name, _producer_name) = seed_artist_and_producer(&state.db).await;
 
         let suffix = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -676,7 +676,7 @@ mod tests {
     async fn merchandise_show_includes_shopify_json_cache() {
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
-        let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
+        let (artist_id, producer_id, _artist_name, _producer_name) = seed_artist_and_producer(&state.db).await;
 
         let cache_json = serde_json::json!({
             "node": {
@@ -739,7 +739,7 @@ mod tests {
     async fn merchandise_show_null_shopify_json_cache_when_missing() {
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
-        let (artist_id, producer_id, artist_name, producer_name) = seed_artist_and_producer(&state.db).await;
+        let (artist_id, producer_id, _artist_name, _producer_name) = seed_artist_and_producer(&state.db).await;
 
         let id: i64 = sqlx::query_scalar::<_, i64>(
             r"INSERT INTO artist_merchandise (artist_id, producer_id, merch_title, created_at, updated_at)

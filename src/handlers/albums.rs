@@ -160,7 +160,7 @@ mod tests {
 
         let token =
             encode_token_with_role(1, TEST_SECRET, 3, Some("admin".to_string()), 1).unwrap();
-        let (_guard, state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/albums")

@@ -377,7 +377,7 @@ mod tests {
         let (_guard, state, app) = crate::build_test_app!(config_routes);
         let suffix = format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos());
         let news_id = seed_news(&state, &suffix).await;
-        let title = format!("Test News {}", suffix);
+        let _title = format!("Test News {}", suffix);
 
         let req = test::TestRequest::put()
             .uri(&format!("/news/{}", news_id))
@@ -401,7 +401,7 @@ mod tests {
         let (_guard, state, app) = crate::build_test_app!(config_routes);
         let suffix = format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos());
         let news_id = seed_news(&state, &suffix).await;
-        let title = format!("Test News {}", suffix);
+        let _title = format!("Test News {}", suffix);
 
         let req = test::TestRequest::put()
             .uri(&format!("/news/{}", news_id))
@@ -422,7 +422,7 @@ mod tests {
         let (_guard, state, app) = crate::build_test_app!(config_routes);
         let suffix = format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos());
         let news_id = seed_news(&state, &suffix).await;
-        let title = format!("Test News {}", suffix);
+        let _title = format!("Test News {}", suffix);
 
         let req = test::TestRequest::post()
             .uri(&format!("/news/{}/toggle_comments", news_id))
@@ -443,7 +443,7 @@ mod tests {
         let (_guard, state, app) = crate::build_test_app!(config_routes);
         let suffix = format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos());
         let news_id = seed_news(&state, &suffix).await;
-        let news_title = format!("Test News {}", suffix);
+        let _news_title = format!("Test News {}", suffix);
         let playlist_name = format!("Test Playlist {}", suffix);
         let playlist_id = seed_news_playlist(&state.db, 1, &playlist_name).await;
 
@@ -508,7 +508,7 @@ mod tests {
         let (_guard, state, app) = crate::build_test_app!(config_routes);
         let suffix = format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos());
         let news_id = seed_news(&state, &suffix).await;
-        let news_title = format!("Test News {}", suffix);
+        let _news_title = format!("Test News {}", suffix);
         let playlist_name = format!("Test Playlist {}", suffix);
         let playlist_id = seed_news_playlist(&state.db, 1, &playlist_name).await;
 
@@ -551,7 +551,7 @@ mod tests {
         let (_guard, state, app) = crate::build_test_app!(config_routes);
         let suffix = format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos());
         let news_id = seed_news(&state, &suffix).await;
-        let news_title = format!("Test News {}", suffix);
+        let _news_title = format!("Test News {}", suffix);
         let playlist_name = format!("Test Playlist {}", suffix);
         let playlist_id = seed_news_playlist(&state.db, 1, &playlist_name).await;
 

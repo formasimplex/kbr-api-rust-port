@@ -122,7 +122,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn producer_create_success() {
         crate::test_utils::set_test_env_jwt();
-        let (_guard, state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let suffix = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
