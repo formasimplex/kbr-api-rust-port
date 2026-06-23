@@ -22,7 +22,7 @@ use uuid::Uuid;
 
 use crate::app::AppState;
 use crate::auth::middleware::CurrentUser;
-use crate::auth::roles::is_admin;
+use crate::auth::permissions::is_admin;
 use crate::data::mailing as data;
 use crate::error::AppError;
 use crate::jobs::Job;

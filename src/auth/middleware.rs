@@ -17,11 +17,11 @@ pub struct CurrentUser {
 
 impl CurrentUser {
     pub fn is_admin(&self) -> bool {
-        crate::auth::roles::is_admin(&self.role)
+        crate::auth::permissions::is_admin(&self.role)
     }
 
     pub fn is_artist_or_above(&self) -> bool {
-        crate::auth::roles::is_artist_or_above(&self.role)
+        crate::auth::permissions::is_artist_or_above(&self.role)
     }
 }
 
@@ -43,20 +43,18 @@ impl FromRequest for CurrentUser {
             .app_data::<actix_web::web::Data<actix_jc::ActixJwtCookie<Claims>>>()
             .and_then(|builder| req.cookie(builder.name.as_ref()).map(|c| c.value().to_string()));
 
-        let secret = match std::env::var("JWT_SECRET") {
-            Ok(s) => s,
-            Err(_) => {
+        let state = req.app_data::<actix_web::web::Data<crate::app::AppState>>();
+
+        let (secret, pool) = match state {
+            Some(s) => (s.jwt_secret.clone(), Some(s.db.clone())),
+            None => {
                 return Box::pin(async move {
                     Err(actix_web::error::ErrorInternalServerError(
-                        "JWT_SECRET not configured",
+                        "application state not available",
                     ))
                 });
             }
         };
-
-        let pool = req
-            .app_data::<actix_web::web::Data<crate::app::AppState>>()
-            .map(|s| s.db.clone());
 
         Box::pin(async move {
             let claims = if let Some(cookie) = cookie_value {

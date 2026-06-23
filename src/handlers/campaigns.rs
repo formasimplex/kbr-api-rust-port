@@ -21,7 +21,7 @@ use actix_web::{web, HttpResponse};
 
 use crate::app::AppState;
 use crate::auth::middleware::CurrentUser;
-use crate::auth::roles::is_artist_or_above;
+use crate::auth::permissions::is_artist_or_above;
 use crate::data::campaigns as data;
 use crate::error::AppError;
 use crate::models::campaign::{Campaign, CampaignResponse, CreateCampaignRequest, UpdateCampaignRequest, ActivateCampaignRequest};

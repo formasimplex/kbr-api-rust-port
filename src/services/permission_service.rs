@@ -1,4 +1,5 @@
-use crate::auth::roles::{has_permission, PermissionResource, RESOURCES};
+use crate::auth::permissions::{has_permission, PermissionResource};
+use crate::auth::resources::RESOURCES;
 use crate::error::AppError;
 use crate::models::permission::{CreatePermissionRequest, Permission};
 

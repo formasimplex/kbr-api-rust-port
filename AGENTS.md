@@ -30,7 +30,9 @@ src/
     kbr_migrate.rs — migration CLI (migrate, rollback, status, check)
   auth/
     jwt.rs         — Claims, encode/decode, get_jwt_secret
-    roles.rs       — Role enum, guards, PermissionResource, RESOURCES
+    roles.rs       — Role enum
+    permissions.rs — PermissionResource, has_permission, is_admin, is_artist_or_above, is_customer_or_above
+    resources.rs   — RESOURCES constant, ResourceNames
     middleware.rs  — CurrentUser extractor, FromRequest
   db/
     pool.rs        — PgPool connection setup

@@ -18,7 +18,7 @@ use actix_web::{web, HttpResponse};
 
 use crate::app::AppState;
 use crate::auth::middleware::CurrentUser;
-use crate::auth::roles::is_artist_or_above;
+use crate::auth::permissions::is_artist_or_above;
 use crate::error::AppError;
 use crate::services::storage::{
     self, generate_presigned_url,

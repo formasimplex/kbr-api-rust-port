@@ -22,7 +22,7 @@ use uuid::Uuid;
 
 use crate::app::AppState;
 use crate::auth::middleware::CurrentUser;
-use crate::auth::roles::is_artist_or_above;
+use crate::auth::permissions::is_artist_or_above;
 use crate::data::artists as data;
 use crate::error::AppError;
 use crate::models::artist::{Artist, ArtistResponse, CreateArtistRequest, UpdateArtistRequest};
