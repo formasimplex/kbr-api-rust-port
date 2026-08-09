@@ -1,7 +1,8 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
+use sqlx::FromRow;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, FromRow, PartialEq, Eq)]
 pub struct CampaignPage {
     pub id: i64,
     pub campaign_id: i64,
@@ -10,8 +11,8 @@ pub struct CampaignPage {
     pub page_type: Option<i32>,
     pub inventory_item_id: Option<String>,
     pub inventory_url: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -54,8 +55,8 @@ impl CampaignPage {
             description: self.description.clone(),
             page_type: self.page_type,
             inventory_url: self.inventory_url.clone(),
-            created_at: self.created_at,
-            updated_at: self.updated_at,
+            created_at: self.created_at.and_utc(),
+            updated_at: self.updated_at.and_utc(),
         }
     }
 }

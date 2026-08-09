@@ -15,6 +15,10 @@ path = "src/bin/kbr_migrate.rs"
 name = "deploy_webhook"
 path = "src/bin/deploy_webhook.rs"
 
+[[bin]]
+name = "kbr-seed"
+path = "src/bin/kbr_seed.rs"
+
 [lib]
 name = "kbr_api_rust"
 path = "src/lib.rs"
@@ -52,7 +56,6 @@ tagparser = "0.6"
 # Utilities
 rand = "0.8"
 futures-util = "0.3"
-sha256 = "1.6"
 sha2 = "0.10"
 hex = "0.4"
 async-trait = "0.1"

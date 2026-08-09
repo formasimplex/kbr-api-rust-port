@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
@@ -7,13 +7,46 @@ pub struct Comment {
     pub id: i64,
     pub content: Option<String>,
     pub flagged: Option<bool>,
-    pub flagged_at: Option<DateTime<Utc>>,
+    pub flagged_at: Option<NaiveDateTime>,
     pub commentable_type: String,
     pub commentable_id: i64,
     pub user_id: i64,
     pub parent_id: Option<i32>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+}
+
+/// Comment with joined users.username.
+#[derive(Debug, FromRow)]
+pub struct CommentWithUser {
+    pub id: i64,
+    pub content: Option<String>,
+    pub flagged: Option<bool>,
+    pub flagged_at: Option<NaiveDateTime>,
+    pub commentable_type: String,
+    pub commentable_id: i64,
+    pub user_id: i64,
+    pub parent_id: Option<i32>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+    pub username: Option<String>,
+}
+
+impl From<CommentWithUser> for Comment {
+    fn from(row: CommentWithUser) -> Self {
+        Comment {
+            id: row.id,
+            content: row.content,
+            flagged: row.flagged,
+            flagged_at: row.flagged_at,
+            commentable_type: row.commentable_type,
+            commentable_id: row.commentable_id,
+            user_id: row.user_id,
+            parent_id: row.parent_id,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -43,7 +76,7 @@ impl Comment {
         CommentResponse {
             id: self.id,
             content: self.content.clone(),
-            created_at: self.created_at,
+            created_at: self.created_at.and_utc(),
             user: username.map(|u| CommentUser { username: Some(u) }),
             replies,
         }
@@ -73,8 +106,8 @@ mod tests {
             commentable_id: 5,
             user_id: 10,
             parent_id: Some(1),
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: chrono::Utc::now().naive_utc(),
+            updated_at: chrono::Utc::now().naive_utc(),
         };
         assert!(reply.is_reply());
 

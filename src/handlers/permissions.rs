@@ -14,44 +14,15 @@
 //! | `update` | PUT | `/v1/permissions/{id}` | admin | Update permission flags |
 
 use actix_web::{web, HttpResponse};
-use sqlx::FromRow;
 
 use crate::app::AppState;
 use crate::auth::middleware::CurrentUser;
+use crate::data::permissions as data;
 use crate::error::AppError;
 use crate::models::permission::{
-    CreatePermissionRequest, Permission, PermissionResponse, UpdatePermissionRequest,
+    CreatePermissionRequest, PermissionResponse, UpdatePermissionRequest,
 };
 use crate::services::permission_service::PermissionService;
-
-#[derive(Debug, FromRow)]
-struct PermissionRow {
-    id: i64,
-    resource: Option<String>,
-    can_create: bool,
-    can_read: bool,
-    can_update: bool,
-    can_delete: bool,
-    user_id: i64,
-    created_at: chrono::NaiveDateTime,
-    updated_at: chrono::NaiveDateTime,
-}
-
-impl From<PermissionRow> for Permission {
-    fn from(row: PermissionRow) -> Self {
-        Permission {
-            id: row.id,
-            resource: row.resource,
-            can_create: row.can_create,
-            can_read: row.can_read,
-            can_update: row.can_update,
-            can_delete: row.can_delete,
-            user_id: row.user_id,
-            created_at: row.created_at.and_utc(),
-            updated_at: row.updated_at.and_utc(),
-        }
-    }
-}
 
 /// List all permissions.
 ///
@@ -68,13 +39,7 @@ pub async fn index(
     if !user.is_admin() {
         return Err(AppError::Forbidden("Not Authorized".to_string()));
     }
-    let rows = sqlx::query_as::<_, PermissionRow>(
-        r"SELECT id, resource, can_create, can_read, can_update, can_delete, user_id, created_at, updated_at FROM permissions"
-    )
-    .fetch_all(&state.db)
-    .await?;
-
-    let perms: Vec<Permission> = rows.into_iter().map(|r| r.into()).collect();
+    let perms = data::list(&state.db).await?;
     let responses: Vec<PermissionResponse> = perms.iter().map(|p| p.to_response()).collect();
     Ok(HttpResponse::Ok().json(responses))
 }
@@ -115,17 +80,8 @@ pub async fn show(
     }
     let id = path.into_inner();
 
-    match sqlx::query_as::<_, PermissionRow>(
-        r"SELECT id, resource, can_create, can_read, can_update, can_delete, user_id, created_at, updated_at FROM permissions WHERE id = $1"
-    )
-    .bind(id)
-    .fetch_optional(&state.db)
-    .await?
-    {
-        Some(row) => {
-            let perm: Permission = row.into();
-            Ok(HttpResponse::Ok().json(perm.to_response()))
-        }
+    match data::by_id(&state.db, id).await? {
+        Some(perm) => Ok(HttpResponse::Ok().json(perm.to_response())),
         None => Err(AppError::NotFound(format!("Permission #{}", id))),
     }
 }
@@ -153,23 +109,7 @@ pub async fn create(
 
     let now = chrono::Utc::now().naive_utc();
 
-    let row = sqlx::query_as::<_, PermissionRow>(
-        r"INSERT INTO permissions (resource, can_create, can_read, can_update, can_delete, user_id, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-           RETURNING id, resource, can_create, can_read, can_update, can_delete, user_id, created_at, updated_at"
-    )
-    .bind(&body.resource)
-    .bind(body.can_create.unwrap_or(false))
-    .bind(body.can_read.unwrap_or(true))
-    .bind(body.can_update.unwrap_or(false))
-    .bind(body.can_delete.unwrap_or(false))
-    .bind(user.id)
-    .bind(now)
-    .bind(now)
-    .fetch_one(&state.db)
-    .await?;
-
-    let perm: Permission = row.into();
+    let perm = data::create(&state.db, &body.resource, body.can_create.unwrap_or(false), body.can_read.unwrap_or(true), body.can_update.unwrap_or(false), body.can_delete.unwrap_or(false), user.id, now).await?;
     Ok(HttpResponse::Created().json(perm.to_response()))
 }
 
@@ -195,30 +135,8 @@ pub async fn update(
     let id = path.into_inner();
     let now = chrono::Utc::now().naive_utc();
 
-    let row = sqlx::query_as::<_, PermissionRow>(
-        r"UPDATE permissions
-           SET can_create = COALESCE($1, can_create),
-               can_read = COALESCE($2, can_read),
-               can_update = COALESCE($3, can_update),
-               can_delete = COALESCE($4, can_delete),
-               updated_at = $5
-           WHERE id = $6
-           RETURNING id, resource, can_create, can_read, can_update, can_delete, user_id, created_at, updated_at"
-    )
-    .bind(body.can_create)
-    .bind(body.can_read)
-    .bind(body.can_update)
-    .bind(body.can_delete)
-    .bind(now)
-    .bind(id)
-    .fetch_optional(&state.db)
-    .await?;
-
-    match row {
-        Some(r) => {
-            let perm: Permission = r.into();
-            Ok(HttpResponse::Ok().json(perm.to_response()))
-        }
+    match data::update(&state.db, id, body.can_create, body.can_read, body.can_update, body.can_delete, now).await? {
+        Some(perm) => Ok(HttpResponse::Ok().json(perm.to_response())),
         None => Err(AppError::NotFound(format!("Permission #{}", id))),
     }
 }

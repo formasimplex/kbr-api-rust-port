@@ -12,10 +12,10 @@
 
 use actix_web::{web, HttpResponse};
 use actix_governor::{Governor, GovernorConfigBuilder};
-use sqlx::FromRow;
 use uuid::Uuid;
 
 use crate::app::AppState;
+use crate::data::reset_trigger as data;
 use crate::error::AppError;
 use crate::models::reset_trigger::{ResetTrigger, UpdateResetTriggerRequest};
 use crate::models::user::User;
@@ -24,31 +24,6 @@ use crate::services::auth_service::hash_password;
 async fn reset_jitter() {
     let ms = rand::random::<u64>() % 601 + 200;
     tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
-}
-
-#[derive(Debug, FromRow)]
-struct ResetTriggerRow {
-    id: i64,
-    user_id: Option<i32>,
-    token: Option<String>,
-    expires_at: Option<String>,
-    created_at: chrono::NaiveDateTime,
-    updated_at: chrono::NaiveDateTime,
-}
-
-impl From<ResetTriggerRow> for ResetTrigger {
-    fn from(row: ResetTriggerRow) -> Self {
-        ResetTrigger {
-            id: row.id,
-            email: None,
-            user_id: row.user_id,
-            full_name: None,
-            token: row.token,
-            expires_at: row.expires_at,
-            created_at: row.created_at.and_utc(),
-            updated_at: row.updated_at.and_utc(),
-        }
-    }
 }
 
 /// Create a new password reset trigger for an email address.
@@ -74,33 +49,14 @@ pub async fn create(
 
     reset_jitter().await;
 
-    let user_id: Option<i64> = sqlx::query_scalar(
-        r"SELECT id FROM users WHERE email = $1"
-    )
-    .bind(&body.email)
-    .fetch_optional(&state.db)
-    .await?;
-
+    let user_id = data::find_user_by_email(&state.db, &body.email).await?;
     let user_id_int: Option<i32> = user_id.map(|id| id as i32);
 
     let token = ResetTrigger::generate_token();
     let expires_at = ResetTrigger::generate_expires_at();
     let now = chrono::Utc::now().naive_utc();
 
-    let row = sqlx::query_as::<_, ResetTriggerRow>(
-        r"INSERT INTO reset_triggers (user_id, token, expires_at, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5)
-           RETURNING id, user_id, token, expires_at, created_at, updated_at"
-    )
-    .bind(user_id_int)
-    .bind(&token)
-    .bind(&expires_at)
-    .bind(now)
-    .bind(now)
-    .fetch_one(&state.db)
-    .await?;
-
-    let trigger: ResetTrigger = row.into();
+    let trigger = data::create(&state.db, user_id_int, &token, &expires_at, now).await?;
 
     if user_id.is_some() {
         let job_id = Uuid::new_v4();
@@ -156,14 +112,7 @@ pub async fn update(
 
     let mut tx = state.db.begin().await?;
 
-    let trigger = sqlx::query_as::<_, ResetTriggerRow>(
-        r"SELECT id, user_id, token, expires_at, created_at, updated_at
-           FROM reset_triggers WHERE token = $1 FOR UPDATE"
-    )
-    .bind(&token)
-    .fetch_optional(&mut *tx)
-    .await?;
-
+    let trigger = data::find_by_token_for_update(&mut tx, &token).await?;
     let trigger = match trigger {
         Some(t) => t,
         None => {
@@ -179,13 +128,9 @@ pub async fn update(
         AppError::NotFound("Reset trigger has no associated user".to_string())
     })?;
 
-    let current_hash: String = sqlx::query_scalar(
-        "SELECT password_digest FROM users WHERE id = $1"
-    )
-    .bind(user_id as i64)
-    .fetch_one(&mut *tx)
-    .await
-    .map_err(|_| AppError::NotFound("User not found".to_string()))?;
+    let current_hash = data::get_current_password(&mut tx, user_id as i64)
+        .await
+        .map_err(|_| AppError::NotFound("User not found".to_string()))?;
 
     if bcrypt::verify(&body.password, &current_hash).map_err(AppError::Bcrypt)? {
         return Err(AppError::Validation(
@@ -196,19 +141,8 @@ pub async fn update(
     let new_hash = hash_password(&body.password)?;
     let now = chrono::Utc::now().naive_utc();
 
-    sqlx::query(
-        r"UPDATE users SET password_digest = $1, token_version = COALESCE(token_version, 1) + 1, updated_at = $2 WHERE id = $3"
-    )
-    .bind(&new_hash)
-    .bind(now)
-    .bind(user_id as i64)
-    .execute(&mut *tx)
-    .await?;
-
-    sqlx::query(r"DELETE FROM reset_triggers WHERE token = $1")
-        .bind(&token)
-        .execute(&mut *tx)
-        .await?;
+    data::update_password_and_invalidate(&mut tx, user_id as i64, &new_hash, now).await?;
+    data::delete_trigger(&mut tx, &token).await?;
 
     tx.commit().await?;
 
@@ -248,7 +182,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn reset_trigger_create_returns_generic_response() {
         crate::test_utils::set_test_env();
-        let (_guard, state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let email = format!("reset_create_{}@example.com", chrono::Utc::now().timestamp_micros());
 
@@ -259,8 +193,9 @@ mod tests {
             }))
             .to_request();
         let resp = test::call_service(&app, req).await;
-        assert_eq!(resp.status(), 200);
+        let status = resp.status();
         let body: serde_json::Value = test::read_body_json(resp).await;
+        assert_eq!(status, 200);
         assert!(body["message"].is_string());
         assert!(!body["message"].as_str().unwrap().contains("token"));
 
@@ -270,7 +205,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn reset_trigger_create_nonexistent_email_returns_same_response() {
         crate::test_utils::set_test_env();
-        let (_guard, state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let nonexistent = format!("nonexistent_{}@example.com", chrono::Utc::now().timestamp_micros());
 

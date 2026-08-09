@@ -18,69 +18,15 @@
 //! | `activate_campaign` | POST | `/v1/activate_campaign` | artist+ | Activate campaign with Shopify product creation |
 
 use actix_web::{web, HttpResponse};
-use sqlx::FromRow;
 
 use crate::app::AppState;
 use crate::auth::middleware::CurrentUser;
-use crate::auth::roles::is_artist_or_above;
+use crate::auth::permissions::is_artist_or_above;
+use crate::data::campaigns as data;
 use crate::error::AppError;
 use crate::models::campaign::{Campaign, CampaignResponse, CreateCampaignRequest, UpdateCampaignRequest, ActivateCampaignRequest};
+use crate::services::campaign_activation::{ActivationContext, CampaignActivationService};
 use crate::services::campaign_service::CampaignService;
-use crate::services::shopify_graph_ql::ShopifyGraphQl;
-use crate::services::storage_service::get_image_urls;
-
-#[derive(Debug, FromRow)]
-struct CampaignRow {
-    id: i64,
-    artist_id: i64,
-    name: Option<String>,
-    active: Option<bool>,
-    vinyl_sold_count: Option<i32>,
-    campaign_start_date: Option<chrono::NaiveDateTime>,
-    campaign_end_date: Option<chrono::NaiveDateTime>,
-    progress: Option<i32>,
-    album_id: Option<i64>,
-    deleted_at: Option<chrono::NaiveDateTime>,
-    created_at: chrono::NaiveDateTime,
-    updated_at: chrono::NaiveDateTime,
-}
-
-impl From<CampaignRow> for Campaign {
-    fn from(row: CampaignRow) -> Self {
-        Campaign {
-            id: row.id,
-            artist_id: row.artist_id,
-            name: row.name,
-            active: row.active,
-            vinyl_sold_count: row.vinyl_sold_count,
-            campaign_start_date: row.campaign_start_date.map(|dt| dt.and_utc()),
-            campaign_end_date: row.campaign_end_date.map(|dt| dt.and_utc()),
-            progress: row.progress,
-            album_id: row.album_id,
-            deleted_at: row.deleted_at.map(|dt| dt.and_utc()),
-            created_at: row.created_at.and_utc(),
-            updated_at: row.updated_at.and_utc(),
-        }
-    }
-}
-
-const CAMPAIGN_SELECT: &str =
-    r#"SELECT id, artist_id, name, active, vinyl_sold_count,
-       campaign_start_date, campaign_end_date, progress, album_id,
-       deleted_at, created_at, updated_at FROM campaigns"#;
-
-#[derive(Debug, sqlx::FromRow)]
-struct CampaignPageRow {
-    id: i64,
-    _campaign_id: i64,
-    title: Option<String>,
-    description: Option<String>,
-    _page_type: Option<i32>,
-    _inventory_item_id: Option<String>,
-    _inventory_url: Option<String>,
-    _created_at: chrono::NaiveDateTime,
-    _updated_at: chrono::NaiveDateTime,
-}
 
 /// List all non-deleted campaigns.
 ///
@@ -91,13 +37,7 @@ struct CampaignPageRow {
 ///
 /// `200 OK` — JSON array of `CampaignResponse`
 pub async fn index(state: web::Data<AppState>) -> Result<HttpResponse, AppError> {
-    let rows = sqlx::query_as::<_, CampaignRow>(
-        &format!("{} WHERE deleted_at IS NULL ORDER BY id", CAMPAIGN_SELECT),
-    )
-    .fetch_all(&state.db)
-    .await?;
-
-    let campaigns: Vec<Campaign> = rows.into_iter().map(|r| r.into()).collect();
+    let campaigns = data::list(&state.db).await?;
     let responses: Vec<CampaignResponse> = campaigns.iter().map(|c| c.to_response()).collect();
     Ok(HttpResponse::Ok().json(responses))
 }
@@ -116,23 +56,13 @@ pub async fn index_by_user(
     user: CurrentUser,
 ) -> Result<HttpResponse, AppError> {
     let campaigns = if user.is_admin() {
-        sqlx::query_as::<_, CampaignRow>(
-            &format!("{} WHERE deleted_at IS NULL ORDER BY id", CAMPAIGN_SELECT),
-        )
-        .fetch_all(&state.db)
-        .await?
+        data::list(&state.db).await?
     } else if is_artist_or_above(&user.role) {
-        sqlx::query_as::<_, CampaignRow>(
-            &format!("{} WHERE artist_id = $1 AND deleted_at IS NULL ORDER BY id", CAMPAIGN_SELECT),
-        )
-        .bind(user.id)
-        .fetch_all(&state.db)
-        .await?
+        data::list_by_artist(&state.db, user.id).await?
     } else {
         return Err(AppError::Forbidden("Not Authorized".to_string()));
     };
 
-    let campaigns: Vec<Campaign> = campaigns.into_iter().map(|r| r.into()).collect();
     let responses: Vec<CampaignResponse> = campaigns.iter().map(|c| c.to_response()).collect();
     Ok(HttpResponse::Ok().json(responses))
 }
@@ -146,13 +76,7 @@ pub async fn index_by_user(
 ///
 /// `200 OK` — JSON array of `CampaignResponse`
 pub async fn active_campaigns(state: web::Data<AppState>) -> Result<HttpResponse, AppError> {
-    let rows = sqlx::query_as::<_, CampaignRow>(
-        &format!("{} WHERE active = true AND deleted_at IS NULL ORDER BY id", CAMPAIGN_SELECT),
-    )
-    .fetch_all(&state.db)
-    .await?;
-
-    let campaigns: Vec<Campaign> = rows.into_iter().map(|r| r.into()).collect();
+    let campaigns = data::active(&state.db).await?;
     let responses: Vec<CampaignResponse> = campaigns.iter().map(|c| c.to_response()).collect();
     Ok(HttpResponse::Ok().json(responses))
 }
@@ -170,17 +94,8 @@ pub async fn show(
     path: web::Path<i64>,
 ) -> Result<HttpResponse, AppError> {
     let id = path.into_inner();
-    match sqlx::query_as::<_, CampaignRow>(
-        &format!("{} WHERE id = $1", CAMPAIGN_SELECT),
-    )
-    .bind(id)
-    .fetch_optional(&state.db)
-    .await?
-    {
-        Some(row) => {
-            let campaign: Campaign = row.into();
-            Ok(HttpResponse::Ok().json(campaign.to_response()))
-        }
+    match data::by_id(&state.db, id).await? {
+        Some(campaign) => Ok(HttpResponse::Ok().json(campaign.to_response())),
         None => Err(AppError::NotFound(format!("Campaign #{}", id))),
     }
 }
@@ -207,33 +122,13 @@ pub async fn create(
 
     let now = chrono::Utc::now().naive_utc();
 
-    let row = sqlx::query_as::<_, CampaignRow>(
-        r#"INSERT INTO campaigns (artist_id, name, active, vinyl_sold_count, campaign_start_date, campaign_end_date, progress, album_id, created_at, updated_at)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-               RETURNING id, artist_id, name, active, vinyl_sold_count,
-               campaign_start_date, campaign_end_date, progress, album_id,
-               deleted_at, created_at, updated_at"#,
-    )
-    .bind(body.artist_id)
-    .bind(&body.name)
-    .bind(false)
-    .bind(body.vinyl_sold_count)
-    .bind::<Option<chrono::NaiveDateTime>>(None)
-    .bind::<Option<chrono::NaiveDateTime>>(None)
-    .bind(0_i32)
-    .bind::<Option<i64>>(None)
-    .bind(now)
-    .bind(now)
-    .fetch_one(&state.db)
-    .await?;
-
-    let campaign: Campaign = row.into();
+    let campaign = data::create(&state.db, body.artist_id, &body.name, body.vinyl_sold_count, now).await?;
     Ok(HttpResponse::Created().json(campaign.to_response()))
 }
 
 /// Update an existing campaign.
 ///
-/// Requires artist+ role. Validates `vinyl_sold_count` is between 0 and 100.
+/// Requires artist+ role. Validates `vinyl_sold_count` is between 0 and VINYL_TARGET.
 /// Uses COALESCE to only update provided fields.
 ///
 /// # Response
@@ -256,39 +151,14 @@ pub async fn update(
     if let Some(vinyl) = body.vinyl_sold_count
         && !Campaign::validate_vinyl_sold_count(vinyl) {
             return Err(AppError::Validation(
-                "vinyl_sold_count must be between 0 and 100".to_string(),
+                format!("vinyl_sold_count must be between 0 and {}", crate::constants::VINYL_TARGET),
             ));
         }
 
     let now = chrono::Utc::now().naive_utc();
 
-    let row = sqlx::query_as::<_, CampaignRow>(
-        r#"UPDATE campaigns SET
-                name = COALESCE($1, name),
-                active = COALESCE($2, active),
-                vinyl_sold_count = COALESCE($3, vinyl_sold_count),
-                progress = COALESCE($4, progress),
-                campaign_start_date = COALESCE($5, campaign_start_date),
-                campaign_end_date = COALESCE($6, campaign_end_date),
-                updated_at = $7
-            WHERE id = $8
-            RETURNING id, artist_id, name, active, vinyl_sold_count,
-            campaign_start_date, campaign_end_date, progress, album_id,
-            deleted_at, created_at, updated_at"#,
-    )
-    .bind(body.name.as_deref())
-    .bind(body.active)
-    .bind(body.vinyl_sold_count)
-    .bind(body.progress)
-    .bind(body.campaign_start_date.map(|dt| dt.naive_utc()))
-    .bind(body.campaign_end_date.map(|dt| dt.naive_utc()))
-    .bind(now)
-    .bind(id)
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or_else(|| AppError::NotFound(format!("Campaign #{}", id)))?;
-
-    let campaign: Campaign = row.into();
+    let campaign = data::update(&state.db, id, &body.name, body.active, body.vinyl_sold_count, body.progress, body.campaign_start_date.map(|dt| dt.naive_utc()), body.campaign_end_date.map(|dt| dt.naive_utc()), now).await?
+        .ok_or_else(|| AppError::NotFound(format!("Campaign #{}", id)))?;
     Ok(HttpResponse::Ok().json(campaign.to_response()))
 }
 
@@ -314,17 +184,7 @@ pub async fn destroy(
 
     let now = chrono::Utc::now().naive_utc();
 
-    let result = sqlx::query(
-        r#"UPDATE campaigns SET deleted_at = $1, updated_at = $2
-           WHERE id = $3 AND deleted_at IS NULL"#,
-    )
-    .bind(now)
-    .bind(now)
-    .bind(id)
-    .execute(&state.db)
-    .await?;
-
-    if result.rows_affected() == 0 {
+    if !data::destroy(&state.db, id, now).await? {
         return Err(AppError::NotFound(format!("Campaign #{}", id)));
     }
 
@@ -339,11 +199,11 @@ pub async fn destroy(
 /// 1. Validates the campaign exists and has an associated campaign page
 /// 2. Retrieves the campaign page image URL from S3
 /// 3. Creates a Shopify product via GraphQL with title, description, and image
-/// 4. Creates a product variant ($23.00, 100 units inventory)
+/// 4. Creates a product variant with configured price and inventory
 /// 5. Publishes the product to the online store
 /// 6. Fetches final product details
 /// 7. Updates the campaign page with Shopify inventory_item_id and inventory_url
-/// 8. Updates the campaign with start_date, end_date (start + 45 days), and active = true
+/// 8. Updates the campaign with start_date, end_date (start + CAMPAIGN_DURATION_DAYS), and active = true
 ///
 /// All Shopify calls are sequential with fail-fast semantics — if any call fails,
 /// the database remains unchanged.
@@ -370,139 +230,14 @@ pub async fn activate_campaign(
         return Err(AppError::Forbidden("Not Authorized".to_string()));
     }
 
-    let campaign_id = body.campaign_id;
-    let start_date_str = &body.start_date;
+    let ctx = ActivationContext {
+        db: &state.db,
+        s3: &*state.s3,
+        shopify: &state.shopify,
+    };
 
-    // Parse start_date
-    let start_date = chrono::NaiveDate::parse_from_str(start_date_str, "%Y-%m-%d")
-        .map_err(|_| AppError::Validation("start_date must be in YYYY-MM-DD format".to_string()))?
-        .and_hms_opt(0, 0, 0)
-        .ok_or_else(|| AppError::Validation("Invalid start_date".to_string()))?;
-
-    let end_date = start_date
-        + chrono::TimeDelta::days(45);
-
-    // Verify Shopify client is configured
-    let shopify = state.shopify.as_ref().ok_or_else(|| {
-        AppError::Shopify("Shopify client not configured".to_string())
-    })?;
-    let sg = ShopifyGraphQl::new(shopify.clone());
-
-    // Find the campaign
-    let _campaign = sqlx::query_as::<_, CampaignRow>(
-        &format!("{} WHERE id = $1 AND deleted_at IS NULL", CAMPAIGN_SELECT),
-    )
-    .bind(campaign_id)
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or_else(|| AppError::NotFound(format!("Campaign #{}", campaign_id)))?;
-
-    // Find the campaign page
-    let campaign_page = sqlx::query_as::<_, CampaignPageRow>(
-        r#"SELECT id, campaign_id, title, description, page_type,
-           inventory_item_id, inventory_url, created_at, updated_at
-           FROM campaign_pages WHERE campaign_id = $1"#,
-    )
-    .bind(campaign_id)
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or_else(|| {
-        AppError::NotFound(format!("CampaignPage for campaign #{}", campaign_id))
-    })?;
-
-    let page_title = campaign_page.title.as_deref().unwrap_or("Campaign");
-    let page_description = campaign_page.description.as_deref().unwrap_or("");
-
-    // Get image URL from S3
-    let (image_urls, _) = get_image_urls(
-        &state.s3,
-        &state.db,
-        "CampaignPage",
-        campaign_page.id,
-    )
-    .await
-    .map_err(|e| AppError::Shopify(format!("Failed to get campaign page image: {}", e)))?;
-
-    let image_url = image_urls.first().ok_or_else(|| {
-        AppError::Shopify("Campaign page has no images attached".to_string())
-    })?;
-
-    // 1. Create Shopify product
-    let product_resp = sg
-        .create_campaign_product(page_title, page_description, image_url)
-        .await?;
-
-    let product_id = product_resp
-        .pointer("/data/productCreate/product/id")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| AppError::Shopify("Failed to get product ID from creation response".to_string()))?;
-
-    let option_id = product_resp
-        .pointer("/data/productCreate/product/options/0/id")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| AppError::Shopify("Failed to get product option ID".to_string()))?;
-
-    // 2. Get location ID
-    let location_id = sg.get_location_id().await?;
-
-    // 3. Create product variant
-    sg.create_product_variant(product_id, option_id, &location_id)
-        .await?;
-
-    // 4. Get publication ID
-    let publication_id = sg.get_publications_id().await?;
-
-    // 5. Publish product
-    sg.publish_product(product_id, &publication_id).await?;
-
-    // 6. Get final product details
-    let final_product = sg.get_product(product_id).await?;
-
-    let inventory_url = final_product
-        .pointer("/data/product/onlineStorePreviewUrl")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
-
-    let inventory_item_id = Some(product_id.to_string());
-
-    // 7. Update campaign page
-    let now = chrono::Utc::now().naive_utc();
-
-    sqlx::query(
-        r#"UPDATE campaign_pages SET
-               inventory_item_id = $1,
-               inventory_url = $2,
-               updated_at = $3
-           WHERE id = $4"#,
-    )
-    .bind(&inventory_item_id)
-    .bind(&inventory_url)
-    .bind(now)
-    .bind(campaign_page.id)
-    .execute(&state.db)
-    .await?;
-
-    // 8. Update campaign
-    let row = sqlx::query_as::<_, CampaignRow>(
-        r#"UPDATE campaigns SET
-               active = true,
-               campaign_start_date = $1,
-               campaign_end_date = $2,
-               updated_at = $3
-           WHERE id = $4
-           RETURNING id, artist_id, name, active, vinyl_sold_count,
-               campaign_start_date, campaign_end_date, progress, album_id,
-               deleted_at, created_at, updated_at"#,
-    )
-    .bind(start_date)
-    .bind(end_date)
-    .bind(now)
-    .bind(campaign_id)
-    .fetch_one(&state.db)
-    .await?;
-
-    let campaign: Campaign = row.into();
-    Ok(HttpResponse::Ok().json(campaign.to_response()))
+    let result = CampaignActivationService::activate(&ctx, body.campaign_id, &body.start_date).await?;
+    Ok(HttpResponse::Ok().json(result.campaign.to_response()))
 }
 
 pub fn config_routes(cfg: &mut web::ServiceConfig) {
@@ -519,61 +254,9 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-use crate::auth::jwt::encode_token_with_role;
-     use crate::test_utils::{admin_token, artist_token, not_found_id, TEST_SECRET};
+ use crate::auth::jwt::encode_token_with_role;
+     use crate::test_utils::{admin_token, artist_token, not_found_id, seed_artist, seed_campaign, seed_test_user, unique_suffix, TEST_SECRET};
     use actix_web::test;
-
-    async fn seed_user(pool: &sqlx::PgPool) -> i64 {
-        let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
-        let pid = std::process::id();
-        sqlx::query_scalar::<_, i64>(
-            r"INSERT INTO users (email, password_digest, role, created_at, updated_at)
-               VALUES ($1, $2, $3, NOW(), NOW())
-               RETURNING id",
-        )
-        .bind(format!("campaign_test_user_{}_{}@test.com", pid, ts))
-        .bind("hashed_password_test".to_string())
-        .bind(Some("artist".to_string()))
-        .fetch_one(pool)
-        .await
-        .expect("Failed to seed user")
-    }
-
-    async fn seed_artist(pool: &sqlx::PgPool, user_id: i64) -> i64 {
-        let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
-        let pid = std::process::id();
-        sqlx::query_scalar::<_, i64>(
-            r"INSERT INTO artists (name, genre, bio, user_id, prospect, created_at, updated_at)
-               VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
-               RETURNING id",
-        )
-        .bind(format!("Campaign Test Artist {}_{}", pid, ts))
-        .bind(Some("Electronic".to_string()))
-        .bind(Some("A test artist for campaigns".to_string()))
-        .bind(Some(user_id))
-        .bind(Some(false))
-        .fetch_one(pool)
-        .await
-        .expect("Failed to seed artist")
-    }
-
-    async fn seed_campaign(pool: &sqlx::PgPool, artist_id: i64) -> i64 {
-        let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
-        let pid = std::process::id();
-        sqlx::query_scalar::<_, i64>(
-            r"INSERT INTO campaigns (artist_id, name, active, vinyl_sold_count, progress, created_at, updated_at)
-               VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
-               RETURNING id",
-        )
-        .bind(artist_id)
-        .bind(format!("Campaign Test {}_{}", pid, ts))
-        .bind(true)
-        .bind(25_i32)
-        .bind(50_i32)
-        .fetch_one(pool)
-        .await
-        .expect("Failed to seed campaign")
-    }
 
     #[tokio::test(flavor = "current_thread")]
     async fn campaigns_index_public() {
@@ -592,8 +275,8 @@ use crate::auth::jwt::encode_token_with_role;
         crate::test_utils::set_test_env();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let user_id = seed_user(&state.db).await;
-        let artist_id = seed_artist(&state.db, user_id).await;
+        let (user_id, _) = seed_test_user(&state.db, "campaign_test", "artist").await;
+        let artist_id = seed_artist(&state.db, Some(user_id)).await;
         let campaign_id = seed_campaign(&state.db, artist_id).await;
 
         let req = test::TestRequest::get()
@@ -629,8 +312,8 @@ use crate::auth::jwt::encode_token_with_role;
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let user_id = seed_user(&state.db).await;
-        let artist_id = seed_artist(&state.db, user_id).await;
+        let (user_id, _) = seed_test_user(&state.db, "campaign_test", "artist").await;
+        let artist_id = seed_artist(&state.db, Some(user_id)).await;
 
         let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
         let pid = std::process::id();
@@ -660,8 +343,8 @@ use crate::auth::jwt::encode_token_with_role;
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let user_id = seed_user(&state.db).await;
-        let artist_id = seed_artist(&state.db, user_id).await;
+        let (user_id, _) = seed_test_user(&state.db, "campaign_test", "artist").await;
+        let artist_id = seed_artist(&state.db, Some(user_id)).await;
 
         let req = test::TestRequest::post()
             .uri("/campaigns")
@@ -697,8 +380,8 @@ use crate::auth::jwt::encode_token_with_role;
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let user_id = seed_user(&state.db).await;
-        let artist_id = seed_artist(&state.db, user_id).await;
+        let (user_id, _) = seed_test_user(&state.db, "campaign_test", "artist").await;
+        let artist_id = seed_artist(&state.db, Some(user_id)).await;
         let campaign_id = seed_campaign(&state.db, artist_id).await;
 
         let req = test::TestRequest::post()
@@ -744,8 +427,8 @@ use crate::auth::jwt::encode_token_with_role;
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let user_id = seed_user(&state.db).await;
-        let artist_id = seed_artist(&state.db, user_id).await;
+        let (user_id, _) = seed_test_user(&state.db, "campaign_test", "artist").await;
+        let artist_id = seed_artist(&state.db, Some(user_id)).await;
         let campaign_id = seed_campaign(&state.db, artist_id).await;
 
         let req = test::TestRequest::delete()
@@ -789,24 +472,15 @@ use crate::auth::jwt::encode_token_with_role;
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let user_id = seed_user(&state.db).await;
-        let artist_id = seed_artist(&state.db, user_id).await;
+        let (user_id, _) = seed_test_user(&state.db, "campaign_test", "artist").await;
+        let artist_id = seed_artist(&state.db, Some(user_id)).await;
 
-        let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
-        let pid = std::process::id();
-        let campaign_id: i64 = sqlx::query_scalar(
-            r"INSERT INTO campaigns (artist_id, name, active, vinyl_sold_count, progress, created_at, updated_at)
-               VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
-               RETURNING id",
-        )
-        .bind(artist_id)
-        .bind(format!("Inactive Campaign {}_{}", pid, ts))
-        .bind(false)
-        .bind(0_i32)
-        .bind(0_i32)
-        .fetch_one(&state.db)
-        .await
-        .expect("Failed to seed inactive campaign");
+        let campaign_id = seed_campaign(&state.db, artist_id).await;
+        let _ = sqlx::query(r"UPDATE campaigns SET active = false WHERE id = $1")
+            .bind(campaign_id)
+            .execute(&state.db)
+            .await
+            .expect("Failed to deactivate campaign");
 
         let req = test::TestRequest::post()
             .uri("/activate_campaign")
@@ -893,24 +567,15 @@ use crate::auth::jwt::encode_token_with_role;
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let user_id = seed_user(&state.db).await;
-        let artist_id = seed_artist(&state.db, user_id).await;
+        let (user_id, _) = seed_test_user(&state.db, "campaign_test", "artist").await;
+        let artist_id = seed_artist(&state.db, Some(user_id)).await;
 
-        let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
-        let pid = std::process::id();
-        let campaign_id: i64 = sqlx::query_scalar(
-            r"INSERT INTO campaigns (artist_id, name, active, vinyl_sold_count, progress, created_at, updated_at)
-               VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
-               RETURNING id",
-        )
-        .bind(artist_id)
-        .bind(format!("No Page Campaign {}_{}", pid, ts))
-        .bind(false)
-        .bind(0_i32)
-        .bind(0_i32)
-        .fetch_one(&state.db)
-        .await
-        .expect("Failed to seed campaign");
+        let campaign_id = seed_campaign(&state.db, artist_id).await;
+        let _ = sqlx::query(r"UPDATE campaigns SET active = false WHERE id = $1")
+            .bind(campaign_id)
+            .execute(&state.db)
+            .await
+            .expect("Failed to deactivate campaign");
 
         let req = test::TestRequest::post()
             .uri("/activate_campaign")
@@ -953,21 +618,10 @@ use crate::auth::jwt::encode_token_with_role;
         crate::test_utils::set_test_env();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let user_id = seed_user(&state.db).await;
-        let artist_id = seed_artist(&state.db, user_id).await;
+        let (user_id, _) = seed_test_user(&state.db, "campaign_test", "artist").await;
+        let artist_id = seed_artist(&state.db, Some(user_id)).await;
 
-        let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
-        let pid = std::process::id();
-        let active_id: i64 = sqlx::query_scalar(
-            r"INSERT INTO campaigns (artist_id, name, active, created_at, updated_at)
-               VALUES ($1, $2, true, NOW(), NOW())
-               RETURNING id",
-        )
-        .bind(artist_id)
-        .bind(format!("Active Only {}_{}", pid, ts))
-        .fetch_one(&state.db)
-        .await
-        .expect("Failed to seed active campaign");
+        let active_id = seed_campaign(&state.db, artist_id).await;
 
         let inactive_id: i64 = sqlx::query_scalar(
             r"INSERT INTO campaigns (artist_id, name, active, created_at, updated_at)
@@ -975,7 +629,7 @@ use crate::auth::jwt::encode_token_with_role;
                RETURNING id",
         )
         .bind(artist_id)
-        .bind(format!("Inactive Only {}_{}", pid, ts))
+        .bind(format!("Inactive Only {}", unique_suffix()))
         .fetch_one(&state.db)
         .await
         .expect("Failed to seed inactive campaign");

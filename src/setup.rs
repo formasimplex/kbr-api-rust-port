@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::sync::Arc;
 
 use actix_governor::{Governor, GovernorConfigBuilder};
@@ -12,7 +13,7 @@ use crate::services::email_service::EmailClient;
 use crate::services::mailchimp_client::MailchimpClient;
 use crate::services::safe_browsing::SafeBrowsingClient;
 use crate::services::shopify_client::ShopifyClient;
-use crate::services::storage_service::{S3Config, create_s3_bucket};
+use crate::services::storage::{S3Config, create_s3_bucket};
 
 pub async fn setup_web_server() -> std::io::Result<Server> {
     let pool = connect().await.map_err(|e| {
@@ -84,14 +85,11 @@ pub async fn setup_web_server() -> std::io::Result<Server> {
         )
     })?;
 
-    let jwt_secret_static: &'static str = jwt_secret.leak();
-
-    let cookie_builder = Arc::new(
-        actix_jc::ActixJwtCookie::<Claims>::new()
-            .cookie_name("jwt_cookie")
-            .jwt_key(jwt_secret_static)
-            .expiration(3 * 24 * 60 * 60)
-    );
+    let mut cookie_builder_inner = actix_jc::ActixJwtCookie::<Claims>::new()
+        .cookie_name("jwt_cookie")
+        .expiration(3 * 24 * 60 * 60);
+    cookie_builder_inner.jwt_key = Cow::Owned(jwt_secret.clone());
+    let cookie_builder = Arc::new(cookie_builder_inner);
 
     let governor_conf = GovernorConfigBuilder::default()
         .requests_per_second(10)
@@ -117,7 +115,7 @@ pub async fn setup_web_server() -> std::io::Result<Server> {
         safe_browsing: safe_browsing.clone(),
         email: email.clone(),
         job_handle: job_handle.clone(),
-        jwt_secret: jwt_secret_static.to_string(),
+        jwt_secret,
         cookie_builder: cookie_builder.clone(),
     });
 
@@ -128,21 +126,12 @@ pub async fn setup_web_server() -> std::io::Result<Server> {
     let cookie_builder = cookie_builder.clone();
 
     let server = HttpServer::new(move || {
+        let state = state.clone();
         actix_web::App::new()
             .wrap(get_cors())
             .wrap(Governor::new(&governor_conf))
             .app_data(web::Data::new(cookie_builder.clone()))
-            .app_data(web::Data::new(AppState {
-                db: pool.clone(),
-                s3: s3.clone(),
-                shopify: shopify.clone(),
-                mailchimp: mailchimp.clone(),
-                safe_browsing: safe_browsing.clone(),
-                email: email.clone(),
-                job_handle: job_handle.clone(),
-                jwt_secret: jwt_secret_static.to_string(),
-                cookie_builder: cookie_builder.clone(),
-            }))
+            .app_data(web::Data::from(state.clone()))
             .configure(crate::handlers::health::config_routes)
             .service(
                 web::scope("/v1")

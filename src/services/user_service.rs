@@ -1,4 +1,7 @@
+use crate::data::sign_up_trigger as data_sign_up_trigger;
+use crate::data::users as data_users;
 use crate::error::AppError;
+use crate::models::sign_up_trigger::SignUpTrigger;
 use crate::models::user::{CreateUserRequest, UpdateUserRequest, User};
 use crate::services::auth_service::{hash_password, verify_password};
 
@@ -63,6 +66,82 @@ impl UserService {
 
     pub fn force_role_user() -> String {
         "user".to_string()
+    }
+
+    pub async fn create_user_with_trigger(
+        pool: &sqlx::PgPool,
+        req: &CreateUserRequest,
+    ) -> Result<User, AppError> {
+        let normalized_email = Self::normalize_email(&req.email);
+        let token = req.token.as_deref().unwrap();
+
+        let mut tx = pool.begin().await?;
+
+        let trigger = data_sign_up_trigger::by_token_for_update(&mut tx, token).await?;
+
+        match trigger {
+            Some((trigger_email, trigger_expires)) => {
+                if let Some(expires_str) = trigger_expires
+                    && let Some(expired_time) = SignUpTrigger::parse_expires_at(&expires_str)
+                        && expired_time < chrono::Utc::now()
+                {
+                    return Err(AppError::Validation(
+                        "Sign-up token has expired".to_string(),
+                    ));
+                }
+
+                let emails_match = trigger_email
+                    .as_ref()
+                    .map(|e| Self::normalize_email(e))
+                    .as_deref()
+                    == Some(&normalized_email);
+
+                if !emails_match {
+                    return Err(AppError::Validation(
+                        "Email does not match sign-up token".to_string(),
+                    ));
+                }
+            }
+            None => {
+                return Err(AppError::Validation("Invalid sign-up token".to_string()));
+            }
+        }
+
+        let email_exists = data_users::exists_by_email_in_tx(&mut tx, &normalized_email).await?;
+
+        if email_exists {
+            return Err(AppError::Conflict(
+                "A user with this email already exists".to_string(),
+            ));
+        }
+
+        let password_digest = Self::hash_password_for_create(req)?;
+        let role = Self::force_role_user();
+        let now = chrono::Utc::now().naive_utc();
+
+        let user = data_users::create_in_tx(
+            &mut tx,
+            &normalized_email,
+            &password_digest,
+            &role,
+            &req.username,
+            now,
+        )
+        .await?;
+
+        let now_str = chrono::Utc::now().to_rfc3339();
+        let _ = sqlx::query(
+            r"UPDATE sign_up_triggers SET expires_at = $1, updated_at = $2 WHERE email = $3",
+        )
+        .bind(&now_str)
+        .bind(now)
+        .bind(&normalized_email)
+        .execute(&mut *tx)
+        .await;
+
+        tx.commit().await?;
+
+        Ok(user)
     }
 }
 

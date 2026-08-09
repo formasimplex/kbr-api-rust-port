@@ -15,43 +15,18 @@
 
 use actix_web::{web, HttpResponse};
 use std::time::Duration;
-use sqlx::FromRow;
 use uuid::Uuid;
 
 use crate::app::AppState;
 use crate::auth::middleware::CurrentUser;
-use crate::auth::roles::is_artist_or_above;
+use crate::auth::permissions::is_artist_or_above;
+use crate::data::event_attendees as data;
 use crate::error::AppError;
 use crate::jobs::Job;
 use crate::models::kbr_event_attendee::{
-    CreateEventAttendeeRequest, KbrEventAttendee, KbrEventAttendeeResponse,
+    CreateEventAttendeeRequest, KbrEventAttendeeResponse,
     UpdateEventAttendeeRequest,
 };
-
-#[derive(Debug, FromRow)]
-struct EventAttendeeRow {
-    id: i64,
-    kbr_event_id: Option<i32>,
-    mail_subscriber_id: Option<i32>,
-    scan_count: Option<i32>,
-    headcount: Option<i32>,
-    created_at: chrono::NaiveDateTime,
-    updated_at: chrono::NaiveDateTime,
-}
-
-impl From<EventAttendeeRow> for KbrEventAttendee {
-    fn from(row: EventAttendeeRow) -> Self {
-        KbrEventAttendee {
-            id: row.id,
-            kbr_event_id: row.kbr_event_id,
-            mail_subscriber_id: row.mail_subscriber_id,
-            scan_count: row.scan_count,
-            headcount: row.headcount,
-            created_at: row.created_at.and_utc(),
-            updated_at: row.updated_at.and_utc(),
-        }
-    }
-}
 
 /// Scan a QR code to increment attendee scan count.
 ///
@@ -68,21 +43,8 @@ pub async fn qr_scan(
 ) -> Result<HttpResponse, AppError> {
     let id = path.into_inner();
 
-    let row = sqlx::query_as::<_, EventAttendeeRow>(
-        r"UPDATE kbr_event_attendees
-           SET scan_count = COALESCE(scan_count, 0) + 1, updated_at = NOW()
-           WHERE id = $1
-           RETURNING id, kbr_event_id, mail_subscriber_id, scan_count, headcount, created_at, updated_at"
-    )
-    .bind(id)
-    .fetch_optional(&state.db)
-    .await?;
-
-    match row {
-        Some(r) => {
-            let attendee: KbrEventAttendee = r.into();
-            Ok(HttpResponse::Ok().json(attendee.to_response()))
-        }
+    match data::qr_scan(&state.db, id).await? {
+        Some(attendee) => Ok(HttpResponse::Ok().json(attendee.to_response())),
         None => Err(AppError::NotFound(format!("Attendee #{}", id))),
     }
 }
@@ -115,15 +77,7 @@ pub async fn attendees_for_event(
         _ => return Err(AppError::BadRequest("kbr_event_id is required".to_string())),
     };
 
-    let rows = sqlx::query_as::<_, EventAttendeeRow>(
-        r"SELECT id, kbr_event_id, mail_subscriber_id, scan_count, headcount, created_at, updated_at
-           FROM kbr_event_attendees WHERE kbr_event_id = $1"
-    )
-    .bind(event_id as i32)
-    .fetch_all(&state.db)
-    .await?;
-
-    let attendees: Vec<KbrEventAttendee> = rows.into_iter().map(|r| r.into()).collect();
+    let attendees = data::list_by_event(&state.db, event_id as i32).await?;
     let responses: Vec<KbrEventAttendeeResponse> =
         attendees.iter().map(|a| a.to_response()).collect();
     Ok(HttpResponse::Ok().json(responses))
@@ -158,18 +112,8 @@ pub async fn create(
 
     for subscriber_id in &body.mail_subscriber_ids {
         let now = chrono::Utc::now().naive_utc();
-        let row = sqlx::query_as::<_, EventAttendeeRow>(
-            r"INSERT INTO kbr_event_attendees (kbr_event_id, mail_subscriber_id, scan_count, headcount, created_at, updated_at)
-               VALUES ($1, $2, 0, $3, $4, $4)
-               RETURNING id, kbr_event_id, mail_subscriber_id, scan_count, headcount, created_at, updated_at"
-        )
-        .bind(body.kbr_event_id)
-        .bind(*subscriber_id)
-        .bind(body.headcount)
-        .bind(now)
-        .fetch_one(&mut *tx)
-        .await?;
-        attendees.push(KbrEventAttendee::from(row));
+        let attendee = data::create_one(&mut tx, body.kbr_event_id, *subscriber_id, body.headcount, now).await?;
+        attendees.push(attendee);
     }
 
     tx.commit().await?;
@@ -224,15 +168,7 @@ pub async fn update(
         return Err(AppError::Forbidden("Not Authorized".to_string()));
     }
 
-    let rows = sqlx::query_as::<_, EventAttendeeRow>(
-        r"SELECT id, kbr_event_id, mail_subscriber_id, scan_count, headcount, created_at, updated_at
-           FROM kbr_event_attendees WHERE kbr_event_id = $1"
-    )
-    .bind(body.kbr_event_id)
-    .fetch_all(&state.db)
-    .await?;
-
-    let attendees: Vec<KbrEventAttendee> = rows.into_iter().map(|r| r.into()).collect();
+    let attendees = data::list_by_event(&state.db, body.kbr_event_id).await?;
 
     // Enqueue text update email for each attendee (batched to avoid channel saturation)
     const JOB_BATCH_SIZE: usize = 250;
@@ -276,7 +212,7 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{admin_token, unique_suffix};
+    use crate::test_utils::{admin_token, seed_attendee, unique_suffix};
     use actix_web::test;
 
     async fn seed_event(state: &AppState) -> i64 {
@@ -304,19 +240,6 @@ mod tests {
         id
     }
 
-    async fn seed_attendee(state: &AppState, event_id: i64, subscriber_id: i64) -> i64 {
-        let id: i64 = sqlx::query_scalar(
-            r"INSERT INTO kbr_event_attendees (kbr_event_id, mail_subscriber_id, scan_count, created_at, updated_at)
-               VALUES ($1, $2, 0, NOW(), NOW()) RETURNING id"
-        )
-        .bind(event_id)
-        .bind(subscriber_id)
-        .fetch_one(&state.db)
-        .await
-        .expect("Failed to seed attendee");
-        id
-    }
-
     #[tokio::test(flavor = "current_thread")]
     async fn qr_scan_found() {
         crate::test_utils::set_test_env_jwt();
@@ -324,7 +247,7 @@ mod tests {
 
         let event_id = seed_event(&state).await;
         let sub_id = seed_mail_subscriber(&state, &format!("QRScanTest {}", unique_suffix())).await;
-        let attendee_id = seed_attendee(&state, event_id, sub_id).await;
+        let attendee_id = seed_attendee(&state.db, event_id, sub_id, 0).await;
 
         let req = test::TestRequest::get()
             .uri(&format!("/qr_scan/{}", attendee_id))
@@ -360,8 +283,8 @@ mod tests {
         let event_id = seed_event(&state).await;
         let sub1 = seed_mail_subscriber(&state, &format!("EventSub1 {}", unique_suffix())).await;
         let sub2 = seed_mail_subscriber(&state, &format!("EventSub2 {}", unique_suffix())).await;
-        seed_attendee(&state, event_id, sub1).await;
-        seed_attendee(&state, event_id, sub2).await;
+        seed_attendee(&state.db, event_id, sub1, 0).await;
+        seed_attendee(&state.db, event_id, sub2, 0).await;
 
         let req = test::TestRequest::get()
             .uri(&format!("/kbr_event_attendees?kbr_event_id={}", event_id))
@@ -442,7 +365,7 @@ mod tests {
 
         let event_id = seed_event(&state).await;
         let sub1 = seed_mail_subscriber(&state, &format!("UpdateSub1 {}", unique_suffix())).await;
-        seed_attendee(&state, event_id, sub1).await;
+        seed_attendee(&state.db, event_id, sub1, 0).await;
 
         let req = test::TestRequest::post()
             .uri("/kbr_event_update_txt")

@@ -14,7 +14,7 @@ impl CampaignService {
         if let Some(count) = req.vinyl_sold_count
             && !crate::models::campaign::Campaign::validate_vinyl_sold_count(count) {
                 return Err(AppError::Validation(
-                    "vinyl_sold_count must be between 0 and 100".to_string(),
+                    format!("vinyl_sold_count must be between 0 and {}", crate::constants::VINYL_TARGET),
                 ));
             }
         Ok(())

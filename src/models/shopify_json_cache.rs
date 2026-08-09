@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::{NaiveDateTime};
 use serde::Serialize;
 use sqlx::FromRow;
 
@@ -7,8 +7,8 @@ pub struct ShopifyJsonCache {
     pub id: i64,
     pub cached_item_id: Option<String>,
     pub json_entry: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
 }
 
 #[derive(Debug, Clone, Serialize)]

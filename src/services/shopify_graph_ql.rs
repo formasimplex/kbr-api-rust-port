@@ -121,7 +121,7 @@ impl ShopifyGraphQl {
 
     /// Create a product variant with inventory tracking.
     ///
-    /// Creates a single variant priced at $23.00 with 100 units of inventory
+    /// Creates a single variant with configured price and inventory quantity
     /// at the specified location.
     ///
     /// # Arguments
@@ -163,13 +163,13 @@ impl ShopifyGraphQl {
                         { "name": "Vinyl", "optionId": option_id }
                     ],
                     "inventoryItem": {
-                        "cost": 23.0,
+                        "cost": crate::constants::SHOPIFY_VARIANT_PRICE,
                         "tracked": true,
                     },
                     "inventoryQuantities": [
-                        { "locationId": location_id, "availableQuantity": 100 }
+                        { "locationId": location_id, "availableQuantity": crate::constants::SHOPIFY_INVENTORY_QUANTITY }
                     ],
-                    "price": 23.0,
+                    "price": crate::constants::SHOPIFY_VARIANT_PRICE,
                 }
             ],
         });
@@ -338,19 +338,19 @@ mod tests {
                         { "name": "Vinyl", "optionId": option_id }
                     ],
                     "inventoryItem": {
-                        "cost": 23.0,
+                        "cost": crate::constants::SHOPIFY_VARIANT_PRICE,
                         "tracked": true,
                     },
                     "inventoryQuantities": [
-                        { "locationId": location_id, "availableQuantity": 100 }
+                        { "locationId": location_id, "availableQuantity": crate::constants::SHOPIFY_INVENTORY_QUANTITY }
                     ],
-                    "price": 23.0,
+                    "price": crate::constants::SHOPIFY_VARIANT_PRICE,
                 }
             ],
         });
 
-        assert_eq!(variables["variants"][0]["price"], 23.0);
-        assert_eq!(variables["variants"][0]["inventoryQuantities"][0]["availableQuantity"], 100);
+        assert_eq!(variables["variants"][0]["price"], crate::constants::SHOPIFY_VARIANT_PRICE);
+        assert_eq!(variables["variants"][0]["inventoryQuantities"][0]["availableQuantity"], crate::constants::SHOPIFY_INVENTORY_QUANTITY);
         assert!(variables["variants"][0]["inventoryItem"]["tracked"].is_boolean());
     }
 

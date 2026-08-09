@@ -12,37 +12,12 @@
 //! | `create` | POST | `/v1/songs` | admin | Create a new song |
 
 use actix_web::{web, HttpResponse};
-use sqlx::FromRow;
 
 use crate::app::AppState;
 use crate::auth::middleware::CurrentUser;
+use crate::data::songs as data;
 use crate::error::AppError;
-use crate::models::song::{CreateSongRequest, Song, SongResponse};
-
-#[derive(Debug, FromRow)]
-struct SongRow {
-    id: i64,
-    name: Option<String>,
-    duration: Option<String>,
-    album_id: i64,
-    artist_id: i64,
-    created_at: chrono::NaiveDateTime,
-    updated_at: chrono::NaiveDateTime,
-}
-
-impl From<SongRow> for Song {
-    fn from(row: SongRow) -> Self {
-        Song {
-            id: row.id,
-            name: row.name,
-            duration: row.duration,
-            album_id: row.album_id,
-            artist_id: row.artist_id,
-            created_at: row.created_at.and_utc(),
-            updated_at: row.updated_at.and_utc(),
-        }
-    }
-}
+use crate::models::song::{CreateSongRequest, SongResponse};
 
 /// List all songs.
 ///
@@ -52,13 +27,7 @@ impl From<SongRow> for Song {
 ///
 /// `200 OK` — JSON array of `SongResponse`
 pub async fn index(state: web::Data<AppState>) -> Result<HttpResponse, AppError> {
-    let rows = sqlx::query_as::<_, SongRow>(
-        r"SELECT id, name, duration, album_id, artist_id, created_at, updated_at FROM songs ORDER BY id"
-    )
-    .fetch_all(&state.db)
-    .await?;
-
-    let songs: Vec<Song> = rows.into_iter().map(|r| r.into()).collect();
+    let songs = data::list(&state.db).await?;
     let responses: Vec<SongResponse> = songs.iter().map(|s| s.to_response()).collect();
     Ok(HttpResponse::Ok().json(responses))
 }
@@ -77,17 +46,8 @@ pub async fn show(
 ) -> Result<HttpResponse, AppError> {
     let id = path.into_inner();
 
-    match sqlx::query_as::<_, SongRow>(
-        r"SELECT id, name, duration, album_id, artist_id, created_at, updated_at FROM songs WHERE id = $1"
-    )
-    .bind(id)
-    .fetch_optional(&state.db)
-    .await?
-    {
-        Some(row) => {
-            let song: Song = row.into();
-            Ok(HttpResponse::Ok().json(song.to_response()))
-        }
+    match data::by_id(&state.db, id).await? {
+        Some(song) => Ok(HttpResponse::Ok().json(song.to_response())),
         None => Err(AppError::NotFound(format!("Song #{}", id))),
     }
 }
@@ -111,21 +71,7 @@ pub async fn create(
 
     let now = chrono::Utc::now().naive_utc();
 
-    let row = sqlx::query_as::<_, SongRow>(
-        r"INSERT INTO songs (name, duration, album_id, artist_id, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $6)
-           RETURNING id, name, duration, album_id, artist_id, created_at, updated_at"
-    )
-    .bind(&body.name)
-    .bind(&body.duration)
-    .bind(body.album_id)
-    .bind(body.artist_id)
-    .bind(now)
-    .bind(now)
-    .fetch_one(&state.db)
-    .await?;
-
-    let song: Song = row.into();
+    let song = data::create(&state.db, &body.name, &body.duration, body.album_id, body.artist_id, now).await?;
     Ok(HttpResponse::Created().json(song.to_response()))
 }
 
@@ -191,18 +137,17 @@ mod tests {
         let (_guard, state, app) = crate::build_test_app!(config_routes);
         let (album_id, artist_id) = seed_album_and_artist(&state.db).await;
 
-        let seed = sqlx::query_as::<_, SongRow>(
+        let seed = sqlx::query_scalar::<_, i64>(
             r"INSERT INTO songs (name, duration, album_id, artist_id, created_at, updated_at)
                VALUES ('Test Song SQLx', '3:45', $1, $2, NOW(), NOW())
-               RETURNING id, name, duration, album_id, artist_id, created_at, updated_at"
+               RETURNING id"
         )
         .bind(album_id)
         .bind(artist_id)
         .fetch_one(&state.db)
         .await;
 
-        if let Ok(row) = seed {
-            let id = row.id;
+        if let Ok(id) = seed {
             let req = test::TestRequest::get()
                 .uri(&format!("/song/{}", id))
                 .to_request();

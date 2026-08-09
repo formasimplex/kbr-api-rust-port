@@ -14,61 +14,15 @@
 //! | `destroy` | DELETE | `/v1/configs/{tenant_id}` | auth | Soft-delete a tenant config |
 
 use actix_web::{web, HttpResponse};
-use sqlx::FromRow;
 use uuid::Uuid;
 
 use crate::app::AppState;
 use crate::auth::middleware::CurrentUser;
+use crate::data::configs as data;
 use crate::error::AppError;
 use crate::models::tenant_config::{
-    CreateTenantConfigRequest, TenantConfig, TenantConfigResponse, UpdateTenantConfigRequest,
+    CreateTenantConfigRequest, TenantConfigResponse, UpdateTenantConfigRequest,
 };
-
-#[derive(Debug, FromRow)]
-struct ConfigRow {
-    tenant_id: Uuid,
-    logo_url: Option<String>,
-    short_name: String,
-    long_name: String,
-    footer_logo_url: Option<String>,
-    contact_email: String,
-    site_header_description: String,
-    deleted_at: Option<chrono::NaiveDateTime>,
-    #[sqlx(rename = "instaUrl")]
-    insta_url: Option<String>,
-    #[sqlx(rename = "twitterUrl")]
-    twitter_url: Option<String>,
-    #[sqlx(rename = "tiktokUrl")]
-    tiktok_url: Option<String>,
-    #[sqlx(rename = "spotifyId")]
-    spotify_id: Option<String>,
-    featured_artist_id: Option<i64>,
-    created_at: chrono::NaiveDateTime,
-    updated_at: chrono::NaiveDateTime,
-}
-
-impl From<ConfigRow> for TenantConfig {
-    fn from(row: ConfigRow) -> Self {
-        TenantConfig {
-            tenant_id: row.tenant_id,
-            logo_url: row.logo_url,
-            short_name: row.short_name,
-            long_name: row.long_name,
-            footer_logo_url: row.footer_logo_url,
-            contact_email: row.contact_email,
-            site_header_description: row.site_header_description,
-            deleted_at: row.deleted_at.map(|d| d.and_utc()),
-            insta_url: row.insta_url,
-            twitter_url: row.twitter_url,
-            tiktok_url: row.tiktok_url,
-            spotify_id: row.spotify_id,
-            featured_artist_id: row.featured_artist_id,
-            mantine_theme: None,
-            created_at: row.created_at.and_utc(),
-            updated_at: row.updated_at.and_utc(),
-        }
-    }
-}
 
 /// List all non-deleted tenant configs.
 ///
@@ -81,16 +35,7 @@ pub async fn index(
     state: web::Data<AppState>,
     _user: CurrentUser,
 ) -> Result<HttpResponse, AppError> {
-    let rows = sqlx::query_as::<_, ConfigRow>(
-        r#"SELECT tenant_id, logo_url, short_name, long_name, footer_logo_url, contact_email,
-           site_header_description, deleted_at, "instaUrl", "twitterUrl", "tiktokUrl", "spotifyId",
-           featured_artist_id, created_at, updated_at
-           FROM tenant_configs WHERE deleted_at IS NULL"#
-    )
-    .fetch_all(&state.db)
-    .await?;
-
-    let configs: Vec<TenantConfig> = rows.into_iter().map(|r| r.into()).collect();
+    let configs = data::list(&state.db).await?;
     let responses: Vec<TenantConfigResponse> = configs.iter().map(|c| c.to_response()).collect();
     Ok(HttpResponse::Ok().json(responses))
 }
@@ -110,20 +55,8 @@ pub async fn show(
 ) -> Result<HttpResponse, AppError> {
     let tenant_id = path.into_inner();
 
-    match sqlx::query_as::<_, ConfigRow>(
-        r#"SELECT tenant_id, logo_url, short_name, long_name, footer_logo_url, contact_email,
-           site_header_description, deleted_at, "instaUrl", "twitterUrl", "tiktokUrl", "spotifyId",
-           featured_artist_id, created_at, updated_at
-           FROM tenant_configs WHERE tenant_id = $1 AND deleted_at IS NULL"#
-    )
-    .bind(tenant_id)
-    .fetch_optional(&state.db)
-    .await?
-    {
-        Some(row) => {
-            let config: TenantConfig = row.into();
-            Ok(HttpResponse::Ok().json(config.to_response()))
-        }
+    match data::by_tenant_id(&state.db, tenant_id).await? {
+        Some(config) => Ok(HttpResponse::Ok().json(config.to_response())),
         None => Err(AppError::NotFound(format!("Config #{}", tenant_id))),
     }
 }
@@ -161,33 +94,7 @@ pub async fn create(
     let tenant_id = Uuid::new_v4();
     let now = chrono::Utc::now().naive_utc();
 
-    let row = sqlx::query_as::<_, ConfigRow>(
-        r#"INSERT INTO tenant_configs (tenant_id, logo_url, short_name, long_name, footer_logo_url,
-           contact_email, site_header_description, deleted_at, "instaUrl", "twitterUrl", "tiktokUrl",
-           "spotifyId", featured_artist_id, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, NULL, $8, $9, $10, $11, $12, $13, $14)
-           RETURNING tenant_id, logo_url, short_name, long_name, footer_logo_url, contact_email,
-           site_header_description, deleted_at, "instaUrl", "twitterUrl", "tiktokUrl", "spotifyId",
-           featured_artist_id, created_at, updated_at"#
-    )
-    .bind(tenant_id)
-    .bind(&body.logo_url)
-    .bind(&body.short_name)
-    .bind(&body.long_name)
-    .bind(&body.footer_logo_url)
-    .bind(&body.contact_email)
-    .bind(&body.site_header_description)
-    .bind(&body.insta_url)
-    .bind(&body.twitter_url)
-    .bind(&body.tiktok_url)
-    .bind(&body.spotify_id)
-    .bind(body.featured_artist_id)
-    .bind(now)
-    .bind(now)
-    .fetch_one(&state.db)
-    .await?;
-
-    let config: TenantConfig = row.into();
+    let config = data::create(&state.db, tenant_id, &body.logo_url, &body.short_name, &body.long_name, &body.footer_logo_url, &body.contact_email, &body.site_header_description, &body.insta_url, &body.twitter_url, &body.tiktok_url, &body.spotify_id, body.featured_artist_id, now).await?;
     Ok(HttpResponse::Created().json(config.to_response()))
 }
 
@@ -209,46 +116,8 @@ pub async fn update(
     let tenant_id = path.into_inner();
     let now = chrono::Utc::now().naive_utc();
 
-    let row = sqlx::query_as::<_, ConfigRow>(
-        r#"UPDATE tenant_configs
-           SET logo_url = COALESCE($1, logo_url),
-               short_name = COALESCE($2, short_name),
-               long_name = COALESCE($3, long_name),
-               footer_logo_url = COALESCE($4, footer_logo_url),
-               contact_email = COALESCE($5, contact_email),
-               site_header_description = COALESCE($6, site_header_description),
-               "instaUrl" = COALESCE($7, "instaUrl"),
-               "twitterUrl" = COALESCE($8, "twitterUrl"),
-               "tiktokUrl" = COALESCE($9, "tiktokUrl"),
-               "spotifyId" = COALESCE($10, "spotifyId"),
-               featured_artist_id = COALESCE($11, featured_artist_id),
-               updated_at = $12
-           WHERE tenant_id = $13 AND deleted_at IS NULL
-           RETURNING tenant_id, logo_url, short_name, long_name, footer_logo_url, contact_email,
-           site_header_description, deleted_at, "instaUrl", "twitterUrl", "tiktokUrl", "spotifyId",
-           featured_artist_id, created_at, updated_at"#
-    )
-    .bind(&body.logo_url)
-    .bind(&body.short_name)
-    .bind(&body.long_name)
-    .bind(&body.footer_logo_url)
-    .bind(&body.contact_email)
-    .bind(&body.site_header_description)
-    .bind(&body.insta_url)
-    .bind(&body.twitter_url)
-    .bind(&body.tiktok_url)
-    .bind(&body.spotify_id)
-    .bind(body.featured_artist_id)
-    .bind(now)
-    .bind(tenant_id)
-    .fetch_optional(&state.db)
-    .await?;
-
-    match row {
-        Some(r) => {
-            let config: TenantConfig = r.into();
-            Ok(HttpResponse::Ok().json(config.to_response()))
-        }
+    match data::update(&state.db, tenant_id, &body.logo_url, &body.short_name, &body.long_name, &body.footer_logo_url, &body.contact_email, &body.site_header_description, &body.insta_url, &body.twitter_url, &body.tiktok_url, &body.spotify_id, body.featured_artist_id, now).await? {
+        Some(config) => Ok(HttpResponse::Ok().json(config.to_response())),
         None => Err(AppError::NotFound(format!("Config #{}", tenant_id))),
     }
 }
@@ -269,15 +138,7 @@ pub async fn destroy(
     let tenant_id = path.into_inner();
     let now = chrono::Utc::now().naive_utc();
 
-    let result = sqlx::query(
-        r"UPDATE tenant_configs SET deleted_at = $1 WHERE tenant_id = $2 AND deleted_at IS NULL"
-    )
-    .bind(now)
-    .bind(tenant_id)
-    .execute(&state.db)
-    .await?;
-
-    if result.rows_affected() > 0 {
+    if data::destroy(&state.db, tenant_id, now).await? {
         Ok(HttpResponse::Ok().json(serde_json::json!({
             "message": format!("Config #{} soft-deleted", tenant_id)
         })))
@@ -323,7 +184,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn config_create_success() {
         crate::test_utils::set_test_env_jwt();
-        let (_guard, state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let req = test::TestRequest::post()
             .uri("/configs")

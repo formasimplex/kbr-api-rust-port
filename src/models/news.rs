@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
@@ -11,13 +11,13 @@ pub struct News {
     pub title: Option<String>,
     pub vote_score: Option<i32>,
     pub flagged: Option<bool>,
-    pub flagged_at: Option<DateTime<Utc>>,
+    pub flagged_at: Option<NaiveDateTime>,
     pub user_id: i64,
     pub image_url: Option<String>,
     pub active: Option<bool>,
     pub comments_enabled: bool,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -57,8 +57,8 @@ impl News {
             image_url: self.image_url.clone(),
             active: self.active,
             comments_enabled: self.comments_enabled,
-            created_at: self.created_at,
-            updated_at: self.updated_at,
+            created_at: self.created_at.and_utc(),
+            updated_at: self.updated_at.and_utc(),
         }
     }
 

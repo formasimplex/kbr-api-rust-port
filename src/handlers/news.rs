@@ -16,52 +16,13 @@
 //! | `add_to_playlist` | POST | `/v1/news/add_to_playlist` | auth | Add a news article to a playlist |
 
 use actix_web::{web, HttpResponse};
-use chrono::NaiveDateTime;
-use sqlx::FromRow;
 
 use crate::app::AppState;
 use crate::auth::middleware::CurrentUser;
+use crate::data::news as data;
 use crate::error::AppError;
 use crate::models::news::{CreateNewsRequest, News, NewsResponse, UpdateNewsRequest};
 use crate::services::og_tags::OgTagsService;
-
-#[derive(Debug, FromRow)]
-struct NewsRow {
-    id: i64,
-    url: Option<String>,
-    title: Option<String>,
-    vote_score: Option<i32>,
-    flagged: Option<bool>,
-    flagged_at: Option<NaiveDateTime>,
-    user_id: i64,
-    image_url: Option<String>,
-    active: Option<bool>,
-    comments_enabled: bool,
-    created_at: NaiveDateTime,
-    updated_at: NaiveDateTime,
-}
-
-impl From<NewsRow> for News {
-    fn from(row: NewsRow) -> Self {
-        News {
-            id: row.id,
-            url: row.url,
-            title: row.title,
-            vote_score: row.vote_score,
-            flagged: row.flagged,
-            flagged_at: row.flagged_at.map(|t| t.and_utc()),
-            user_id: row.user_id,
-            image_url: row.image_url,
-            active: row.active,
-            comments_enabled: row.comments_enabled,
-            created_at: row.created_at.and_utc(),
-            updated_at: row.updated_at.and_utc(),
-        }
-    }
-}
-
-const NEWS_COLUMNS: &str =
-    "id, url, title, vote_score, flagged, flagged_at, user_id, image_url, active, comments_enabled, created_at, updated_at";
 
 /// List all news articles.
 ///
@@ -71,13 +32,7 @@ const NEWS_COLUMNS: &str =
 ///
 /// `200 OK` — JSON array of `NewsResponse`
 pub async fn index(state: web::Data<AppState>) -> Result<HttpResponse, AppError> {
-    let rows = sqlx::query_as::<_, NewsRow>(
-        &format!(r"SELECT {} FROM news ORDER BY id", NEWS_COLUMNS),
-    )
-    .fetch_all(&state.db)
-    .await?;
-
-    let news: Vec<News> = rows.into_iter().map(|r| r.into()).collect();
+    let news = data::list(&state.db).await?;
     let responses: Vec<NewsResponse> = news.iter().map(|n| n.to_response()).collect();
     Ok(HttpResponse::Ok().json(responses))
 }
@@ -96,17 +51,8 @@ pub async fn show(
 ) -> Result<HttpResponse, AppError> {
     let id = path.into_inner();
 
-    match sqlx::query_as::<_, NewsRow>(
-        &format!(r"SELECT {} FROM news WHERE id = $1", NEWS_COLUMNS),
-    )
-    .bind(id)
-    .fetch_optional(&state.db)
-    .await?
-    {
-        Some(row) => {
-            let news: News = row.into();
-            Ok(HttpResponse::Ok().json(news.to_response()))
-        }
+    match data::by_id(&state.db, id).await? {
+        Some(news) => Ok(HttpResponse::Ok().json(news.to_response())),
         None => Err(AppError::NotFound(format!("News #{}", id))),
     }
 }
@@ -144,49 +90,16 @@ pub async fn create(
     let image_url = og_tags.as_ref().and_then(|t| t.get("image").cloned());
     let title = body.title.clone().or_else(|| og_tags.and_then(|t| t.get("title").cloned()));
 
-    let existing: Option<(i64,)> = sqlx::query_as(
-        "SELECT id FROM news WHERE url = $1",
-    )
-    .bind(&body.url)
-    .fetch_optional(&state.db)
-    .await?;
-
-    if let Some((existing_id,)) = existing {
-        let row = sqlx::query_as::<_, NewsRow>(
-            &format!(r"SELECT {} FROM news WHERE id = $1", NEWS_COLUMNS),
-        )
-        .bind(existing_id)
-        .fetch_one(&state.db)
-        .await?;
-        let news: News = row.into();
+    if let Some(existing_news) = data::exists_by_url(&state.db, &body.url).await? {
         return Ok(HttpResponse::Conflict().json(serde_json::json!({
             "error": "news url already exists",
-            "data": news.to_response()
+            "data": existing_news.to_response()
         })));
     }
 
     let now = chrono::Utc::now().naive_utc();
 
-    let row = sqlx::query_as::<_, NewsRow>(
-        &format!(
-            r"INSERT INTO news (url, title, user_id, image_url, active, comments_enabled, created_at, updated_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-             RETURNING {}",
-            NEWS_COLUMNS
-        ),
-    )
-    .bind(&body.url)
-    .bind(title)
-    .bind(user.id)
-    .bind(image_url)
-    .bind(true)
-    .bind(true)
-    .bind(now)
-    .bind(now)
-    .fetch_one(&state.db)
-    .await?;
-
-    let news: News = row.into();
+    let news = data::create(&state.db, &body.url, &title, user.id, &image_url, true, true, now).await?;
     Ok(HttpResponse::Created().json(news.to_response()))
 }
 
@@ -208,15 +121,10 @@ pub async fn update(
 ) -> Result<HttpResponse, AppError> {
     let id = path.into_inner();
 
-    let existing = sqlx::query_as::<_, NewsRow>(
-        &format!(r"SELECT {} FROM news WHERE id = $1", NEWS_COLUMNS),
-    )
-    .bind(id)
-    .fetch_optional(&state.db)
-    .await?;
+    let existing = data::by_id(&state.db, id).await?;
 
     let news = match existing {
-        Some(row) => News::from(row),
+        Some(n) => n,
         None => return Err(AppError::NotFound(format!("News #{}", id))),
     };
 
@@ -233,60 +141,19 @@ pub async fn update(
 
     let now = chrono::Utc::now().naive_utc();
 
-    let (row, new_active, new_comments) = if let Some(active) = active_opt {
-        if let Some(enabled) = comments_opt {
-            let r = sqlx::query_as::<_, NewsRow>(
-                &format!(
-                    r"UPDATE news SET active = $1, comments_enabled = $2, updated_at = $3 WHERE id = $4 RETURNING {}",
-                    NEWS_COLUMNS
-                ),
-            )
-            .bind(active)
-            .bind(enabled)
-            .bind(now)
-            .bind(id)
-            .fetch_one(&state.db)
-            .await?;
-            (r, Some(active), Some(enabled))
-        } else {
-            let r = sqlx::query_as::<_, NewsRow>(
-                &format!(
-                    r"UPDATE news SET active = $1, updated_at = $2 WHERE id = $3 RETURNING {}",
-                    NEWS_COLUMNS
-                ),
-            )
-            .bind(active)
-            .bind(now)
-            .bind(id)
-            .fetch_one(&state.db)
-            .await?;
-            (r, Some(active), None)
+    match data::update(&state.db, id, active_opt, comments_opt, now).await? {
+        Some(row) => {
+            let mut updated: News = row.into();
+            if let Some(a) = active_opt {
+                updated.active = Some(a);
+            }
+            if let Some(c) = comments_opt {
+                updated.comments_enabled = c;
+            }
+            Ok(HttpResponse::Ok().json(updated.to_response()))
         }
-    } else if let Some(enabled) = comments_opt {
-        let r = sqlx::query_as::<_, NewsRow>(
-            &format!(
-                r"UPDATE news SET comments_enabled = $1, updated_at = $2 WHERE id = $3 RETURNING {}",
-                NEWS_COLUMNS
-            ),
-        )
-        .bind(enabled)
-        .bind(now)
-        .bind(id)
-        .fetch_one(&state.db)
-        .await?;
-        (r, None, Some(enabled))
-    } else {
-        unreachable!();
-    };
-
-    let mut news: News = row.into();
-    if let Some(a) = new_active {
-        news.active = Some(a);
+        None => Err(AppError::NotFound(format!("News #{}", id))),
     }
-    if let Some(c) = new_comments {
-        news.comments_enabled = c;
-    }
-    Ok(HttpResponse::Ok().json(news.to_response()))
 }
 
 /// Toggle comments on/off for a news article.
@@ -306,15 +173,10 @@ pub async fn toggle_comments(
 ) -> Result<HttpResponse, AppError> {
     let id = path.into_inner();
 
-    let existing = sqlx::query_as::<_, NewsRow>(
-        &format!(r"SELECT {} FROM news WHERE id = $1", NEWS_COLUMNS),
-    )
-    .bind(id)
-    .fetch_optional(&state.db)
-    .await?;
+    let existing = data::by_id(&state.db, id).await?;
 
     let news = match existing {
-        Some(row) => News::from(row),
+        Some(n) => n,
         None => return Err(AppError::NotFound(format!("News #{}", id))),
     };
 
@@ -323,20 +185,8 @@ pub async fn toggle_comments(
     }
 
     let now = chrono::Utc::now().naive_utc();
-    let row = sqlx::query_as::<_, NewsRow>(
-        &format!(
-            r"UPDATE news SET comments_enabled = $1, updated_at = $2 WHERE id = $3 RETURNING {}",
-            NEWS_COLUMNS
-        ),
-    )
-    .bind(!news.comments_enabled)
-    .bind(now)
-    .bind(id)
-    .fetch_one(&state.db)
-    .await?;
-
-    let news: News = row.into();
-    Ok(HttpResponse::Ok().json(news.to_response()))
+    let updated = data::toggle_comments(&state.db, id, !news.comments_enabled, now).await?;
+    Ok(HttpResponse::Ok().json(updated.to_response()))
 }
 
 /// Add a news article to a playlist.
@@ -364,22 +214,11 @@ pub async fn add_to_playlist(
         AppError::Validation("playlist_id is required".to_string())
     })?;
 
-    let news_exists: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM news WHERE id = $1)",
-    )
-    .bind(news_id)
-    .fetch_one(&state.db)
-    .await?;
-    if !news_exists {
+    if !data::news_exists(&state.db, news_id).await? {
         return Err(AppError::NotFound(format!("News #{}", news_id)));
     }
 
-    let playlist: Option<(i64, i64)> = sqlx::query_as(
-        "SELECT id, user_id FROM news_playlists WHERE id = $1",
-    )
-    .bind(playlist_id)
-    .fetch_optional(&state.db)
-    .await?;
+    let playlist = data::get_playlist(&state.db, playlist_id).await?;
 
     let (_playlist_id, playlist_user_id) = match playlist {
         Some(row) => row,
@@ -390,15 +229,7 @@ pub async fn add_to_playlist(
         return Err(AppError::Forbidden("Not Authorized".to_string()));
     }
 
-    let existing: Option<(i64,)> = sqlx::query_as(
-        "SELECT id FROM users_news WHERE playlist_id = $1 AND news_id = $2",
-    )
-    .bind(playlist_id)
-    .bind(news_id)
-    .fetch_optional(&state.db)
-    .await?;
-
-    if existing.is_some() {
+    if data::playlist_has_news(&state.db, playlist_id, news_id).await? {
         return Ok(HttpResponse::Ok().json(serde_json::json!({
             "message": format!("News #{} already in playlist #{}", news_id, playlist_id),
             "user_id": user.id
@@ -407,27 +238,10 @@ pub async fn add_to_playlist(
 
     let now = chrono::Utc::now().naive_utc();
 
-    let max_position: Option<i32> = sqlx::query_scalar(
-        r"SELECT COALESCE(MAX(position), -1) FROM users_news WHERE playlist_id = $1",
-    )
-    .bind(playlist_id)
-    .fetch_optional(&state.db)
-    .await?;
+    let max_position = data::max_position_in_playlist(&state.db, playlist_id).await?.unwrap_or(-1);
+    let position = max_position + 1;
 
-    let position = max_position.map(|p| p + 1).unwrap_or(0);
-
-    let _ = sqlx::query(
-        r"INSERT INTO users_news (user_id, news_id, playlist_id, position, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $6)",
-    )
-    .bind(user.id)
-    .bind(news_id)
-    .bind(playlist_id)
-    .bind(position)
-    .bind(now)
-    .bind(now)
-    .execute(&state.db)
-    .await?;
+    data::add_news_to_playlist(&state.db, user.id, news_id, playlist_id, position, now).await?;
 
     Ok(HttpResponse::Ok().json(serde_json::json!({
         "message": format!("News #{} added to playlist #{}", news_id, playlist_id),
@@ -447,18 +261,15 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{admin_token, not_found_id, seed_user_with_id, user_token};
+    use crate::test_utils::{admin_token, not_found_id, seed_news_playlist, seed_user_with_id, user_token};
     use actix_web::test;
 
     async fn seed_news(state: &AppState, suffix: &str) -> i64 {
         seed_user_with_id(&state.db, 1, "admin@test.com", "admin").await;
-        let row = sqlx::query_as::<_, NewsRow>(
-            &format!(
-                r"INSERT INTO news (url, title, user_id, active, comments_enabled, created_at, updated_at)
-                 VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
-                 RETURNING {}",
-                NEWS_COLUMNS
-            ),
+        sqlx::query_scalar::<_, i64>(
+            r"INSERT INTO news (url, title, user_id, active, comments_enabled, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+             RETURNING id",
         )
         .bind(format!("https://example.com/test-{}", suffix))
         .bind(format!("Test News {}", suffix))
@@ -467,24 +278,7 @@ mod tests {
         .bind(true)
         .fetch_one(&state.db)
         .await
-        .expect("Failed to seed news");
-        row.id
-    }
-
-    async fn seed_playlist(state: &AppState, suffix: &str) -> i64 {
-        seed_user_with_id(&state.db, 1, "admin@test.com", "admin").await;
-        let row: (i64,) = sqlx::query_as(
-            r"INSERT INTO news_playlists (user_id, name, description, created_at, updated_at)
-              VALUES ($1, $2, $3, NOW(), NOW())
-              RETURNING id",
-        )
-        .bind(1i64)
-        .bind(format!("Test Playlist {}", suffix))
-        .bind(format!("Playlist desc {}", suffix))
-        .fetch_one(&state.db)
-        .await
-        .expect("Failed to seed playlist");
-        row.0
+        .expect("Failed to seed news")
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -583,7 +377,7 @@ mod tests {
         let (_guard, state, app) = crate::build_test_app!(config_routes);
         let suffix = format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos());
         let news_id = seed_news(&state, &suffix).await;
-        let title = format!("Test News {}", suffix);
+        let _title = format!("Test News {}", suffix);
 
         let req = test::TestRequest::put()
             .uri(&format!("/news/{}", news_id))
@@ -607,7 +401,7 @@ mod tests {
         let (_guard, state, app) = crate::build_test_app!(config_routes);
         let suffix = format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos());
         let news_id = seed_news(&state, &suffix).await;
-        let title = format!("Test News {}", suffix);
+        let _title = format!("Test News {}", suffix);
 
         let req = test::TestRequest::put()
             .uri(&format!("/news/{}", news_id))
@@ -628,7 +422,7 @@ mod tests {
         let (_guard, state, app) = crate::build_test_app!(config_routes);
         let suffix = format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos());
         let news_id = seed_news(&state, &suffix).await;
-        let title = format!("Test News {}", suffix);
+        let _title = format!("Test News {}", suffix);
 
         let req = test::TestRequest::post()
             .uri(&format!("/news/{}/toggle_comments", news_id))
@@ -649,9 +443,9 @@ mod tests {
         let (_guard, state, app) = crate::build_test_app!(config_routes);
         let suffix = format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos());
         let news_id = seed_news(&state, &suffix).await;
-        let news_title = format!("Test News {}", suffix);
-        let playlist_id = seed_playlist(&state, &suffix).await;
+        let _news_title = format!("Test News {}", suffix);
         let playlist_name = format!("Test Playlist {}", suffix);
+        let playlist_id = seed_news_playlist(&state.db, 1, &playlist_name).await;
 
         let req = test::TestRequest::post()
             .uri("/news/add_to_playlist")
@@ -714,9 +508,9 @@ mod tests {
         let (_guard, state, app) = crate::build_test_app!(config_routes);
         let suffix = format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos());
         let news_id = seed_news(&state, &suffix).await;
-        let news_title = format!("Test News {}", suffix);
-        let playlist_id = seed_playlist(&state, &suffix).await;
+        let _news_title = format!("Test News {}", suffix);
         let playlist_name = format!("Test Playlist {}", suffix);
+        let playlist_id = seed_news_playlist(&state.db, 1, &playlist_name).await;
 
         let req = test::TestRequest::post()
             .uri("/news/add_to_playlist")
@@ -757,9 +551,9 @@ mod tests {
         let (_guard, state, app) = crate::build_test_app!(config_routes);
         let suffix = format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos());
         let news_id = seed_news(&state, &suffix).await;
-        let news_title = format!("Test News {}", suffix);
-        let playlist_id = seed_playlist(&state, &suffix).await;
+        let _news_title = format!("Test News {}", suffix);
         let playlist_name = format!("Test Playlist {}", suffix);
+        let playlist_id = seed_news_playlist(&state.db, 1, &playlist_name).await;
 
         let req = test::TestRequest::post()
             .uri("/news/add_to_playlist")

@@ -12,33 +12,12 @@
 //! | `update` | PUT | `/v1/producers/{id}` | auth | Update producer details |
 
 use actix_web::{web, HttpResponse};
-use sqlx::FromRow;
 
 use crate::app::AppState;
 use crate::auth::middleware::CurrentUser;
+use crate::data::producers as data;
 use crate::error::AppError;
-use crate::models::producer::{CreateProducerRequest, Producer, ProducerResponse, UpdateProducerRequest};
-
-#[derive(Debug, FromRow)]
-struct ProducerRow {
-    id: i64,
-    description: Option<String>,
-    producer_name: String,
-    created_at: chrono::NaiveDateTime,
-    updated_at: chrono::NaiveDateTime,
-}
-
-impl From<ProducerRow> for Producer {
-    fn from(row: ProducerRow) -> Self {
-        Producer {
-            id: row.id,
-            description: row.description,
-            producer_name: row.producer_name,
-            created_at: row.created_at.and_utc(),
-            updated_at: row.updated_at.and_utc(),
-        }
-    }
-}
+use crate::models::producer::{CreateProducerRequest, ProducerResponse, UpdateProducerRequest};
 
 /// List all producers.
 ///
@@ -51,13 +30,7 @@ pub async fn index(
     _user: CurrentUser,
     state: web::Data<AppState>,
 ) -> Result<HttpResponse, AppError> {
-    let rows = sqlx::query_as::<_, ProducerRow>(
-        r"SELECT id, description, producer_name, created_at, updated_at FROM producers ORDER BY id"
-    )
-    .fetch_all(&state.db)
-    .await?;
-
-    let producers: Vec<Producer> = rows.into_iter().map(|r| r.into()).collect();
+    let producers = data::list(&state.db).await?;
     let responses: Vec<ProducerResponse> = producers.iter().map(|p| p.to_response()).collect();
     Ok(HttpResponse::Ok().json(responses))
 }
@@ -81,19 +54,7 @@ pub async fn create(
 
     let now = chrono::Utc::now().naive_utc();
 
-    let row = sqlx::query_as::<_, ProducerRow>(
-        r"INSERT INTO producers (producer_name, description, created_at, updated_at)
-           VALUES ($1, $2, $3, $4)
-           RETURNING id, description, producer_name, created_at, updated_at"
-    )
-    .bind(&body.producer_name)
-    .bind(&body.description)
-    .bind(now)
-    .bind(now)
-    .fetch_one(&state.db)
-    .await?;
-
-    let producer: Producer = row.into();
+    let producer = data::create(&state.db, &body.producer_name, body.description.as_deref(), now).await?;
     Ok(HttpResponse::Created().json(producer.to_response()))
 }
 
@@ -125,26 +86,8 @@ pub async fn update(
 
     let now = chrono::Utc::now().naive_utc();
 
-    let row = sqlx::query_as::<_, ProducerRow>(
-        r"UPDATE producers
-           SET producer_name = COALESCE($1, producer_name),
-               description = COALESCE($2, description),
-               updated_at = $3
-           WHERE id = $4
-           RETURNING id, description, producer_name, created_at, updated_at"
-    )
-    .bind(name.as_deref())
-    .bind(desc.as_deref())
-    .bind(now)
-    .bind(id)
-    .fetch_optional(&state.db)
-    .await?;
-
-    match row {
-        Some(r) => {
-            let producer: Producer = r.into();
-            Ok(HttpResponse::Ok().json(producer.to_response()))
-        }
+    match data::update(&state.db, id, name.as_deref(), desc.as_deref(), now).await? {
+        Some(producer) => Ok(HttpResponse::Ok().json(producer.to_response())),
         None => Err(AppError::NotFound(format!("Producer #{}", id))),
     }
 }
@@ -179,7 +122,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn producer_create_success() {
         crate::test_utils::set_test_env_jwt();
-        let (_guard, state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let suffix = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

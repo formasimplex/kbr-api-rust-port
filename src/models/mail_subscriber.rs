@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use uuid::Uuid;
@@ -10,14 +10,12 @@ pub struct MailSubscriber {
     pub email: String,
     pub active: Option<bool>,
     pub artist_id: Option<i64>,
-    pub unsubscribed_at: Option<DateTime<Utc>>,
+    pub unsubscribed_at: Option<NaiveDateTime>,
     pub unsubscribe_token: Option<String>,
-    pub unsubscribe_token_expires_at: Option<DateTime<Utc>>,
+    pub unsubscribe_token_expires_at: Option<NaiveDateTime>,
     pub user_id: Option<i64>,
-    pub first_name: Option<String>,
-    pub last_name: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -64,7 +62,7 @@ impl MailSubscriber {
     pub async fn find_by_id(pool: &sqlx::PgPool, id: i64) -> sqlx::Result<Option<Self>> {
         sqlx::query_as::<_, Self>(
             "SELECT id, full_name, email, active, artist_id, unsubscribed_at,
-                    unsubscribe_token, unsubscribe_token_expires_at, user_id, first_name, last_name, created_at, updated_at
+                    unsubscribe_token, unsubscribe_token_expires_at, user_id, created_at, updated_at
              FROM mail_subscribers WHERE id = $1",
         )
         .bind(id)
@@ -85,14 +83,12 @@ mod tests {
             email: "jane@example.com".to_string(),
             active: Some(false),
             artist_id: None,
-            unsubscribed_at: Some(Utc::now()),
+            unsubscribed_at: Some(chrono::Utc::now().naive_utc()),
             unsubscribe_token: None,
             unsubscribe_token_expires_at: None,
             user_id: None,
-            first_name: None,
-            last_name: None,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: chrono::Utc::now().naive_utc(),
+            updated_at: chrono::Utc::now().naive_utc(),
         };
         assert!(!sub.is_subscribed());
     }

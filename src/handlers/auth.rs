@@ -12,75 +12,15 @@
 use actix_web::{web, HttpResponse};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
 
 use crate::app::AppState;
 use crate::auth::middleware::CurrentUser;
+use crate::data::auth as data;
+use crate::data::users;
 use crate::error::AppError;
-use crate::models::user::User;
 use crate::services::auth_service;
+use crate::services::session_service::SessionService;
 use crate::services::user_service::UserService;
-
-#[derive(Debug, FromRow)]
-struct UserRow {
-    id: i64,
-    email: String,
-    password_digest: String,
-    role: Option<String>,
-    session_token: Option<String>,
-    username: Option<String>,
-    token_version: i64,
-    created_at: chrono::NaiveDateTime,
-    updated_at: chrono::NaiveDateTime,
-}
-
-#[derive(Debug, FromRow)]
-struct UserRowNoPassword {
-    id: i64,
-    email: String,
-    role: Option<String>,
-    session_token: Option<String>,
-    username: Option<String>,
-    token_version: i64,
-    created_at: chrono::NaiveDateTime,
-    updated_at: chrono::NaiveDateTime,
-}
-
-impl From<UserRow> for User {
-    fn from(row: UserRow) -> Self {
-        User {
-            id: row.id,
-            email: row.email,
-            password_digest: row.password_digest,
-            role: row.role,
-            session_token: row.session_token,
-            username: row.username,
-            first_name: None,
-            last_name: None,
-            token_version: row.token_version,
-            created_at: row.created_at.and_utc(),
-            updated_at: row.updated_at.and_utc(),
-        }
-    }
-}
-
-impl From<UserRowNoPassword> for User {
-    fn from(row: UserRowNoPassword) -> Self {
-        User {
-            id: row.id,
-            email: row.email,
-            password_digest: String::new(),
-            role: row.role,
-            session_token: row.session_token,
-            username: row.username,
-            first_name: None,
-            last_name: None,
-            token_version: row.token_version,
-            created_at: row.created_at.and_utc(),
-            updated_at: row.updated_at.and_utc(),
-        }
-    }
-}
 
 /// Request body for the login endpoint.
 #[derive(Debug, Deserialize)]
@@ -128,17 +68,8 @@ pub async fn login(
 
     let normalized_email = UserService::normalize_email(&login_req.email);
 
-    let user_row = sqlx::query_as::<_, UserRow>(
-        r"SELECT id, email, password_digest, role, session_token, username, COALESCE(token_version, 1) as token_version, created_at, updated_at
-           FROM users WHERE email = $1"
-    )
-    .bind(&normalized_email)
-    .fetch_optional(&state.db)
-    .await?;
-
-    match user_row {
-        Some(row) => {
-            let user: User = row.into();
+    match users::find_by_email(&state.db, &normalized_email).await? {
+        Some(user) => {
             let valid = auth_service::verify_password(&login_req.password, &user.password_digest)?;
             if valid {
                 let resp = auth_service::create_login_response(&user, &state.jwt_secret)?;
@@ -185,19 +116,10 @@ pub async fn login(
     state: web::Data<AppState>,
     user: CurrentUser,
 ) -> Result<HttpResponse, AppError> {
-    let db_role = user.verify_role_with_db(&state.db).await?;
+    let db_role = SessionService::verify_role_with_db(&state.db, user.id).await?;
 
-    let user_row = sqlx::query_as::<_, UserRowNoPassword>(
-        r"SELECT id, email, role, session_token, username, COALESCE(token_version, 1) as token_version, created_at, updated_at
-           FROM users WHERE id = $1"
-    )
-    .bind(user.id)
-    .fetch_optional(&state.db)
-    .await?;
-
-    match user_row {
-        Some(row) => {
-            let u: User = row.into();
+    match data::find_by_id_no_password(&state.db, user.id).await? {
+        Some(u) => {
             let resp = auth_service::create_session_response(&u, &state.jwt_secret)?;
             let claims = auth_service::create_claims(&u, &state.jwt_secret)?;
 
@@ -248,8 +170,7 @@ pub async fn logout(
     state: web::Data<AppState>,
     user: CurrentUser,
 ) -> Result<HttpResponse, AppError> {
-    user.revoke_token(&state.db).await?;
-    user.invalidate_all_sessions(&state.db).await?;
+    SessionService::logout(&state.db, &user).await?;
 
     tracing::info!(
         user_id = user.id,
@@ -289,6 +210,7 @@ pub async fn logout(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::user::UserRow;
     use crate::test_utils::TEST_SECRET;
     use actix_web::test;
 

@@ -1,10 +1,12 @@
 use actix_web::{dev::Payload, http::header::AUTHORIZATION, HttpRequest, Error, FromRequest, HttpResponse};
-use sqlx::PgPool;
 
 use crate::auth::jwt::{Claims, decode_token};
 use crate::auth::roles::Role;
-use crate::error::AppError;
 
+/// Represents the authenticated user extracted from a JWT.
+///
+/// This is a simple data struct. All database operations related to
+/// session management are delegated to [`crate::services::session_service::SessionService`].
 #[derive(Debug, Clone)]
 pub struct CurrentUser {
     pub id: i64,
@@ -15,105 +17,12 @@ pub struct CurrentUser {
 
 impl CurrentUser {
     pub fn is_admin(&self) -> bool {
-        crate::auth::roles::is_admin(&self.role)
+        crate::auth::permissions::is_admin(&self.role)
     }
 
     pub fn is_artist_or_above(&self) -> bool {
-        crate::auth::roles::is_artist_or_above(&self.role)
+        crate::auth::permissions::is_artist_or_above(&self.role)
     }
-
-    pub async fn verify_role_with_db(&self, pool: &PgPool) -> Result<Role, AppError> {
-        let db_role: String = sqlx::query_scalar(
-            "SELECT role FROM users WHERE id = $1"
-        )
-        .bind(self.id)
-        .fetch_one(pool)
-        .await
-        .map_err(|_| AppError::Unauthorized)?;
-        db_role.parse::<Role>().map_err(|_| AppError::Unauthorized)
-    }
-
-    pub async fn check_token_revoked(&self, pool: &PgPool) -> Result<bool, AppError> {
-        if self.jti.is_empty() {
-            return Ok(false);
-        }
-        let jti_uuid = match uuid::Uuid::parse_str(&self.jti) {
-            Ok(u) => u,
-            Err(_) => return Ok(false),
-        };
-        let is_revoked: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM revoked_tokens WHERE jti = $1)"
-        )
-        .bind(jti_uuid)
-        .fetch_optional(pool)
-        .await
-        .unwrap_or(Some(false))
-        .unwrap_or(false);
-        Ok(is_revoked)
-    }
-
-    pub async fn check_token_version(&self, pool: &PgPool) -> Result<bool, AppError> {
-        let db_version: i64 = sqlx::query_scalar(
-            "SELECT COALESCE(token_version, 1) FROM users WHERE id = $1"
-        )
-        .bind(self.id)
-        .fetch_one(pool)
-        .await
-        .unwrap_or(1);
-        Ok(self.token_version >= db_version)
-    }
-
-    pub async fn revoke_token(&self, pool: &PgPool) -> Result<(), AppError> {
-        if self.jti.is_empty() {
-            return Ok(());
-        }
-        let jti_uuid = uuid::Uuid::parse_str(&self.jti).map_err(|_| AppError::Internal("invalid jti format".to_string()))?;
-        let _ = sqlx::query(
-            "INSERT INTO revoked_tokens (jti) VALUES ($1) ON CONFLICT (jti) DO NOTHING"
-        )
-        .bind(jti_uuid)
-        .execute(pool)
-        .await
-        .map_err(|e| {
-            tracing::error!(error = %e, jti = %self.jti, "Failed to revoke token");
-            AppError::Internal("Failed to revoke token".to_string())
-        })?;
-        Ok(())
-    }
-
-    pub async fn invalidate_all_sessions(&self, pool: &PgPool) -> Result<(), AppError> {
-        let _ = sqlx::query(
-            "UPDATE users SET token_version = COALESCE(token_version, 1) + 1, updated_at = NOW() WHERE id = $1"
-        )
-        .bind(self.id)
-        .execute(pool)
-        .await
-        .map_err(|e| {
-            tracing::error!(error = %e, user_id = self.id, "Failed to invalidate sessions");
-            AppError::Internal("Failed to invalidate sessions".to_string())
-        })?;
-        Ok(())
-    }
-}
-
-/// Purge revoked tokens older than the given retention period.
-/// Call periodically (e.g., from a background job) to prevent database bloat.
-/// Default retention of 7 days covers the 3-day JWT expiry plus a safety buffer.
-pub async fn purge_expired_revoked_tokens(
-    pool: &PgPool,
-    retention_days: i64,
-) -> Result<u64, AppError> {
-    let result = sqlx::query(
-        "DELETE FROM revoked_tokens WHERE revoked_at < NOW() - INTERVAL '$1 days'"
-    )
-    .bind(retention_days.to_string())
-    .execute(pool)
-    .await
-    .map_err(|e| {
-        tracing::error!(error = %e, "Failed to purge expired revoked tokens");
-        AppError::Internal("Failed to purge expired revoked tokens".to_string())
-    })?;
-    Ok(result.rows_affected())
 }
 
 impl FromRequest for CurrentUser {
@@ -134,20 +43,18 @@ impl FromRequest for CurrentUser {
             .app_data::<actix_web::web::Data<actix_jc::ActixJwtCookie<Claims>>>()
             .and_then(|builder| req.cookie(builder.name.as_ref()).map(|c| c.value().to_string()));
 
-        let secret = match std::env::var("JWT_SECRET") {
-            Ok(s) => s,
-            Err(_) => {
+        let state = req.app_data::<actix_web::web::Data<crate::app::AppState>>();
+
+        let (secret, pool) = match state {
+            Some(s) => (s.jwt_secret.clone(), Some(s.db.clone())),
+            None => {
                 return Box::pin(async move {
                     Err(actix_web::error::ErrorInternalServerError(
-                        "JWT_SECRET not configured",
+                        "application state not available",
                     ))
                 });
             }
         };
-
-        let pool = req
-            .app_data::<actix_web::web::Data<crate::app::AppState>>()
-            .map(|s| s.db.clone());
 
         Box::pin(async move {
             let claims = if let Some(cookie) = cookie_value {
@@ -221,10 +128,10 @@ impl FromRequest for CurrentUser {
             };
 
             if let Some(p) = &pool {
-                if user.check_token_revoked(p).await.unwrap_or(false) {
+                if crate::services::session_service::SessionService::is_token_revoked(p, &user.jti).await.unwrap_or(false) {
                     return Err(actix_web::error::ErrorUnauthorized("token has been revoked"));
                 }
-                if !user.check_token_version(p).await.unwrap_or(false) {
+                if !crate::services::session_service::SessionService::is_token_version_valid(p, user.id, user.token_version).await.unwrap_or(false) {
                     return Err(actix_web::error::ErrorUnauthorized("token version outdated, please log in again"));
                 }
             }
@@ -243,7 +150,6 @@ pub async fn protected_handler(user: CurrentUser) -> HttpResponse {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use sqlx::PgPool;
 
     async fn get_pool() -> PgPool {
@@ -280,7 +186,7 @@ mod tests {
         .await
         .expect("Failed to insert new revoked token");
 
-        let purged = purge_expired_revoked_tokens(&pool, 7).await.expect("purge should succeed");
+        let purged = crate::services::session_service::SessionService::purge_expired_revoked_tokens(&pool, 7).await.expect("purge should succeed");
         assert_eq!(purged, 1, "Should have purged 1 old token");
 
         let remaining: i64 = sqlx::query_scalar(

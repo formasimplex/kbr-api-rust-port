@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use uuid::Uuid;
@@ -12,15 +12,19 @@ pub struct TenantConfig {
     pub footer_logo_url: Option<String>,
     pub contact_email: String,
     pub site_header_description: String,
-    pub deleted_at: Option<DateTime<Utc>>,
+    pub deleted_at: Option<NaiveDateTime>,
+    #[sqlx(rename = "instaUrl")]
     pub insta_url: Option<String>,
+    #[sqlx(rename = "twitterUrl")]
     pub twitter_url: Option<String>,
+    #[sqlx(rename = "tiktokUrl")]
     pub tiktok_url: Option<String>,
+    #[sqlx(rename = "spotifyId")]
     pub spotify_id: Option<String>,
     pub featured_artist_id: Option<i64>,
     pub mantine_theme: Option<serde_json::Value>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -108,15 +112,15 @@ mod tests {
             footer_logo_url: None,
             contact_email: "x@x.com".to_string(),
             site_header_description: "X".to_string(),
-            deleted_at: Some(Utc::now()),
+            deleted_at: Some(chrono::Utc::now().naive_utc()),
             insta_url: None,
             twitter_url: None,
             tiktok_url: None,
             spotify_id: None,
             featured_artist_id: None,
             mantine_theme: None,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: chrono::Utc::now().naive_utc(),
+            updated_at: chrono::Utc::now().naive_utc(),
         };
         assert!(config.is_deleted());
     }

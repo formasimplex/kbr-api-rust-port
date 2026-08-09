@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
@@ -11,15 +11,15 @@ pub struct KbrEvent {
     pub name: Option<String>,
     pub description: Option<String>,
     pub active: Option<bool>,
-    pub event_start_date: Option<DateTime<Utc>>,
-    pub event_end_date: Option<DateTime<Utc>>,
+    pub event_start_date: Option<NaiveDateTime>,
+    pub event_end_date: Option<NaiveDateTime>,
     pub create_by_user_id: Option<i32>,
     pub event_url: Option<String>,
     pub qr_encode_string: Option<String>,
     pub ticket_url: Option<String>,
     pub external_url: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -74,15 +74,15 @@ impl KbrEvent {
             name: self.name.clone(),
             description: Self::clean_description(&self.description),
             active: self.active,
-            event_start_date: self.event_start_date,
-            event_end_date: self.event_end_date,
+            event_start_date: self.event_start_date.map(|d| d.and_utc()),
+            event_end_date: self.event_end_date.map(|d| d.and_utc()),
             ticket_url: self.ticket_url.clone(),
             external_url: self.external_url.clone(),
             image_urls,
             image_thumbnail_urls,
             comments,
-            created_at: self.created_at,
-            updated_at: self.updated_at,
+            created_at: self.created_at.and_utc(),
+            updated_at: self.updated_at.and_utc(),
         }
     }
 

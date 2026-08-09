@@ -13,45 +13,16 @@
 //! | `update` | PUT | `/v1/user/{id}` | auth | Update a user (self or admin) |
 
 use actix_web::{HttpResponse, web};
-use sqlx::FromRow;
 
 use crate::app::AppState;
 use crate::auth::middleware::CurrentUser;
+use crate::data::users as data;
 use crate::error::AppError;
-use crate::models::sign_up_trigger::SignUpTrigger;
 use crate::models::user::{CreateUserRequest, UpdateUserRequest, User, UserResponse};
 use crate::services::user_service::UserService;
 
-#[derive(Debug, FromRow)]
-struct UserRow {
-    id: i64,
-    email: String,
-    password_digest: String,
-    role: Option<String>,
-    session_token: Option<String>,
-    username: Option<String>,
-    token_version: i64,
-    created_at: chrono::NaiveDateTime,
-    updated_at: chrono::NaiveDateTime,
-}
-
-impl From<UserRow> for User {
-    fn from(row: UserRow) -> Self {
-        User {
-            id: row.id,
-            email: row.email,
-            password_digest: row.password_digest,
-            role: row.role,
-            session_token: row.session_token,
-            username: row.username,
-            first_name: None,
-            last_name: None,
-            token_version: row.token_version,
-            created_at: row.created_at.and_utc(),
-            updated_at: row.updated_at.and_utc(),
-        }
-    }
-}
+#[cfg(test)]
+use crate::models::user::UserRow;
 
 /// List all users.
 ///
@@ -68,13 +39,7 @@ pub async fn index(
     if !user.is_admin() {
         return Err(AppError::Forbidden("Not Authorized".to_string()));
     }
-    let rows = sqlx::query_as::<_, UserRow>(
-        r"SELECT id, email, password_digest, role, session_token, username, COALESCE(token_version, 1) as token_version, created_at, updated_at FROM users ORDER BY id"
-    )
-    .fetch_all(&state.db)
-    .await?;
-
-    let users: Vec<User> = rows.into_iter().map(|r| r.into()).collect();
+    let users = data::list(&state.db).await?;
     let responses: Vec<UserResponse> = users.iter().map(|u| u.to_response()).collect();
     Ok(HttpResponse::Ok().json(responses))
 }
@@ -97,17 +62,8 @@ pub async fn show(
     if !user.is_admin() && user.id != target_id {
         return Err(AppError::Forbidden("Not Authorized".to_string()));
     }
-    match sqlx::query_as::<_, UserRow>(
-        r"SELECT id, email, password_digest, role, session_token, username, COALESCE(token_version, 1) as token_version, created_at, updated_at FROM users WHERE id = $1"
-    )
-    .bind(target_id)
-    .fetch_optional(&state.db)
-    .await?
-    {
-        Some(row) => {
-            let u: User = row.into();
-            Ok(HttpResponse::Ok().json(u.to_response()))
-        }
+    match data::by_id(&state.db, target_id).await? {
+        Some(u) => Ok(HttpResponse::Ok().json(u.to_response())),
         None => Err(AppError::NotFound(format!("User #{}", target_id))),
     }
 }
@@ -149,92 +105,7 @@ pub async fn create(
         ));
     }
 
-    let mut tx = state.db.begin().await?;
-
-    let token = body.token.as_ref().unwrap();
-    let trigger = sqlx::query_as::<_, (Option<String>, Option<String>)>(
-        r"SELECT email, expires_at FROM sign_up_triggers WHERE token = $1 FOR UPDATE",
-    )
-    .bind(token)
-    .fetch_optional(&mut *tx)
-    .await?;
-
-    match trigger {
-        Some((trigger_email, trigger_expires)) => {
-            if let Some(expires_str) = trigger_expires
-                && let Some(expired_time) = SignUpTrigger::parse_expires_at(&expires_str)
-                    && expired_time < chrono::Utc::now() {
-                        return Err(AppError::Validation(
-                            "Sign-up token has expired".to_string(),
-                        ));
-                    }
-
-            let emails_match = trigger_email
-                .as_ref()
-                .map(|e| UserService::normalize_email(e))
-                .as_deref()
-                == Some(&normalized_email);
-
-            if !emails_match {
-                return Err(AppError::Validation(
-                    "Email does not match sign-up token".to_string(),
-                ));
-            }
-        }
-        None => {
-            return Err(AppError::Validation("Invalid sign-up token".to_string()));
-        }
-    }
-
-    let email_exists: bool =
-        sqlx::query_scalar(r"SELECT EXISTS(SELECT 1 FROM users WHERE email = $1)")
-            .bind(&normalized_email)
-            .fetch_one(&mut *tx)
-            .await?;
-
-    if email_exists {
-        return Err(AppError::Conflict(
-            "A user with this email already exists".to_string(),
-        ));
-    }
-
-    let password_digest = UserService::hash_password_for_create(&CreateUserRequest {
-        email: normalized_email.clone(),
-        password: body.password.clone(),
-        username: body.username.clone(),
-        token: body.token.clone(),
-    })?;
-    let role = UserService::force_role_user();
-    let now = chrono::Utc::now().naive_utc();
-
-    let row = sqlx::query_as::<_, UserRow>(
-        r"INSERT INTO users (email, password_digest, role, session_token, username, token_version, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5, 1, $6, $7)
-           RETURNING id, email, password_digest, role, session_token, username, token_version, created_at, updated_at"
-    )
-    .bind(&normalized_email)
-    .bind(&password_digest)
-    .bind(&role)
-    .bind::<Option<String>>(None)
-    .bind(&body.username)
-    .bind(now)
-    .bind(now)
-    .fetch_one(&mut *tx)
-    .await?;
-
-    let now_str = chrono::Utc::now().to_rfc3339();
-    let _ = sqlx::query(
-        r"UPDATE sign_up_triggers SET expires_at = $1, updated_at = $2 WHERE email = $3",
-    )
-    .bind(&now_str)
-    .bind(now)
-    .bind(&normalized_email)
-    .execute(&mut *tx)
-    .await;
-
-    tx.commit().await?;
-
-    let new_user: User = row.into();
+    let new_user = UserService::create_user_with_trigger(&state.db, &body).await?;
     Ok(HttpResponse::Created().json(new_user.to_response()))
 }
 
@@ -269,57 +140,41 @@ pub async fn update(
         ));
     }
 
-    let existing = sqlx::query_as::<_, UserRow>(
-        r"SELECT id, email, password_digest, role, session_token, username, COALESCE(token_version, 1) as token_version, created_at, updated_at FROM users WHERE id = $1"
-    )
-    .bind(target_id)
-    .fetch_optional(&state.db)
-    .await?;
+    let existing = data::by_id(&state.db, target_id).await?;
 
     match existing {
-        Some(row) => {
-            let email = body.email.clone();
-            let username = body.username.clone();
-            let role = body.role.clone();
-            let mut password_digest: Option<String> = None;
-            let mut increment_token_version = false;
-
-            if let Some(ref password) = body.password {
-                password_digest =
-                    Some(UserService::hash_password_for_create(&CreateUserRequest {
-                        email: row.email.clone(),
-                        password: password.clone(),
+        Some(existing_user) => {
+            let password_digest = body
+                .password
+                .as_ref()
+                .map(|pwd| {
+                    UserService::hash_password_for_create(&CreateUserRequest {
+                        email: existing_user.email.clone(),
+                        password: pwd.clone(),
                         username: None,
                         token: None,
-                    })?);
-                increment_token_version = true;
-            }
+                    })
+                })
+                .transpose()?;
 
             let now = chrono::Utc::now().naive_utc();
 
-            let updated_row = sqlx::query_as::<_, UserRow>(
-                r"UPDATE users
-                   SET email = COALESCE($1, email),
-                       username = COALESCE($2, username),
-                       role = COALESCE($3, role),
-                       password_digest = COALESCE($4, password_digest),
-                       token_version = CASE WHEN $7 THEN COALESCE(token_version, 1) + 1 ELSE token_version END,
-                       updated_at = $5
-                   WHERE id = $6
-                   RETURNING id, email, password_digest, role, session_token, username, COALESCE(token_version, 1) as token_version, created_at, updated_at"
+            let updated = data::update_with_password(
+                &state.db,
+                target_id,
+                &body.email,
+                &body.username,
+                &body.role,
+                &password_digest,
+                password_digest.is_some(),
+                now,
             )
-            .bind(email)
-            .bind(username)
-            .bind(role)
-            .bind(password_digest)
-            .bind(now)
-            .bind(target_id)
-            .bind(increment_token_version)
-            .fetch_one(&state.db)
             .await?;
 
-            let u: User = updated_row.into();
-            Ok(HttpResponse::Ok().json(u.to_response()))
+            match updated {
+                Some(u) => Ok(HttpResponse::Ok().json(u.to_response())),
+                None => Err(AppError::NotFound(format!("User #{}", target_id))),
+            }
         }
         None => Err(AppError::NotFound(format!("User #{}", target_id))),
     }

@@ -14,54 +14,17 @@
 //! | `update` | PUT | `/v1/kbrevents/{id}` | artist+ | Update an existing event |
 
 use actix_web::{HttpResponse, web};
-use sqlx::FromRow;
 
 use crate::app::AppState;
 use crate::auth::middleware::CurrentUser;
-use crate::auth::roles::is_artist_or_above;
+use crate::auth::permissions::is_artist_or_above;
+use crate::data::events as data;
 use crate::error::AppError;
 use crate::models::comment::{CommentResponse, CommentUser};
 use crate::models::kbr_event::{
     CreateKbrEventRequest, KbrEvent, KbrEventResponse, UpdateKbrEventRequest,
 };
-use crate::services::storage_service;
-
-#[derive(Debug, FromRow)]
-struct KbrEventRow {
-    id: i64,
-    name: Option<String>,
-    description: Option<String>,
-    active: Option<bool>,
-    event_start_date: Option<chrono::NaiveDateTime>,
-    event_end_date: Option<chrono::NaiveDateTime>,
-    create_by_user_id: Option<i32>,
-    event_url: Option<String>,
-    qr_encode_string: Option<String>,
-    ticket_url: Option<String>,
-    external_url: Option<String>,
-    created_at: chrono::NaiveDateTime,
-    updated_at: chrono::NaiveDateTime,
-}
-
-impl From<KbrEventRow> for KbrEvent {
-    fn from(row: KbrEventRow) -> Self {
-        KbrEvent {
-            id: row.id,
-            name: row.name,
-            description: row.description,
-            active: row.active,
-            event_start_date: row.event_start_date.map(|dt| dt.and_utc()),
-            event_end_date: row.event_end_date.map(|dt| dt.and_utc()),
-            create_by_user_id: row.create_by_user_id,
-            event_url: row.event_url,
-            qr_encode_string: row.qr_encode_string,
-            ticket_url: row.ticket_url,
-            external_url: row.external_url,
-            created_at: row.created_at.and_utc(),
-            updated_at: row.updated_at.and_utc(),
-        }
-    }
-}
+use crate::services::storage;
 
 /// Fetch comments for a set of event IDs in a single query with user JOIN.
 ///
@@ -109,21 +72,13 @@ async fn fetch_event_comments_batch(
 ///
 /// `200 OK` — JSON array of `KbrEventResponse`
 pub async fn index(state: web::Data<AppState>) -> Result<HttpResponse, AppError> {
-    let rows = sqlx::query_as::<_, KbrEventRow>(
-        r#"SELECT id, name, description, active, event_start_date, event_end_date,
-           create_by_user_id, event_url, qr_encode_string, ticket_url, external_url,
-           created_at, updated_at FROM kbr_events ORDER BY id"#,
-    )
-    .fetch_all(&state.db)
-    .await?;
-
-    let events: Vec<KbrEvent> = rows.into_iter().map(|r| r.into()).collect();
+    let events = data::list(&state.db).await?;
     let event_ids: Vec<i64> = events.iter().map(|e| e.id).collect();
     let comments_map = fetch_event_comments_batch(&state.db, &event_ids).await;
     let mut responses: Vec<KbrEventResponse> = Vec::new();
     for event in &events {
         let (image_urls, thumbnail_urls) =
-            storage_service::get_image_urls(&state.s3, &state.db, "KbrEvent", event.id)
+            storage::get_image_urls(&state.s3, &state.db, "KbrEvent", event.id)
                 .await
                 .unwrap_or_else(|_| (Vec::new(), Vec::new()));
         let comments = comments_map.get(&event.id).cloned().unwrap_or_default();
@@ -146,19 +101,10 @@ pub async fn show(
 ) -> Result<HttpResponse, AppError> {
     let id = path.into_inner();
 
-    match sqlx::query_as::<_, KbrEventRow>(
-        r#"SELECT id, name, description, active, event_start_date, event_end_date,
-           create_by_user_id, event_url, qr_encode_string, ticket_url, external_url,
-           created_at, updated_at FROM kbr_events WHERE id = $1"#,
-    )
-    .bind(id)
-    .fetch_optional(&state.db)
-    .await?
-    {
-        Some(row) => {
-            let event: KbrEvent = row.into();
+    match data::by_id(&state.db, id).await? {
+        Some(event) => {
             let (image_urls, thumbnail_urls) =
-                storage_service::get_image_urls(&state.s3, &state.db, "KbrEvent", event.id)
+                storage::get_image_urls(&state.s3, &state.db, "KbrEvent", event.id)
                     .await
                     .unwrap_or_else(|_| (Vec::new(), Vec::new()));
             let comments_map = fetch_event_comments_batch(&state.db, &[event.id]).await;
@@ -182,36 +128,21 @@ pub async fn index_by_user(
     state: web::Data<AppState>,
     user: CurrentUser,
 ) -> Result<HttpResponse, AppError> {
-    let rows = if user.is_admin() {
-        sqlx::query_as::<_, KbrEventRow>(
-            r#"SELECT id, name, description, active, event_start_date, event_end_date,
-               create_by_user_id, event_url, qr_encode_string, ticket_url, external_url,
-               created_at, updated_at FROM kbr_events ORDER BY id"#,
-        )
-        .fetch_all(&state.db)
-        .await?
+    let events = if user.is_admin() {
+        data::list(&state.db).await?
     } else if is_artist_or_above(&user.role) {
-        sqlx::query_as::<_, KbrEventRow>(
-            r#"SELECT id, name, description, active, event_start_date, event_end_date,
-               create_by_user_id, event_url, qr_encode_string, ticket_url, external_url,
-               created_at, updated_at FROM kbr_events WHERE create_by_user_id = $1 ORDER BY id"#,
-        )
-        .bind(user.id as i32)
-        .fetch_all(&state.db)
-        .await?
+        data::list_by_user(&state.db, user.id).await?
     } else {
         return Err(AppError::Forbidden(
             "Hey you! Yes you! You Are Not Authorized".to_string(),
         ));
     };
-
-    let events: Vec<KbrEvent> = rows.into_iter().map(|r| r.into()).collect();
     let event_ids: Vec<i64> = events.iter().map(|e| e.id).collect();
     let comments_map = fetch_event_comments_batch(&state.db, &event_ids).await;
     let mut responses: Vec<KbrEventResponse> = Vec::new();
     for event in &events {
         let (image_urls, thumbnail_urls) =
-            storage_service::get_image_urls(&state.s3, &state.db, "KbrEvent", event.id)
+            storage::get_image_urls(&state.s3, &state.db, "KbrEvent", event.id)
                 .await
                 .unwrap_or_else(|_| (Vec::new(), Vec::new()));
         let comments = comments_map.get(&event.id).cloned().unwrap_or_default();
@@ -263,29 +194,7 @@ pub async fn create(
 
     let now = chrono::Utc::now().naive_utc();
 
-    let row = sqlx::query_as::<_, KbrEventRow>(
-        r#"INSERT INTO kbr_events (name, description, active, event_start_date, event_end_date,
-           create_by_user_id, event_url, qr_encode_string, ticket_url, external_url, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-           RETURNING id, name, description, active, event_start_date, event_end_date,
-           create_by_user_id, event_url, qr_encode_string, ticket_url, external_url, created_at, updated_at"#
-    )
-    .bind(&body.name)
-    .bind(body.description.replace(['\r', '\n'], ""))
-    .bind(true)
-    .bind(body.event_start_date.naive_utc())
-    .bind(body.event_end_date.naive_utc())
-    .bind(Some(user.id as i32))
-    .bind(body.event_url.as_deref())
-    .bind(body.qr_encode_string.as_deref())
-    .bind(body.ticket_url.as_deref())
-    .bind(body.external_url.as_deref())
-    .bind(now)
-    .bind(now)
-    .fetch_one(&state.db)
-    .await?;
-
-    let event: KbrEvent = row.into();
+    let event = data::create(&state.db, &body.name, Some(&body.description.replace(['\r', '\n'], "")), true, Some(body.event_start_date.naive_utc()), Some(body.event_end_date.naive_utc()), user.id as i32, body.event_url.as_deref(), body.qr_encode_string.as_deref(), body.ticket_url.as_deref(), body.external_url.as_deref(), now).await?;
     Ok(HttpResponse::Created().json(event.to_response(Vec::new(), Vec::new(), Vec::new())))
 }
 
@@ -330,30 +239,10 @@ pub async fn update(
 
     let now = chrono::Utc::now().naive_utc();
 
-    let row = sqlx::query_as::<_, KbrEventRow>(
-        r#"UPDATE kbr_events SET
-           name = COALESCE($1, name),
-           description = COALESCE($2, description),
-           active = COALESCE($3, active),
-           ticket_url = COALESCE($4, ticket_url),
-           external_url = COALESCE($5, external_url),
-           updated_at = $6
-           WHERE id = $7
-           RETURNING id, name, description, active, event_start_date, event_end_date,
-           create_by_user_id, event_url, qr_encode_string, ticket_url, external_url, created_at, updated_at"#
-    )
-    .bind(body.name.as_deref().map(|s| s.replace(['\r', '\n'], "")))
-    .bind(body.description.as_deref().map(|s| s.replace(['\r', '\n'], "")))
-    .bind(body.active)
-    .bind(body.ticket_url.as_deref())
-    .bind(body.external_url.as_deref())
-    .bind(now)
-    .bind(id)
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or_else(|| AppError::NotFound(format!("Event #{}", id)))?;
-
-    let event: KbrEvent = row.into();
+    let cleaned_name = body.name.as_deref().map(|s| s.replace(['\r', '\n'], ""));
+    let cleaned_desc = body.description.as_deref().map(|s| s.replace(['\r', '\n'], ""));
+    let event = data::update(&state.db, id, cleaned_name.as_deref(), cleaned_desc.as_deref(), body.active, None, None, None, None, body.ticket_url.as_deref(), body.external_url.as_deref(), now).await?
+        .ok_or_else(|| AppError::NotFound(format!("Event #{}", id)))?;
     Ok(HttpResponse::Ok().json(event.to_response(Vec::new(), Vec::new(), Vec::new())))
 }
 
@@ -369,24 +258,8 @@ pub fn config_routes(cfg: &mut web::ServiceConfig) {
 mod tests {
     use super::*;
     use crate::auth::jwt::encode_token_with_role;
-    use crate::test_utils::{admin_token, artist_token, not_found_id, unique_suffix, TEST_SECRET};
+    use crate::test_utils::{admin_token, artist_token, not_found_id, seed_test_user, unique_suffix, TEST_SECRET};
     use actix_web::test;
-
-     async fn seed_user(pool: &sqlx::PgPool) -> (i64, String) {
-        let email = format!("event_test_{}@test.com", unique_suffix());
-        let id: i64 = sqlx::query_scalar(
-            r"INSERT INTO users (email, password_digest, role, created_at, updated_at)
-               VALUES ($1, $2, $3, NOW(), NOW())
-               RETURNING id",
-        )
-        .bind(&email)
-        .bind("hashed_password_test".to_string())
-        .bind(Some("artist".to_string()))
-        .fetch_one(pool)
-        .await
-        .expect("Failed to seed user");
-        (id, email)
-    }
 
     async fn seed_event(pool: &sqlx::PgPool, create_by_user_id: i32) -> i64 {
         let now = chrono::Utc::now().naive_utc();
@@ -433,7 +306,7 @@ mod tests {
         crate::test_utils::set_test_env();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let (user_id, user_email) = seed_user(&state.db).await;
+        let (user_id, _user_email) = seed_test_user(&state.db, "event_test", "artist").await;
         let event_id = seed_event(&state.db, user_id as i32).await;
 
         let req = test::TestRequest::get()
@@ -471,7 +344,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn event_create_authenticated() {
         crate::test_utils::set_test_env_jwt();
-        let (_guard, state, app) = crate::build_test_app!(config_routes);
+        let (_guard, _state, app) = crate::build_test_app!(config_routes);
 
         let name = format!("New Event {}", unique_suffix());
         let now = chrono::Utc::now();
@@ -524,8 +397,8 @@ mod tests {
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let (user_id, user_email) = seed_user(&state.db).await;
-        let event_id = seed_event(&state.db, user_id as i32).await;
+        let (user_id, _user_email) = seed_test_user(&state.db, "event_test", "artist").await;
+        let _event_id = seed_event(&state.db, user_id as i32).await;
 
         let req = test::TestRequest::get()
             .uri("/kbr_events_by_user")
@@ -548,8 +421,8 @@ mod tests {
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let (user_id, user_email) = seed_user(&state.db).await;
-        let event_id = seed_event(&state.db, user_id as i32).await;
+        let (user_id, _user_email) = seed_test_user(&state.db, "event_test", "artist").await;
+        let _event_id = seed_event(&state.db, user_id as i32).await;
 
         let req = test::TestRequest::get()
             .uri("/kbr_events_by_user")
@@ -589,7 +462,7 @@ mod tests {
         crate::test_utils::set_test_env_jwt();
         let (_guard, state, app) = crate::build_test_app!(config_routes);
 
-        let (user_id, user_email) = seed_user(&state.db).await;
+        let (user_id, _user_email) = seed_test_user(&state.db, "event_test", "artist").await;
         let event_id = seed_event(&state.db, user_id as i32).await;
 
         let req = test::TestRequest::put()

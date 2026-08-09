@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
@@ -6,13 +6,11 @@ use sqlx::FromRow;
 pub struct SignUpTrigger {
     pub id: i64,
     pub email: Option<String>,
-    pub full_name: Option<String>,
-    pub confirmation_token: Option<String>,
     pub token: Option<String>,
     pub expires_at: Option<String>,
     pub role: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -93,47 +91,41 @@ mod tests {
         let trigger = SignUpTrigger {
             id: 1,
             email: Some("test@example.com".to_string()),
-            full_name: None,
-            confirmation_token: None,
             token: Some("token".to_string()),
             expires_at: None,
             role: None,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: chrono::Utc::now().naive_utc(),
+            updated_at: chrono::Utc::now().naive_utc(),
         };
         assert!(trigger.is_expired());
     }
 
     #[test]
     fn sign_up_trigger_not_expired_when_future() {
-        let future = (Utc::now() + chrono::Duration::days(1)).to_rfc3339();
+        let future = (chrono::Utc::now() + chrono::Duration::days(1)).to_rfc3339();
         let trigger = SignUpTrigger {
             id: 1,
             email: Some("test@example.com".to_string()),
-            full_name: None,
-            confirmation_token: None,
             token: Some("token".to_string()),
             expires_at: Some(future),
             role: None,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: chrono::Utc::now().naive_utc(),
+            updated_at: chrono::Utc::now().naive_utc(),
         };
         assert!(!trigger.is_expired());
     }
 
     #[test]
     fn sign_up_trigger_is_expired_when_past() {
-        let past = (Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
+        let past = (chrono::Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
         let trigger = SignUpTrigger {
             id: 1,
             email: Some("test@example.com".to_string()),
-            full_name: None,
-            confirmation_token: None,
             token: Some("token".to_string()),
             expires_at: Some(past),
             role: None,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: chrono::Utc::now().naive_utc(),
+            updated_at: chrono::Utc::now().naive_utc(),
         };
         assert!(trigger.is_expired());
     }
@@ -143,13 +135,11 @@ mod tests {
         let trigger = SignUpTrigger {
             id: 1,
             email: Some("test@example.com".to_string()),
-            full_name: None,
-            confirmation_token: None,
             token: Some("token".to_string()),
             expires_at: Some("not-a-date".to_string()),
             role: None,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: chrono::Utc::now().naive_utc(),
+            updated_at: chrono::Utc::now().naive_utc(),
         };
         assert!(trigger.is_expired());
     }

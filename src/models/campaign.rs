@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
@@ -9,13 +9,13 @@ pub struct Campaign {
     pub name: Option<String>,
     pub active: Option<bool>,
     pub vinyl_sold_count: Option<i32>,
-    pub campaign_start_date: Option<DateTime<Utc>>,
-    pub campaign_end_date: Option<DateTime<Utc>>,
+    pub campaign_start_date: Option<NaiveDateTime>,
+    pub campaign_end_date: Option<NaiveDateTime>,
     pub progress: Option<i32>,
     pub album_id: Option<i64>,
-    pub deleted_at: Option<DateTime<Utc>>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub deleted_at: Option<NaiveDateTime>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,7 +56,7 @@ pub struct UpdateCampaignRequest {
 /// Request body for campaign activation.
 ///
 /// Contains the campaign ID to activate and the desired start date.
-/// The end date is computed as `start_date + 45 days`.
+/// The end date is computed as `start_date + CAMPAIGN_DURATION_DAYS`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ActivateCampaignRequest {
     pub campaign_id: i64,
@@ -85,11 +85,11 @@ impl Campaign {
             name: self.name.clone(),
             active: self.active,
             vinyl_sold_count: self.vinyl_sold_count,
-            campaign_start_date: self.campaign_start_date,
-            campaign_end_date: self.campaign_end_date,
+            campaign_start_date: self.campaign_start_date.map(|d| d.and_utc()),
+            campaign_end_date: self.campaign_end_date.map(|d| d.and_utc()),
             progress: self.progress,
-            created_at: self.created_at,
-            updated_at: self.updated_at,
+            created_at: self.created_at.and_utc(),
+            updated_at: self.updated_at.and_utc(),
         }
     }
 
@@ -98,7 +98,7 @@ impl Campaign {
     }
 
     pub fn validate_vinyl_sold_count(count: i32) -> bool {
-        (0..=100).contains(&count)
+        (0..=crate::constants::VINYL_TARGET).contains(&count)
     }
 }
 
@@ -118,9 +118,9 @@ mod tests {
             campaign_end_date: None,
             progress: None,
             album_id: None,
-            deleted_at: Some(Utc::now()),
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            deleted_at: Some(Utc::now().naive_utc()),
+            created_at: Utc::now().naive_utc(),
+            updated_at: Utc::now().naive_utc(),
         };
         assert!(deleted.is_deleted());
 
@@ -135,8 +135,8 @@ mod tests {
             progress: None,
             album_id: None,
             deleted_at: None,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: Utc::now().naive_utc(),
+            updated_at: Utc::now().naive_utc(),
         };
         assert!(!active.is_deleted());
     }
@@ -145,8 +145,8 @@ mod tests {
     fn validate_vinyl_sold_count() {
         assert!(Campaign::validate_vinyl_sold_count(0));
         assert!(Campaign::validate_vinyl_sold_count(50));
-        assert!(Campaign::validate_vinyl_sold_count(100));
-        assert!(!Campaign::validate_vinyl_sold_count(101));
+        assert!(Campaign::validate_vinyl_sold_count(crate::constants::VINYL_TARGET));
+        assert!(!Campaign::validate_vinyl_sold_count(crate::constants::VINYL_TARGET + 1));
         assert!(!Campaign::validate_vinyl_sold_count(-1));
     }
 

@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
@@ -9,8 +9,8 @@ pub struct KbrEventAttendee {
     pub mail_subscriber_id: Option<i32>,
     pub scan_count: Option<i32>,
     pub headcount: Option<i32>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,8 +73,8 @@ mod tests {
             mail_subscriber_id: Some(11),
             scan_count: Some(0),
             headcount: Some(1),
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
+            created_at: chrono::Utc::now().naive_utc(),
+            updated_at: chrono::Utc::now().naive_utc(),
         };
         assert!(!attendee.has_scanned());
     }
